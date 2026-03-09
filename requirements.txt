@@ -1,0 +1,4 @@
+beautifulsoup4
+tqdm
+rich
+llama-cpp-python
