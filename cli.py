@@ -137,18 +137,22 @@ def _render_html_dashboard(relevant_items, not_relevant_items, applied_items, ou
             role = html.escape(str(item.get("title", "")))
             place = html.escape(str(item.get("place", "")))
             work_type = html.escape(str(item.get("work_type", "Unknown")))
+            summary = html.escape(str(item.get("summary", "")))
             description = html.escape(str(item.get("description", "")))
+            relevance_score = float(item.get("relevance_score", 0) or 0)
             link = str(item.get("position_link", ""))
             safe_link = html.escape(link, quote=True)
 
             cards.append(
                 f"""
                 <article class=\"card\" data-job-id=\"{job_id}\">
+                    <span class=\"relevance-score\" title=\"Relevance score\">{relevance_score:.2f}</span>
                     <p><strong>Title:</strong> <a href=\"{safe_link}\" target=\"_blank\" rel=\"noopener noreferrer\">{role}</a></p>
                     <p><strong>Source:</strong> {source}</p>
                     <p><strong>Company:</strong> {company}</p>
                     <p><strong>Place:</strong> {place}</p>
                     <p><strong>Type:</strong> {work_type}</p>
+                    <p><strong>Summary:</strong> {summary}</p>
                     <p><strong>Description:</strong> {description}</p>
                     <div class=\"feedback\">
                         <label class=\"relevant-wrap\"><input type=\"checkbox\" {"checked" if str(item.get("category", "")).strip().lower() == "relevant" else ""} onchange=\"setRelevant({job_id}, this.checked, this)\"/> Relevant</label>
@@ -178,8 +182,9 @@ def _render_html_dashboard(relevant_items, not_relevant_items, applied_items, ou
             .mode-btn {{ border: 1px solid #bbb; background: #fff; border-radius: 8px; padding: 8px 12px; cursor: pointer; }}
             .mode-btn.active {{ border-color: #0a58ca; font-weight: 700; }}
             .grid {{ display: grid; gap: 12px; }}
-            .card {{ background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 12px; }}
+            .card {{ background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 12px; position: relative; }}
             .card p {{ margin: 6px 0; }}
+            .relevance-score {{ position: absolute; top: 8px; right: 10px; font-size: 11px; color: #9aa0a6; }}
             .feedback {{ display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }}
             .relevant-wrap {{ font-size: 13px; color: #333; display: inline-flex; gap: 5px; align-items: center; }}
             .viewed-wrap {{ font-size: 13px; color: #333; display: inline-flex; gap: 5px; align-items: center; }}
@@ -633,7 +638,13 @@ def _fallback_description_text(description: str, description_raw: str, max_chars
     return compact[:max_chars].rstrip() + "..."
 
 
-def _generate_missing_descriptions_for_ingest(db_path: str, llm: LocalLLM = None, allow_empty: bool = False) -> tuple[int, int]:
+def _generate_missing_descriptions_for_ingest(
+    db_path: str,
+    llm: LocalLLM = None,
+    allow_empty: bool = False,
+    progress: bool = False,
+    progress_label: str = "Description generation",
+) -> tuple[int, int]:
     rows = get_jobs_for_description_refresh(
         db_path,
         category="",
@@ -646,8 +657,34 @@ def _generate_missing_descriptions_for_ingest(db_path: str, llm: LocalLLM = None
 
     updated = 0
     skipped = 0
+    total_rows = len(rows)
+    started_at = time.monotonic()
+
+    def _fmt_eta(seconds: float) -> str:
+        seconds = max(0, int(seconds))
+        mins, secs = divmod(seconds, 60)
+        hrs, mins = divmod(mins, 60)
+        if hrs > 0:
+            return f"{hrs}h {mins}m {secs}s"
+        if mins > 0:
+            return f"{mins}m {secs}s"
+        return f"{secs}s"
+
+    if progress:
+        print(f"{progress_label}: starting ({total_rows} items)")
+
     page_context_cache: dict[str, str] = {}
-    for row in rows:
+    for idx, row in enumerate(rows, start=1):
+        if progress:
+            elapsed = time.monotonic() - started_at
+            avg_per_item = elapsed / max(1, idx - 1)
+            remaining = max(0, total_rows - idx + 1)
+            eta_sec = avg_per_item * remaining if idx > 1 else 0
+            print(
+                f"{progress_label}: {idx}/{total_rows} "
+                f"(updated={updated}, skipped={skipped}, elapsed={_fmt_eta(elapsed)}, eta={_fmt_eta(eta_sec)})"
+            )
+
         raw = _enrich_description_raw_with_position_page(db_path, row, page_context_cache=page_context_cache)
         if not raw:
             skipped += 1
@@ -665,6 +702,10 @@ def _generate_missing_descriptions_for_ingest(db_path: str, llm: LocalLLM = None
 
         set_job_description(db_path, row.get("id", 0), description)
         updated += 1
+
+    if progress:
+        total_elapsed = time.monotonic() - started_at
+        print(f"{progress_label}: done (updated={updated}, skipped={skipped}, elapsed={_fmt_eta(total_elapsed)})")
 
     return updated, skipped
 
@@ -744,7 +785,7 @@ def cmd_process_inbox(args):
     report_data = {}
     page_context_cache: dict[str, str] = {}
     for cat in ["relevant", "not relevant"]:
-        rows = get_jobs_by_category(db_path, cat, limit=0, unviewed_only=False)
+        rows = get_jobs_by_category(db_path, cat, limit=0, unviewed_only=True)
         records = []
         for row in rows:
             summary = row.get("summary") or " ".join((row.get("raw_text") or "").split())[:260]
@@ -837,7 +878,7 @@ def cmd_serve_gui(args):
                 with dashboard_lock:
                     refreshed_report_data = {}
                     for cat in ["relevant", "not relevant"]:
-                        rows = get_jobs_by_category(db_path, cat, limit=0, unviewed_only=False)
+                        rows = get_jobs_by_category(db_path, cat, limit=0, unviewed_only=True)
                         records = []
                         for row in rows:
                             records.append(
@@ -910,19 +951,43 @@ def cmd_serve_gui(args):
                 return
 
             llm_for_sync = LocalLLM(model_path=model_path, verbose=cli_verbose) if model_path else None
+            print(f"Background sync started: files={len(docs)}")
 
             new_records = 0
+            last_inserted_logged = -1
 
             def _on_new_record():
                 nonlocal new_records
                 new_records += 1
                 _rebuild_dashboard(reason=f"new record {new_records}")
 
-            ingest_stats = ingest_docs_to_db(db_path, docs, on_new_record=_on_new_record)
+            def _on_progress(processed: int, inserted_new: int, skipped_existing: int):
+                nonlocal last_inserted_logged
+                if inserted_new != last_inserted_logged:
+                    print(
+                        f"Background sync progress: processed={processed}, inserted={inserted_new}, "
+                        f"skipped_existing={skipped_existing}"
+                    )
+                    last_inserted_logged = inserted_new
+
+            ingest_stats = ingest_docs_to_db(
+                db_path,
+                docs,
+                on_new_record=_on_new_record,
+                on_progress=_on_progress,
+            )
+            print("Background sync: scoring relevance...")
             total, relevant_count = apply_relevance(db_path, runtime_profile, prune_irrelevant=False)
+            print(f"Background sync: relevance scored (total={total}, relevant={relevant_count})")
             _rebuild_dashboard(reason="relevance re-scored")
 
-            desc_updated, desc_skipped = _generate_missing_descriptions_for_ingest(db_path, llm=llm_for_sync, allow_empty=False)
+            desc_updated, desc_skipped = _generate_missing_descriptions_for_ingest(
+                db_path,
+                llm=llm_for_sync,
+                allow_empty=False,
+                progress=True,
+                progress_label="Background sync: descriptions",
+            )
             if desc_updated > 0:
                 _rebuild_dashboard(reason=f"descriptions updated {desc_updated}")
 
@@ -1014,12 +1079,32 @@ def cmd_serve_gui(args):
             except Exception as exc:
                 self._write_json(500, {"ok": False, "error": str(exc)})
 
-    server = ThreadingHTTPServer((host, port), Handler)
-    report_url = f"http://{host}:{port}/report.html"
+    server = None
+    selected_port = port
+    max_port_attempts = 20
+    for port_offset in range(max_port_attempts + 1):
+        candidate_port = port + port_offset
+        try:
+            server = ThreadingHTTPServer((host, candidate_port), Handler)
+            selected_port = candidate_port
+            break
+        except OSError as exc:
+            if getattr(exc, "errno", None) == 98 and port_offset < max_port_attempts:
+                continue
+            if getattr(exc, "errno", None) == 98:
+                raise OSError(
+                    f"Address in use for all tried ports: {port}-{port + max_port_attempts}"
+                ) from exc
+            raise
+
+    if selected_port != port:
+        print(f"Requested port {port} is busy; using port {selected_port} instead.")
+
+    report_url = f"http://{host}:{selected_port}/report.html"
     print(f"Serving GUI at {report_url}")
-    print(f"Feedback API at http://{host}:{port}/api/feedback")
-    print(f"Viewed API at http://{host}:{port}/api/viewed")
-    print(f"Applied API at http://{host}:{port}/api/applied")
+    print(f"Feedback API at http://{host}:{selected_port}/api/feedback")
+    print(f"Viewed API at http://{host}:{selected_port}/api/viewed")
+    print(f"Applied API at http://{host}:{selected_port}/api/applied")
 
     if not args.no_open:
         try:
@@ -1120,7 +1205,7 @@ def cmd_refresh_descriptions(args):
         os.makedirs(args.report_dir, exist_ok=True)
         report_data = {}
         for cat in ["relevant", "not relevant"]:
-            cat_rows = get_jobs_by_category(db_path, cat, limit=0, unviewed_only=False)
+            cat_rows = get_jobs_by_category(db_path, cat, limit=0, unviewed_only=True)
             records = []
             for row in cat_rows:
                 records.append(

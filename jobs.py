@@ -634,6 +634,8 @@ def _is_job_link(link: str) -> bool:
         or re.search(r"/bruger/dine-job/[hr]\d+", low)
     ):
         return True
+    if "careers.demant.com" in low and "/job/" in low:
+        return True
     return False
 
 
@@ -691,6 +693,8 @@ def _provider_from_link(link: str) -> str:
         return "LinkedIn"
     if "jobindex.dk" in low:
         return "Jobindex"
+    if "careers.demant.com" in low:
+        return "Demant"
 
     parsed = urlparse(link)
     host = (parsed.netloc or "").strip().lower()
@@ -918,6 +922,49 @@ def _extract_jobindex_entries_by_link(html_text: str) -> Dict[str, Dict[str, str
     return by_link
 
 
+def _extract_demant_entries_by_link(html_text: str) -> Dict[str, Dict[str, str]]:
+    if not html_text:
+        return {}
+
+    soup = BeautifulSoup(html_text, "html.parser")
+    by_link: Dict[str, Dict[str, str]] = {}
+
+    for anchor in soup.find_all("a", href=True):
+        href = anchor.get("href") or ""
+        parsed = urlparse(href)
+        host = (parsed.netloc or "").lower()
+        path = (parsed.path or "").lower()
+        if "careers.demant.com" not in host or "/job/" not in path:
+            continue
+
+        normalized = _normalize_position_link(href)
+        if not normalized:
+            continue
+
+        compact = " ".join(anchor.get_text(" ", strip=True).split())
+        if not compact:
+            continue
+
+        title = compact
+        place = ""
+        match = re.match(r"^(?P<title>.+?)\s*-\s*(?P<place>.+)$", compact)
+        if match:
+            title = (match.group("title") or "").strip()
+            place = (match.group("place") or "").strip()
+
+        by_link[normalized] = {
+            "title": title[:180],
+            "company": "Demant Group",
+            "place": place[:180],
+            "work_type": "Unknown",
+            "raw_text": compact[:2500],
+            "description_raw": "",
+            "source": "Demant",
+        }
+
+    return by_link
+
+
 def extract_job_entries(doc: Dict) -> List[Dict]:
     text = doc.get("text", "") or ""
     html_text = doc.get("html", "") or ""
@@ -925,6 +972,7 @@ def extract_job_entries(doc: Dict) -> List[Dict]:
     links = doc.get("links", []) or []
     html_by_link = _extract_html_entries_by_link(html_text)
     jobindex_by_link = _extract_jobindex_entries_by_link(html_text)
+    demant_by_link = _extract_demant_entries_by_link(html_text)
 
     by_text = _extract_entries_from_text(text)
     by_link = {}
@@ -934,6 +982,22 @@ def extract_job_entries(doc: Dict) -> List[Dict]:
     for lnk, entry in by_link.items():
         html_fields = html_by_link.get(lnk, {})
         ji_fields = jobindex_by_link.get(lnk, {})
+        demant_fields = demant_by_link.get(lnk, {})
+
+        if demant_fields.get("title"):
+            entry["title"] = demant_fields["title"]
+        if demant_fields.get("company"):
+            entry["company"] = demant_fields["company"]
+        if demant_fields.get("place"):
+            entry["place"] = demant_fields["place"]
+        if demant_fields.get("work_type"):
+            entry["work_type"] = demant_fields["work_type"]
+        if demant_fields.get("raw_text"):
+            entry["raw_text"] = demant_fields["raw_text"]
+        if demant_fields.get("description_raw"):
+            entry["description_raw"] = demant_fields["description_raw"]
+        if demant_fields.get("source"):
+            entry["source"] = demant_fields["source"]
 
         if ji_fields.get("title"):
             entry["title"] = ji_fields["title"]
@@ -974,17 +1038,18 @@ def extract_job_entries(doc: Dict) -> List[Dict]:
             continue
         html_fields = html_by_link.get(normalized, {})
         ji_fields = jobindex_by_link.get(normalized, {})
+        demant_fields = demant_by_link.get(normalized, {})
         company, title = extract_company_title(text, title_hint)
         wt = html_fields.get("work_type") or _work_type_from_html_for_link(html_text, normalized)
         by_link[normalized] = {
-            "company": ji_fields.get("company") or html_fields.get("company") or company,
-            "title": ji_fields.get("title") or html_fields.get("title") or title,
-            "place": ji_fields.get("place") or html_fields.get("place") or "",
-            "work_type": wt if wt else "Unknown",
+            "company": demant_fields.get("company") or ji_fields.get("company") or html_fields.get("company") or company,
+            "title": demant_fields.get("title") or ji_fields.get("title") or html_fields.get("title") or title,
+            "place": demant_fields.get("place") or ji_fields.get("place") or html_fields.get("place") or "",
+            "work_type": demant_fields.get("work_type") or (wt if wt else "Unknown"),
             "position_link": normalized,
-            "raw_text": ji_fields.get("raw_text") or html_fields.get("raw_text") or text[:2500],
-            "description_raw": ji_fields.get("description_raw") or "",
-            "source": _provider_from_link(normalized),
+            "raw_text": demant_fields.get("raw_text") or ji_fields.get("raw_text") or html_fields.get("raw_text") or text[:2500],
+            "description_raw": demant_fields.get("description_raw") or ji_fields.get("description_raw") or "",
+            "source": demant_fields.get("source") or _provider_from_link(normalized),
         }
 
     filtered_entries: List[Dict] = []
@@ -1128,7 +1193,7 @@ def get_jobs_by_category(db_path: str, category: str, limit: int = 0, unviewed_o
     try:
         cur = conn.cursor()
         q = (
-            "SELECT id, source, company, title, place, work_type, position_link, raw_text, relevance_score, summary, viewed, applied, description_raw, description "
+            "SELECT id, source, company, title, place, work_type, position_link, raw_text, relevance_score, relevance_reason, summary, viewed, applied, description_raw, description "
             "FROM jobs WHERE category=?"
         )
         params = [category]
@@ -1151,11 +1216,12 @@ def get_jobs_by_category(db_path: str, category: str, limit: int = 0, unviewed_o
                 "position_link": r[6] or "",
                 "raw_text": r[7] or "",
                 "relevance_score": float(r[8] or 0),
-                "summary": r[9] or "",
-                "viewed": int(r[10] or 0),
-                "applied": int(r[11] or 0),
-                "description_raw": r[12] or "",
-                "description": r[13] or "",
+                "relevance_reason": r[9] or "",
+                "summary": r[10] or "",
+                "viewed": int(r[11] or 0),
+                "applied": int(r[12] or 0),
+                "description_raw": r[13] or "",
+                "description": r[14] or "",
                 "category": category,
             }
             for r in rows
@@ -1169,7 +1235,7 @@ def get_applied_jobs(db_path: str, limit: int = 0) -> List[Dict]:
     try:
         cur = conn.cursor()
         q = (
-            "SELECT id, source, company, title, place, work_type, position_link, raw_text, relevance_score, summary, viewed, applied, description_raw, description, category "
+            "SELECT id, source, company, title, place, work_type, position_link, raw_text, relevance_score, relevance_reason, summary, viewed, applied, description_raw, description, category "
             "FROM jobs WHERE applied=1 ORDER BY updated_at DESC"
         )
         params: List = []
@@ -1189,12 +1255,13 @@ def get_applied_jobs(db_path: str, limit: int = 0) -> List[Dict]:
                 "position_link": r[6] or "",
                 "raw_text": r[7] or "",
                 "relevance_score": float(r[8] or 0),
-                "summary": r[9] or "",
-                "viewed": int(r[10] or 0),
-                "applied": int(r[11] or 0),
-                "description_raw": r[12] or "",
-                "description": r[13] or "",
-                "category": r[14] or "relevant",
+                "relevance_reason": r[9] or "",
+                "summary": r[10] or "",
+                "viewed": int(r[11] or 0),
+                "applied": int(r[12] or 0),
+                "description_raw": r[13] or "",
+                "description": r[14] or "",
+                "category": r[15] or "relevant",
             }
             for r in rows
         ]
@@ -1385,6 +1452,7 @@ def ingest_docs_to_db(
     db_path: str,
     docs: List[Dict],
     on_new_record: Optional[Callable[[], None]] = None,
+    on_progress: Optional[Callable[[int, int, int], None]] = None,
 ) -> Dict[str, int]:
     processed = 0
     inserted_new = 0
@@ -1402,6 +1470,8 @@ def ingest_docs_to_db(
             else:
                 skipped_existing += 1
             processed += 1
+            if on_progress:
+                on_progress(processed, inserted_new, skipped_existing)
     return {
         "processed": int(processed),
         "inserted_new": int(inserted_new),
