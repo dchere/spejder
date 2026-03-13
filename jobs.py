@@ -282,6 +282,10 @@ def ensure_db(db_path: str):
                         OR lower(position_link) LIKE '%/jobannonce/r%'
                     )
                 )
+                OR (
+                    lower(position_link) LIKE '%jobs.danfoss.com%'
+                    AND lower(position_link) LIKE '%/job/%'
+                )
             )
             """
         )
@@ -511,6 +515,14 @@ def _parse_anchor_fragments(fragments: List[str]) -> Dict[str, str]:
 
         place = right.strip(" -|:")[:180]
 
+    if not place and " - " in title:
+        maybe_title, maybe_place = title.rsplit(" - ", 1)
+        if maybe_title and maybe_place:
+            maybe_place_low = maybe_place.lower()
+            if "," in maybe_place or maybe_place_low.endswith(" dk") or "denmark" in maybe_place_low:
+                title = maybe_title.strip(" -|:")[:180]
+                place = maybe_place.strip(" -|:")[:180]
+
     return {
         "title": title,
         "company": company,
@@ -609,6 +621,11 @@ def extract_company_title(text: str, title_hint: str = "") -> Tuple[str, str]:
         company = pattern_at.group(2).strip(" -|:")
 
     if not company:
+        m_alert = re.search(r"^(?P<company>.+?)\s*-\s*job alert notification$", title, flags=re.IGNORECASE)
+        if m_alert:
+            company = m_alert.group("company").strip(" \"'“”|:-")[:180]
+
+    if not company:
         for ln in lines[:20]:
             if re.search(r"\b(company|employer|organization)\b", ln, flags=re.IGNORECASE):
                 parts = re.split(r":", ln, maxsplit=1)
@@ -635,6 +652,14 @@ def _is_job_link(link: str) -> bool:
     ):
         return True
     if "careers.demant.com" in low and "/job/" in low:
+        return True
+    if "jobs.danfoss.com" in low and "/job/" in low:
+        return True
+    if "jobs.teradyne.com" in low and "/job/" in low:
+        return True
+    if "careers.nttdata-solutions.com" in low and "/job/" in low:
+        return True
+    if "careers.getinge.com" in low and "/job/" in low:
         return True
     return False
 
@@ -683,6 +708,9 @@ def _normalize_position_link(link: str) -> str:
         if ttid:
             return ""
 
+    if "jobs.teradyne.com" in low and "/job/" in low and parsed.path:
+        return f"https://jobs.teradyne.com{parsed.path}".rstrip("/")
+
     base = f"{parsed.scheme}://{parsed.netloc}{parsed.path}" if parsed.scheme and parsed.netloc else link
     return base.rstrip("/")
 
@@ -695,6 +723,14 @@ def _provider_from_link(link: str) -> str:
         return "Jobindex"
     if "careers.demant.com" in low:
         return "Demant"
+    if "jobs.danfoss.com" in low:
+        return "Danfoss"
+    if "jobs.teradyne.com" in low:
+        return "Teradyne"
+    if "careers.nttdata-solutions.com" in low:
+        return "NTT DATA Business Solutions"
+    if "careers.getinge.com" in low:
+        return "Getinge"
 
     parsed = urlparse(link)
     host = (parsed.netloc or "").strip().lower()
@@ -965,6 +1001,42 @@ def _extract_demant_entries_by_link(html_text: str) -> Dict[str, Dict[str, str]]
     return by_link
 
 
+def _extract_danfoss_entries_by_link(html_text: str) -> Dict[str, Dict[str, str]]:
+    if not html_text:
+        return {}
+
+    soup = BeautifulSoup(html_text, "html.parser")
+    by_link: Dict[str, Dict[str, str]] = {}
+
+    for anchor in soup.find_all("a", href=True):
+        href = anchor.get("href") or ""
+        parsed = urlparse(href)
+        host = (parsed.netloc or "").lower()
+        path = (parsed.path or "").lower()
+        if "jobs.danfoss.com" not in host or "/job/" not in path:
+            continue
+
+        normalized = _normalize_position_link(href)
+        if not normalized:
+            continue
+
+        title = " ".join(anchor.get_text(" ", strip=True).split())
+        if not title:
+            continue
+
+        by_link[normalized] = {
+            "title": title[:180],
+            "company": "Danfoss",
+            "place": "",
+            "work_type": "Unknown",
+            "raw_text": title[:2500],
+            "description_raw": "",
+            "source": "Danfoss",
+        }
+
+    return by_link
+
+
 def extract_job_entries(doc: Dict) -> List[Dict]:
     text = doc.get("text", "") or ""
     html_text = doc.get("html", "") or ""
@@ -973,6 +1045,7 @@ def extract_job_entries(doc: Dict) -> List[Dict]:
     html_by_link = _extract_html_entries_by_link(html_text)
     jobindex_by_link = _extract_jobindex_entries_by_link(html_text)
     demant_by_link = _extract_demant_entries_by_link(html_text)
+    danfoss_by_link = _extract_danfoss_entries_by_link(html_text)
 
     by_text = _extract_entries_from_text(text)
     by_link = {}
@@ -983,6 +1056,22 @@ def extract_job_entries(doc: Dict) -> List[Dict]:
         html_fields = html_by_link.get(lnk, {})
         ji_fields = jobindex_by_link.get(lnk, {})
         demant_fields = demant_by_link.get(lnk, {})
+        danfoss_fields = danfoss_by_link.get(lnk, {})
+
+        if danfoss_fields.get("title"):
+            entry["title"] = danfoss_fields["title"]
+        if danfoss_fields.get("company"):
+            entry["company"] = danfoss_fields["company"]
+        if danfoss_fields.get("place"):
+            entry["place"] = danfoss_fields["place"]
+        if danfoss_fields.get("work_type"):
+            entry["work_type"] = danfoss_fields["work_type"]
+        if danfoss_fields.get("raw_text"):
+            entry["raw_text"] = danfoss_fields["raw_text"]
+        if danfoss_fields.get("description_raw"):
+            entry["description_raw"] = danfoss_fields["description_raw"]
+        if danfoss_fields.get("source"):
+            entry["source"] = danfoss_fields["source"]
 
         if demant_fields.get("title"):
             entry["title"] = demant_fields["title"]
@@ -1039,17 +1128,18 @@ def extract_job_entries(doc: Dict) -> List[Dict]:
         html_fields = html_by_link.get(normalized, {})
         ji_fields = jobindex_by_link.get(normalized, {})
         demant_fields = demant_by_link.get(normalized, {})
+        danfoss_fields = danfoss_by_link.get(normalized, {})
         company, title = extract_company_title(text, title_hint)
         wt = html_fields.get("work_type") or _work_type_from_html_for_link(html_text, normalized)
         by_link[normalized] = {
-            "company": demant_fields.get("company") or ji_fields.get("company") or html_fields.get("company") or company,
-            "title": demant_fields.get("title") or ji_fields.get("title") or html_fields.get("title") or title,
-            "place": demant_fields.get("place") or ji_fields.get("place") or html_fields.get("place") or "",
-            "work_type": demant_fields.get("work_type") or (wt if wt else "Unknown"),
+            "company": danfoss_fields.get("company") or demant_fields.get("company") or ji_fields.get("company") or html_fields.get("company") or company,
+            "title": danfoss_fields.get("title") or demant_fields.get("title") or ji_fields.get("title") or html_fields.get("title") or title,
+            "place": danfoss_fields.get("place") or demant_fields.get("place") or ji_fields.get("place") or html_fields.get("place") or "",
+            "work_type": danfoss_fields.get("work_type") or demant_fields.get("work_type") or (wt if wt else "Unknown"),
             "position_link": normalized,
-            "raw_text": demant_fields.get("raw_text") or ji_fields.get("raw_text") or html_fields.get("raw_text") or text[:2500],
-            "description_raw": demant_fields.get("description_raw") or ji_fields.get("description_raw") or "",
-            "source": demant_fields.get("source") or _provider_from_link(normalized),
+            "raw_text": danfoss_fields.get("raw_text") or demant_fields.get("raw_text") or ji_fields.get("raw_text") or html_fields.get("raw_text") or text[:2500],
+            "description_raw": danfoss_fields.get("description_raw") or demant_fields.get("description_raw") or ji_fields.get("description_raw") or "",
+            "source": danfoss_fields.get("source") or demant_fields.get("source") or _provider_from_link(normalized),
         }
 
     filtered_entries: List[Dict] = []
@@ -1058,6 +1148,8 @@ def extract_job_entries(doc: Dict) -> List[Dict]:
             entry["description_raw"] = ""
         if "source" not in entry:
             entry["source"] = _provider_from_link(entry.get("position_link", ""))
+        if entry.get("source") == "Getinge":
+            entry["company"] = "Getinge"
         if _is_linkedin_boilerplate_entry(entry):
             continue
         filtered_entries.append(entry)
@@ -1269,6 +1361,17 @@ def get_applied_jobs(db_path: str, limit: int = 0) -> List[Dict]:
         conn.close()
 
 
+def get_viewed_jobs_count(db_path: str) -> int:
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(1) FROM jobs WHERE viewed=1")
+        row = cur.fetchone()
+        return int((row[0] if row else 0) or 0)
+    finally:
+        conn.close()
+
+
 def get_jobs_for_description_refresh(
     db_path: str,
     category: str = "",
@@ -1277,12 +1380,13 @@ def get_jobs_for_description_refresh(
     job_ids: List[int] = None,
     limit: int = 0,
     missing_only: bool = True,
+    unviewed_only: bool = False,
 ) -> List[Dict]:
     conn = _connect(db_path)
     try:
         cur = conn.cursor()
         q = (
-            "SELECT id, source, company, title, place, work_type, position_link, raw_text, category, description_raw, description "
+            "SELECT id, source, company, title, place, work_type, position_link, raw_text, category, description_raw, description, summary "
             "FROM jobs WHERE 1=1"
         )
         params: List = []
@@ -1314,6 +1418,9 @@ def get_jobs_for_description_refresh(
         if missing_only:
             q += " AND (description IS NULL OR TRIM(description)='')"
 
+        if unviewed_only:
+            q += " AND (viewed IS NULL OR viewed=0)"
+
         q += " ORDER BY updated_at DESC"
         if limit and limit > 0:
             q += " LIMIT ?"
@@ -1334,6 +1441,7 @@ def get_jobs_for_description_refresh(
                 "category": r[8] or "",
                 "description_raw": r[9] or "",
                 "description": r[10] or "",
+                "summary": r[11] or "",
             }
             for r in rows
         ]

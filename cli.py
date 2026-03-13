@@ -24,6 +24,7 @@ try:
         get_jobs_by_category,
         get_jobs_for_description_refresh,
         get_relevant_jobs,
+        get_viewed_jobs_count,
         ingest_docs_to_db,
         load_profile,
         set_job_applied,
@@ -44,6 +45,7 @@ except ImportError:
         get_jobs_by_category,
         get_jobs_for_description_refresh,
         get_relevant_jobs,
+        get_viewed_jobs_count,
         ingest_docs_to_db,
         load_profile,
         set_job_applied,
@@ -125,7 +127,7 @@ def _render_html_from_items(items, out_html: str, title: str):
     print(f"Wrote HTML report: {out_html} (items={len(items)})")
 
 
-def _render_html_dashboard(relevant_items, not_relevant_items, applied_items, out_html: str, title: str):
+def _render_html_dashboard(relevant_items, not_relevant_items, applied_items, out_html: str, title: str, viewed_total: int = 0):
     os.makedirs(os.path.dirname(os.path.abspath(out_html)), exist_ok=True)
 
     def build_cards(items):
@@ -386,7 +388,7 @@ def _render_html_dashboard(relevant_items, not_relevant_items, applied_items, ou
 
     print(
         f"Wrote HTML dashboard: {out_html} "
-        f"(relevant={len(relevant_items)}, not_relevant={len(not_relevant_items)}, applied={len(applied_items)})"
+        f"(relevant={len(relevant_items)}, not_relevant={len(not_relevant_items)}, applied={len(applied_items)}, viewed={int(viewed_total)})"
     )
 
 
@@ -551,10 +553,30 @@ def _prepend_title_to_description_raw(title: str, description_raw: str, max_char
     merged = f"{prefixed}\n\n{raw_clean}"
     return merged[:max_chars]
 
+def _prepend_summary_to_description_raw(summary: str, description_raw: str, max_chars: int = 9000) -> str:
+    summary_clean = " ".join((summary or "").split()).strip()
+    raw_clean = (description_raw or "").strip()
+
+    if not summary_clean:
+        return raw_clean
+
+    prefixed = f"Summary: {summary_clean}"
+    if not raw_clean:
+        return prefixed[:max_chars]
+
+    raw_low = raw_clean.lower()
+    prefixed_low = prefixed.lower()
+    if raw_low.startswith(prefixed_low):
+        return raw_clean[:max_chars]
+
+    merged = f"{prefixed}\n\n{raw_clean}"
+    return merged[:max_chars]
+
 
 def _enrich_description_raw_with_position_page(db_path: str, row: dict, page_context_cache: dict | None = None) -> str:
     raw = (row.get("description_raw") or "").strip()
     raw = _prepend_title_to_description_raw(row.get("title", ""), raw)
+    raw = _prepend_summary_to_description_raw(row.get("summary", ""), raw)
     link = (row.get("position_link") or "").strip()
     if not link:
         return raw
@@ -653,6 +675,7 @@ def _generate_missing_descriptions_for_ingest(
         job_ids=[],
         limit=0,
         missing_only=True,
+        unviewed_only=True,
     )
 
     updated = 0
@@ -848,6 +871,7 @@ def cmd_process_inbox(args):
         applied_records,
         dashboard_path,
         "Positions Report",
+        viewed_total=get_viewed_jobs_count(db_path),
     )
     print(f"Report written: {dashboard_path}")
 
@@ -927,8 +951,9 @@ def cmd_serve_gui(args):
                         refreshed_applied_records,
                         dashboard_path,
                         "Positions Report",
+                        viewed_total=get_viewed_jobs_count(db_path),
                     )
-                if reason:
+                if reason and not reason.startswith("new record"):
                     print(f"Report regenerated: {reason}")
                 return
             except Exception as exc:
@@ -1255,6 +1280,7 @@ def cmd_refresh_descriptions(args):
             applied_records,
             dashboard_path,
             "Positions Report",
+            viewed_total=get_viewed_jobs_count(db_path),
         )
         print(f"Report written: {dashboard_path}")
 
