@@ -273,14 +273,14 @@ def _format_skills(skills: list[str], limit: int = 10) -> str:
 
 def _extract_job_skills(
     db_path: str,
-    description_raw: str,
+    raw_text: str,
     llm: LocalLLM = None,
     profile: Optional[dict] = None,
     position_link: str = "",
     page_context_cache: Optional[dict] = None,
     limit: int = 10,
 ) -> str:
-    cleaned = " ".join((description_raw or "").split())
+    cleaned = " ".join((raw_text or "").split())
     skill_patterns = _get_skill_patterns(db_path, profile)
     profile_data = profile or {}
     new_skill_conf_threshold = float(
@@ -525,7 +525,7 @@ def _extract_job_skills(
 def _get_or_extract_job_skills(
     db_path: str,
     job_id: int,
-    description_raw: str,
+    raw_text: str,
     llm: LocalLLM = None,
     profile: Optional[dict] = None,
     position_link: str = "",
@@ -539,7 +539,7 @@ def _get_or_extract_job_skills(
             return _format_skills(_filter_blocked_skill_names(cached, profile), limit=limit)
     skills_text = _extract_job_skills(
         db_path,
-        description_raw,
+        raw_text,
         llm=llm,
         profile=profile,
         position_link=position_link,
@@ -605,7 +605,7 @@ def _learn_skill_patterns_from_positions(
         print(f"{progress_label}: starting (positions={min(len(rows), max_positions)})")
 
     for row, weight in rows[:max_positions]:
-        raw = _enrich_description_raw_with_position_page(
+        raw = _enrich_raw_text_with_position_page(
             db_path, row, page_context_cache=page_context_cache
         )
         skills_text = _get_or_extract_job_skills(
@@ -1138,7 +1138,6 @@ def _render_html_dashboard(
             role = html.escape(str(item.get("title", "")))
             place = html.escape(str(item.get("place", "")))
             work_type = html.escape(str(item.get("work_type", "Unknown")))
-            summary = html.escape(str(item.get("summary", "")))
             description = html.escape(str(item.get("description", "")))
             skills_text = str(item.get("skills", ""))
             skill_tags = []
@@ -1164,7 +1163,6 @@ def _render_html_dashboard(
                     <p><strong>Company:</strong> {company}</p>
                     <p><strong>Place:</strong> {place}</p>
                     <p><strong>Type:</strong> {work_type}</p>
-                    <p><strong>Summary:</strong> {summary}</p>
                     <p><strong>Description:</strong> {description}</p>
                     <p><strong>Skills:</strong> <span class=\"skill-tags\">{skills_html or '<span class="skills-empty">No skills extracted</span>'}</span></p>
                     <div class=\"feedback\">
@@ -1697,10 +1695,10 @@ def _get_position_page_context(
     return page_context
 
 
-def _append_page_context_to_description_raw(
-    description_raw: str, position_link: str, page_context: str, max_chars: int = 9000
+def _append_page_context_to_raw_text(
+    raw_text: str, position_link: str, page_context: str, max_chars: int = 9000
 ) -> str:
-    base_raw = (description_raw or "").strip()
+    base_raw = (raw_text or "").strip()
     link = (position_link or "").strip()
     context = (page_context or "").strip()
     if not context:
@@ -1718,11 +1716,60 @@ def _append_page_context_to_description_raw(
     return merged[:max_chars]
 
 
-def _prepend_title_to_description_raw(
-    title: str, description_raw: str, max_chars: int = 9000
+def _normalize_title_compare_key(text: str) -> str:
+    compact = " ".join((text or "").split()).strip().lower()
+    compact = re.sub(r"[^a-z0-9]+", "", compact)
+    return compact
+
+
+def _translate_title_to_english(
+    title: str,
+    llm: LocalLLM = None,
+    title_translation_cache: Optional[dict] = None,
 ) -> str:
     title_clean = " ".join((title or "").split()).strip()
-    raw_clean = (description_raw or "").strip()
+    if not title_clean:
+        return ""
+
+    cache_key = title_clean.lower()
+    if title_translation_cache is not None and cache_key in title_translation_cache:
+        return str(title_translation_cache.get(cache_key, title_clean) or title_clean)
+
+    result = title_clean
+    if llm:
+        prompt = (
+            "Translate this job title to English. "
+            "If it is already English, return it unchanged. "
+            "Return only the translated title text, no extra words.\n\n"
+            f"Title: {title_clean}\n\n"
+            "English title:"
+        )
+        try:
+            out = llm.generate(prompt, max_tokens=64)
+            english = " ".join((out or "").replace("```", " ").split()).strip()
+            english = re.sub(r"^english\s+title\s*:\s*", "", english, flags=re.IGNORECASE)
+            english = english.strip(" \"'`[]()")
+            if english:
+                same = _normalize_title_compare_key(english) == _normalize_title_compare_key(
+                    title_clean
+                )
+                if same:
+                    result = title_clean
+                else:
+                    result = f"{title_clean} ({english})"
+        except Exception:
+            result = title_clean
+
+    if title_translation_cache is not None:
+        title_translation_cache[cache_key] = result
+    return result
+
+
+def _prepend_title_to_raw_text(
+    title: str, raw_text: str, max_chars: int = 9000
+) -> str:
+    title_clean = " ".join((title or "").split()).strip()
+    raw_clean = (raw_text or "").strip()
 
     if not title_clean:
         return raw_clean
@@ -1740,11 +1787,11 @@ def _prepend_title_to_description_raw(
     return merged[:max_chars]
 
 
-def _prepend_summary_to_description_raw(
-    summary: str, description_raw: str, max_chars: int = 9000
+def _prepend_summary_to_raw_text(
+    summary: str, raw_text: str, max_chars: int = 9000
 ) -> str:
     summary_clean = " ".join((summary or "").split()).strip()
-    raw_clean = (description_raw or "").strip()
+    raw_clean = (raw_text or "").strip()
 
     if not summary_clean:
         return raw_clean
@@ -1762,31 +1809,40 @@ def _prepend_summary_to_description_raw(
     return merged[:max_chars]
 
 
-def _enrich_description_raw_with_position_page(
-    db_path: str, row: dict, page_context_cache: Optional[dict] = None
+def _enrich_raw_text_with_position_page(
+    db_path: str,
+    row: dict,
+    page_context_cache: Optional[dict] = None,
+    llm: LocalLLM = None,
+    title_translation_cache: Optional[dict] = None,
 ) -> str:
-    raw = (row.get("description_raw") or "").strip()
-    raw = _prepend_title_to_description_raw(row.get("title", ""), raw)
-    raw = _prepend_summary_to_description_raw(row.get("summary", ""), raw)
+    raw = (row.get("raw_text") or "").strip()
+    title_for_prompt = _translate_title_to_english(
+        row.get("title", ""),
+        llm=llm,
+        title_translation_cache=title_translation_cache,
+    )
+    raw = _prepend_title_to_raw_text(title_for_prompt, raw)
+    raw = _prepend_summary_to_raw_text(row.get("summary", ""), raw)
     link = (row.get("position_link") or "").strip()
     if not link:
         return raw
 
     page_context = _get_position_page_context(link, page_context_cache=page_context_cache)
-    merged = _append_page_context_to_description_raw(raw, link, page_context)
+    merged = _append_page_context_to_raw_text(raw, link, page_context)
     if merged:
-        row["description_raw"] = merged
+        row["raw_text"] = merged
         return merged
     return raw
 
 
 def _build_description_summary(
-    description_raw: str,
+    raw_text: str,
     llm: LocalLLM = None,
     position_link: str = "",
     page_context_cache: Optional[dict] = None,
 ) -> str:
-    cleaned = " ".join((description_raw or "").split())
+    cleaned = " ".join((raw_text or "").split())
 
     def clean_model_output(text: str) -> str:
         out = text or ""
@@ -1842,10 +1898,10 @@ def _build_description_summary(
     return ""
 
 
-def _fallback_description_text(description: str, description_raw: str, max_chars: int = 280) -> str:
+def _fallback_description_text(description: str, raw_text: str, max_chars: int = 280) -> str:
     if (description or "").strip():
         return description
-    compact = " ".join((description_raw or "").split())
+    compact = " ".join((raw_text or "").split())
     compact = re.sub(r"\[POSITION_PAGE_CONTEXT[^\]]*\]", " ", compact, flags=re.IGNORECASE)
     compact = " ".join(compact.split())
     if not compact:
@@ -1908,7 +1964,7 @@ def _generate_missing_descriptions_for_ingest(
                 f"(updated={updated}, skipped={skipped}, elapsed={_fmt_eta(elapsed)}, eta={_fmt_eta(eta_sec)})"
             )
 
-        raw = _enrich_description_raw_with_position_page(
+        raw = _enrich_raw_text_with_position_page(
             db_path, row, page_context_cache=page_context_cache
         )
         if not raw:
@@ -2061,13 +2117,13 @@ def cmd_process_inbox(args):
         for row in rows:
             summary = row.get("summary") or " ".join((row.get("raw_text") or "").split())[:260]
             description = row.get("description") or ""
-            description_raw = _enrich_description_raw_with_position_page(
+            raw_text = _enrich_raw_text_with_position_page(
                 db_path, row, page_context_cache=page_context_cache
             )
             skills = _get_or_extract_job_skills(
                 db_path,
                 row.get("id", 0),
-                description_raw,
+                raw_text,
                 llm=llm,
                 profile=profile,
                 position_link=row.get("position_link", ""),
@@ -2076,7 +2132,7 @@ def cmd_process_inbox(args):
             )
             if not description:
                 description = _build_description_summary(
-                    description_raw,
+                    raw_text,
                     llm=llm,
                     position_link=row.get("position_link", ""),
                     page_context_cache=page_context_cache,
@@ -2086,7 +2142,7 @@ def cmd_process_inbox(args):
                 else:
                     description = ""
             if not description:
-                description = _fallback_description_text("", description_raw)
+                description = _fallback_description_text("", raw_text)
             records.append(
                 {
                     "id": row.get("id", 0),
@@ -2112,13 +2168,13 @@ def cmd_process_inbox(args):
     for row in applied_rows:
         summary = row.get("summary") or " ".join((row.get("raw_text") or "").split())[:260]
         description = row.get("description") or ""
-        description_raw = _enrich_description_raw_with_position_page(
+        raw_text = _enrich_raw_text_with_position_page(
             db_path, row, page_context_cache=page_context_cache
         )
         skills = _get_or_extract_job_skills(
             db_path,
             row.get("id", 0),
-            description_raw,
+            raw_text,
             llm=llm,
             profile=profile,
             position_link=row.get("position_link", ""),
@@ -2228,7 +2284,7 @@ def cmd_serve_gui(args):
             "place": row.get("place", ""),
             "work_type": row.get("work_type", "Unknown"),
             "description": _fallback_description_text(
-                row.get("description") or "", row.get("description_raw") or ""
+                row.get("description") or "", row.get("raw_text") or ""
             ),
             "skills": _format_skills(cached_skills, limit=10),
             "position_link": row.get("position_link", ""),
@@ -2253,7 +2309,7 @@ def cmd_serve_gui(args):
             if not job_id or get_job_skills(db_path, job_id):
                 continue
 
-            description_raw = _enrich_description_raw_with_position_page(
+            raw_text = _enrich_raw_text_with_position_page(
                 db_path,
                 row,
                 page_context_cache=page_context_cache,
@@ -2261,7 +2317,7 @@ def cmd_serve_gui(args):
             skills = _get_or_extract_job_skills(
                 db_path,
                 job_id,
-                description_raw,
+                raw_text,
                 llm=llm,
                 profile=runtime_profile,
                 position_link=row.get("position_link", ""),
@@ -2794,7 +2850,7 @@ def cmd_refresh_descriptions(args):
     skipped = 0
     page_context_cache: dict[str, str] = {}
     for row in rows:
-        raw = _enrich_description_raw_with_position_page(
+        raw = _enrich_raw_text_with_position_page(
             db_path, row, page_context_cache=page_context_cache
         )
         if not raw:
@@ -2841,13 +2897,13 @@ def cmd_refresh_descriptions(args):
             cat_rows = get_jobs_by_category(db_path, cat, limit=0, unviewed_only=True)
             records = []
             for row in cat_rows:
-                description_raw = _enrich_description_raw_with_position_page(
+                raw_text = _enrich_raw_text_with_position_page(
                     db_path, row, page_context_cache=page_context_cache
                 )
                 skills = _get_or_extract_job_skills(
                     db_path,
                     row.get("id", 0),
-                    description_raw,
+                    raw_text,
                     llm=llm,
                     profile=runtime_profile,
                     position_link=row.get("position_link", ""),
@@ -2864,7 +2920,7 @@ def cmd_refresh_descriptions(args):
                         "work_type": row.get("work_type", "Unknown"),
                         "description": _fallback_description_text(
                             row.get("description") or "",
-                            row.get("description_raw") or "",
+                            row.get("raw_text") or "",
                         ),
                         "skills": skills,
                         "position_link": row.get("position_link", ""),
@@ -2881,13 +2937,13 @@ def cmd_refresh_descriptions(args):
         applied_rows = get_applied_jobs(db_path, limit=0)
         applied_records = []
         for row in applied_rows:
-            description_raw = _enrich_description_raw_with_position_page(
+            raw_text = _enrich_raw_text_with_position_page(
                 db_path, row, page_context_cache=page_context_cache
             )
             skills = _get_or_extract_job_skills(
                 db_path,
                 row.get("id", 0),
-                description_raw,
+                raw_text,
                 llm=llm,
                 profile=runtime_profile,
                 position_link=row.get("position_link", ""),
@@ -2903,7 +2959,7 @@ def cmd_refresh_descriptions(args):
                     "place": row.get("place", ""),
                     "work_type": row.get("work_type", "Unknown"),
                     "description": _fallback_description_text(
-                        row.get("description") or "", row.get("description_raw") or ""
+                        row.get("description") or "", row.get("raw_text") or ""
                     ),
                     "skills": skills,
                     "position_link": row.get("position_link", ""),

@@ -210,7 +210,6 @@ Main fields in the `jobs` table include:
 - `work_type`
 - `position_link` (unique)
 - `raw_text`
-- `description_raw`
 - `description`
 - `relevance_score`
 - `relevant`

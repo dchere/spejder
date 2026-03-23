@@ -4,7 +4,7 @@ import re
 import sqlite3
 from collections import Counter
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import parse_qs, urlparse
 
@@ -234,6 +234,7 @@ LEARNING_STOPWORDS = {
 
 SQLITE_TIMEOUT_SECONDS = 30.0
 SQLITE_BUSY_TIMEOUT_MS = 30000
+JOB_RETENTION_DAYS = 90
 
 
 def _connect(db_path: str) -> sqlite3.Connection:
@@ -476,7 +477,6 @@ def ensure_db(db_path: str):
                         work_type TEXT,
                         position_link TEXT UNIQUE NOT NULL,
                         raw_text TEXT,
-                        description_raw TEXT,
                         description TEXT,
                         viewed INTEGER DEFAULT 0,
                         applied INTEGER DEFAULT 0,
@@ -493,7 +493,7 @@ def ensure_db(db_path: str):
                 cur.execute(
                     """
                     INSERT OR IGNORE INTO jobs_new
-                        (source, company, title, place, work_type, position_link, raw_text, description_raw, description, viewed, applied, relevance_score, relevant, category, relevance_reason, summary, created_at, updated_at)
+                        (source, company, title, place, work_type, position_link, raw_text, description, viewed, applied, relevance_score, relevant, category, relevance_reason, summary, created_at, updated_at)
                     SELECT
                         '',
                         company,
@@ -505,7 +505,6 @@ def ensure_db(db_path: str):
                             ELSE position_link
                         END,
                         raw_text,
-                        '',
                         '',
                         0,
                         0,
@@ -521,6 +520,8 @@ def ensure_db(db_path: str):
                 )
                 cur.execute("DROP TABLE jobs")
                 cur.execute("ALTER TABLE jobs_new RENAME TO jobs")
+                cur.execute("PRAGMA table_info(jobs)")
+                cols = {row[1] for row in cur.fetchall()}
 
             if "place" not in cols:
                 cur.execute("ALTER TABLE jobs ADD COLUMN place TEXT")
@@ -532,10 +533,64 @@ def ensure_db(db_path: str):
                 cur.execute("ALTER TABLE jobs ADD COLUMN applied INTEGER DEFAULT 0")
             if "source" not in cols:
                 cur.execute("ALTER TABLE jobs ADD COLUMN source TEXT")
-            if "description_raw" not in cols:
-                cur.execute("ALTER TABLE jobs ADD COLUMN description_raw TEXT")
             if "description" not in cols:
                 cur.execute("ALTER TABLE jobs ADD COLUMN description TEXT")
+
+            cur.execute("PRAGMA table_info(jobs)")
+            cols = {row[1] for row in cur.fetchall()}
+            if "description_raw" in cols:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS jobs_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        source TEXT,
+                        company TEXT,
+                        title TEXT,
+                        place TEXT,
+                        work_type TEXT,
+                        position_link TEXT UNIQUE NOT NULL,
+                        raw_text TEXT,
+                        description TEXT,
+                        viewed INTEGER DEFAULT 0,
+                        applied INTEGER DEFAULT 0,
+                        relevance_score REAL DEFAULT 0,
+                        relevant INTEGER DEFAULT 0,
+                        category TEXT DEFAULT 'not relevant',
+                        relevance_reason TEXT,
+                        summary TEXT,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    INSERT OR IGNORE INTO jobs_new
+                        (id, source, company, title, place, work_type, position_link, raw_text, description, viewed, applied, relevance_score, relevant, category, relevance_reason, summary, created_at, updated_at)
+                    SELECT
+                        id,
+                        source,
+                        company,
+                        title,
+                        place,
+                        work_type,
+                        position_link,
+                        raw_text,
+                        description,
+                        viewed,
+                        applied,
+                        relevance_score,
+                        relevant,
+                        category,
+                        relevance_reason,
+                        summary,
+                        created_at,
+                        updated_at
+                    FROM jobs
+                    """
+                )
+                cur.execute("DROP TABLE jobs")
+                cur.execute("ALTER TABLE jobs_new RENAME TO jobs")
 
         cur.execute(
             """
@@ -548,7 +603,6 @@ def ensure_db(db_path: str):
                 work_type TEXT,
                 position_link TEXT UNIQUE NOT NULL,
                 raw_text TEXT,
-                description_raw TEXT,
                 description TEXT,
                 viewed INTEGER DEFAULT 0,
                 applied INTEGER DEFAULT 0,
@@ -628,13 +682,23 @@ def ensure_db(db_path: str):
             """
         )
 
+        # Auto-prune old positions by creation date to keep DB focused on recent jobs.
+        cur.execute(
+            """
+            DELETE FROM jobs
+            WHERE created_at IS NOT NULL
+              AND TRIM(created_at) <> ''
+              AND datetime(replace(created_at, 'T', ' ')) < datetime('now', ?)
+            """,
+            (f"-{int(JOB_RETENTION_DAYS)} days",),
+        )
+
         cur.execute(
             "UPDATE jobs SET work_type='Unknown' WHERE work_type IS NULL OR work_type='' "
         )
         cur.execute("UPDATE jobs SET viewed=0 WHERE viewed IS NULL")
         cur.execute("UPDATE jobs SET applied=0 WHERE applied IS NULL")
         cur.execute("UPDATE jobs SET source='' WHERE source IS NULL")
-        cur.execute("UPDATE jobs SET description_raw='' WHERE description_raw IS NULL")
         cur.execute("UPDATE jobs SET description='' WHERE description IS NULL")
 
         cur.execute("SELECT id, position_link FROM jobs")
@@ -718,7 +782,7 @@ def upsert_skill_pattern(
     if not name_clean or not name_key or not pattern_clean:
         return False
 
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     conn = _connect(db_path)
     try:
         cur = conn.cursor()
@@ -1461,7 +1525,6 @@ def _extract_entries_from_text(text: str) -> list[dict]:
                 "work_type": work_type,
                 "position_link": link,
                 "raw_text": raw_text,
-                "description_raw": "",
             }
         )
 
@@ -1538,12 +1601,12 @@ def _extract_jobindex_entries_by_link(html_text: str) -> dict[str, dict[str, str
             if m_place:
                 place = m_place.group(1).strip(" -|:")[:180]
 
-        description_raw = ""
         m_desc = re.search(
             r"settings\s*\)\s*(.*?)\s*PUBLISHED\s*:", compact, flags=re.IGNORECASE
         )
+        extracted = ""
         if m_desc:
-            description_raw = m_desc.group(1).strip()
+            extracted = m_desc.group(1).strip()
         else:
             m_desc2 = re.search(
                 r"\d+\s+min\s*\(.*?\)\s*(.*?)\s*PUBLISHED\s*:",
@@ -1551,15 +1614,19 @@ def _extract_jobindex_entries_by_link(html_text: str) -> dict[str, dict[str, str
                 flags=re.IGNORECASE,
             )
             if m_desc2:
-                description_raw = m_desc2.group(1).strip()
+                extracted = m_desc2.group(1).strip()
+
+        raw_text = compact[:2500]
+        if extracted:
+            merged = f"{extracted}\n\n{raw_text}".strip()
+            raw_text = merged[:2500]
 
         by_link[normalized] = {
             "title": title,
             "company": company,
             "place": place,
             "work_type": "Unknown",
-            "raw_text": compact[:2500],
-            "description_raw": description_raw[:4000],
+            "raw_text": raw_text,
             "source": "Jobindex",
         }
 
@@ -1602,7 +1669,6 @@ def _extract_demant_entries_by_link(html_text: str) -> dict[str, dict[str, str]]
             "place": place[:180],
             "work_type": "Unknown",
             "raw_text": compact[:2500],
-            "description_raw": "",
             "source": "Demant",
         }
 
@@ -1638,7 +1704,6 @@ def _extract_danfoss_entries_by_link(html_text: str) -> dict[str, dict[str, str]
             "place": "",
             "work_type": "Unknown",
             "raw_text": title[:2500],
-            "description_raw": "",
             "source": "Danfoss",
         }
 
@@ -1685,7 +1750,6 @@ def _extract_google_entries_by_link(html_text: str) -> dict[str, dict[str, str]]
             "place": place,
             "work_type": "Unknown",
             "raw_text": compact,
-            "description_raw": "",
             "source": "Google Careers",
         }
 
@@ -1725,8 +1789,6 @@ def extract_job_entries(doc: dict) -> list[dict]:
             entry["work_type"] = google_fields["work_type"]
         if google_fields.get("raw_text"):
             entry["raw_text"] = google_fields["raw_text"]
-        if google_fields.get("description_raw"):
-            entry["description_raw"] = google_fields["description_raw"]
         if google_fields.get("source"):
             entry["source"] = google_fields["source"]
 
@@ -1740,8 +1802,6 @@ def extract_job_entries(doc: dict) -> list[dict]:
             entry["work_type"] = danfoss_fields["work_type"]
         if danfoss_fields.get("raw_text"):
             entry["raw_text"] = danfoss_fields["raw_text"]
-        if danfoss_fields.get("description_raw"):
-            entry["description_raw"] = danfoss_fields["description_raw"]
         if danfoss_fields.get("source"):
             entry["source"] = danfoss_fields["source"]
 
@@ -1755,8 +1815,6 @@ def extract_job_entries(doc: dict) -> list[dict]:
             entry["work_type"] = demant_fields["work_type"]
         if demant_fields.get("raw_text"):
             entry["raw_text"] = demant_fields["raw_text"]
-        if demant_fields.get("description_raw"):
-            entry["description_raw"] = demant_fields["description_raw"]
         if demant_fields.get("source"):
             entry["source"] = demant_fields["source"]
 
@@ -1766,8 +1824,6 @@ def extract_job_entries(doc: dict) -> list[dict]:
             entry["company"] = ji_fields["company"]
         if ji_fields.get("place"):
             entry["place"] = ji_fields["place"]
-        if ji_fields.get("description_raw"):
-            entry["description_raw"] = ji_fields["description_raw"]
         if ji_fields.get("raw_text"):
             entry["raw_text"] = ji_fields["raw_text"]
 
@@ -1838,11 +1894,6 @@ def extract_job_entries(doc: dict) -> list[dict]:
             or ji_fields.get("raw_text")
             or html_fields.get("raw_text")
             or text[:2500],
-            "description_raw": google_fields.get("description_raw")
-            or danfoss_fields.get("description_raw")
-            or demant_fields.get("description_raw")
-            or ji_fields.get("description_raw")
-            or "",
             "source": google_fields.get("source")
             or danfoss_fields.get("source")
             or demant_fields.get("source")
@@ -1851,8 +1902,6 @@ def extract_job_entries(doc: dict) -> list[dict]:
 
     filtered_entries: list[dict] = []
     for entry in by_link.values():
-        if "description_raw" not in entry:
-            entry["description_raw"] = ""
         if "source" not in entry:
             entry["source"] = _provider_from_link(entry.get("position_link", ""))
         if entry.get("source") == "Getinge":
@@ -1865,7 +1914,7 @@ def extract_job_entries(doc: dict) -> list[dict]:
 
 
 def upsert_job(db_path: str, job: dict) -> bool:
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     conn = _connect(db_path)
     try:
         cur = conn.cursor()
@@ -1877,8 +1926,8 @@ def upsert_job(db_path: str, job: dict) -> bool:
         if is_new_record:
             cur.execute(
                 """
-                            INSERT INTO jobs (source, company, title, place, work_type, position_link, raw_text, description_raw, created_at, updated_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            INSERT INTO jobs (source, company, title, place, work_type, position_link, raw_text, created_at, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     job.get("source") or _provider_from_link(position_link),
@@ -1888,7 +1937,6 @@ def upsert_job(db_path: str, job: dict) -> bool:
                     job.get("work_type", "Unknown"),
                     position_link,
                     job.get("raw_text", ""),
-                    "",
                     now,
                     now,
                 ),
@@ -1996,7 +2044,7 @@ def apply_relevance(
             )
             cur.execute(
                 "UPDATE jobs SET relevance_score=?, relevance_reason=?, relevant=?, category=?, updated_at=? WHERE id=?",
-                (score, reason, relevant, category, datetime.utcnow().isoformat(), rid),
+                (score, reason, relevant, category, datetime.now(timezone.utc).isoformat(), rid),
             )
             if relevant:
                 relevant_count += 1
@@ -2044,7 +2092,7 @@ def get_jobs_by_category(
     try:
         cur = conn.cursor()
         q = (
-            "SELECT id, source, company, title, place, work_type, position_link, raw_text, relevance_score, relevance_reason, summary, viewed, applied, description_raw, description "
+            "SELECT id, source, company, title, place, work_type, position_link, raw_text, relevance_score, relevance_reason, summary, viewed, applied, description "
             "FROM jobs WHERE category=?"
         )
         params = [category]
@@ -2073,8 +2121,7 @@ def get_jobs_by_category(
                 "summary": r[10] or "",
                 "viewed": int(r[11] or 0),
                 "applied": int(r[12] or 0),
-                "description_raw": r[13] or "",
-                "description": r[14] or "",
+                "description": r[13] or "",
                 "category": category,
             }
             for r in rows
@@ -2088,7 +2135,7 @@ def get_applied_jobs(db_path: str, limit: int = 0) -> list[dict]:
     try:
         cur = conn.cursor()
         q = (
-            "SELECT id, source, company, title, place, work_type, position_link, raw_text, relevance_score, relevance_reason, summary, viewed, applied, description_raw, description, category "
+            "SELECT id, source, company, title, place, work_type, position_link, raw_text, relevance_score, relevance_reason, summary, viewed, applied, description, category "
             "FROM jobs WHERE applied=1 ORDER BY updated_at DESC"
         )
         params: list = []
@@ -2114,9 +2161,8 @@ def get_applied_jobs(db_path: str, limit: int = 0) -> list[dict]:
                 "summary": r[10] or "",
                 "viewed": int(r[11] or 0),
                 "applied": int(r[12] or 0),
-                "description_raw": r[13] or "",
-                "description": r[14] or "",
-                "category": r[15] or "relevant",
+                "description": r[13] or "",
+                "category": r[14] or "relevant",
             }
             for r in rows
         ]
@@ -2149,7 +2195,7 @@ def get_jobs_for_description_refresh(
     try:
         cur = conn.cursor()
         q = (
-            "SELECT id, source, company, title, place, work_type, position_link, raw_text, category, description_raw, description, summary "
+            "SELECT id, source, company, title, place, work_type, position_link, raw_text, category, description, summary "
             "FROM jobs WHERE 1=1"
         )
         params: list = []
@@ -2206,9 +2252,8 @@ def get_jobs_for_description_refresh(
                 "position_link": r[6] or "",
                 "raw_text": r[7] or "",
                 "category": r[8] or "",
-                "description_raw": r[9] or "",
-                "description": r[10] or "",
-                "summary": r[11] or "",
+                "description": r[9] or "",
+                "summary": r[10] or "",
             }
             for r in rows
         ]
@@ -2222,7 +2267,7 @@ def set_job_summary(db_path: str, job_id: int, summary: str):
         cur = conn.cursor()
         cur.execute(
             "UPDATE jobs SET summary=?, updated_at=? WHERE id=?",
-            (summary, datetime.utcnow().isoformat(), job_id),
+            (summary, datetime.now(timezone.utc).isoformat(), job_id),
         )
         conn.commit()
     finally:
@@ -2235,20 +2280,7 @@ def set_job_description(db_path: str, job_id: int, description: str):
         cur = conn.cursor()
         cur.execute(
             "UPDATE jobs SET description=?, updated_at=? WHERE id=?",
-            (description, datetime.utcnow().isoformat(), job_id),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def set_job_description_raw(db_path: str, job_id: int, description_raw: str):
-    conn = _connect(db_path)
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            "UPDATE jobs SET description_raw=?, updated_at=? WHERE id=?",
-            (description_raw, datetime.utcnow().isoformat(), job_id),
+            (description, datetime.now(timezone.utc).isoformat(), job_id),
         )
         conn.commit()
     finally:
@@ -2259,7 +2291,7 @@ def set_job_skills(db_path: str, job_id: int, skill_names: list[str]) -> None:
     """Persist the extracted skill list for a job as links to skill_patterns rows."""
     if not job_id or not skill_names:
         return
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     conn = _connect(db_path)
     try:
         cur = conn.cursor()
@@ -2375,7 +2407,7 @@ def set_job_feedback(db_path: str, job_id: int, signal: str) -> bool:
         raise ValueError(f"Unsupported signal: {signal}")
 
     relevant = 1 if normalized == "relevant" else 0
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
 
     conn = _connect(db_path)
     try:
@@ -2403,7 +2435,7 @@ def set_job_feedback(db_path: str, job_id: int, signal: str) -> bool:
 
 
 def set_job_viewed(db_path: str, job_id: int, viewed: bool) -> bool:
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     viewed_int = 1 if viewed else 0
     conn = _connect(db_path)
     try:
@@ -2419,7 +2451,7 @@ def set_job_viewed(db_path: str, job_id: int, viewed: bool) -> bool:
 
 
 def set_job_applied(db_path: str, job_id: int, applied: bool) -> bool:
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     applied_int = 1 if applied else 0
     conn = _connect(db_path)
     try:
