@@ -3,11 +3,11 @@ import re
 from email import policy
 from email.header import decode_header, make_header
 from email.parser import BytesParser
+
 from bs4 import BeautifulSoup
-from typing import List, Dict
 
 
-def _extract_links_from_text(text: str) -> List[str]:
+def _extract_links_from_text(text: str) -> list[str]:
     links = re.findall(r"https?://[^\s<>'\"]+", text)
     cleaned = []
     for link in links:
@@ -17,7 +17,7 @@ def _extract_links_from_text(text: str) -> List[str]:
     return cleaned
 
 
-def _parse_eml_file(path: str) -> Dict:
+def _parse_eml_file(path: str) -> dict:
     with open(path, "rb") as f:
         msg = BytesParser(policy=policy.default).parse(f)
 
@@ -73,7 +73,7 @@ def _parse_eml_file(path: str) -> Dict:
     }
 
 
-def parse_html_file(path: str) -> Dict:
+def parse_html_file(path: str) -> dict:
     """Parse an HTML or EML file and extract text and links.
 
     Returns dict with keys: id, path, text, links
@@ -81,7 +81,7 @@ def parse_html_file(path: str) -> Dict:
     if path.lower().endswith(".eml"):
         return _parse_eml_file(path)
 
-    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+    with open(path, encoding="utf-8", errors="ignore") as f:
         raw = f.read()
 
     soup = BeautifulSoup(raw, "html.parser")
@@ -106,7 +106,7 @@ def parse_html_file(path: str) -> Dict:
     }
 
 
-def load_files(folder: str, exts: List[str] = None) -> List[Dict]:
+def load_files(folder: str, exts: list[str] = None) -> list[dict]:
     """Walk a folder and parse supported files (default: .html, .htm, .eml)."""
     if exts is None:
         exts = [".html", ".htm", ".eml"]

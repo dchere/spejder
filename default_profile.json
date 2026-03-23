@@ -1,0 +1,131 @@
+{
+  "include_keywords": [
+    "python",
+    "backend",
+    "data",
+    "machine learning",
+    "ai",
+    "developer",
+    "engineer",
+    "remote"
+  ],
+  "exclude_keywords": [
+    "sales",
+    "marketing",
+    "nurse",
+    "driver",
+    "on-site",
+    "onsite",
+    "unpaid"
+  ],
+  "min_score": 2,
+  "learned_include_keywords": [],
+  "learned_exclude_keywords": [],
+  "default_inbox": "./inbox",
+  "default_db": "./jobs.db",
+  "default_report_dir": "./outbox",
+  "default_model": "",
+  "max_input_chars": 4500,
+  "server_host": "127.0.0.1",
+  "server_port": 8765,
+  "skill_learning_max_positions": 180,
+  "skill_learning_min_occurrences": 3,
+  "skill_learning_max_new_patterns": 20,
+  "skill_match_weight": 1.2,
+  "skill_missing_penalty": 0.15,
+  "missing_skills_max_items": 25,
+  "skill_new_confidence_threshold": 0.9,
+  "skill_new_max_per_job": 2,
+  "user_skills": [],
+  "missing_skills_suggestions": [],
+  "known_skill_patterns": [
+    {
+      "name": "Python",
+      "pattern": "\\bpython\\b"
+    },
+    {
+      "name": "SQL",
+      "pattern": "\\bsql\\b|\\bpostgres(?:ql)?\\b|\\bmysql\\b|\\bsqlite\\b"
+    },
+    {
+      "name": "Java",
+      "pattern": "\\bjava\\b"
+    },
+    {
+      "name": "JavaScript",
+      "pattern": "\\bjavascript\\b|\\bjs\\b"
+    },
+    {
+      "name": "TypeScript",
+      "pattern": "\\btypescript\\b|\\bts\\b"
+    },
+    {
+      "name": "C#",
+      "pattern": "\\bc#\\b|\\bdotnet\\b|\\.net\\b"
+    },
+    {
+      "name": "C++",
+      "pattern": "\\bc\\+\\+\\b"
+    },
+    {
+      "name": "Go",
+      "pattern": "\\bgolang\\b|\\bgo\\b"
+    },
+    {
+      "name": "Rust",
+      "pattern": "\\brust\\b"
+    },
+    {
+      "name": "Docker",
+      "pattern": "\\bdocker\\b"
+    },
+    {
+      "name": "Kubernetes",
+      "pattern": "\\bkubernetes\\b|\\bk8s\\b"
+    },
+    {
+      "name": "AWS",
+      "pattern": "\\baws\\b|\\bamazon web services\\b"
+    },
+    {
+      "name": "Azure",
+      "pattern": "\\bazure\\b"
+    },
+    {
+      "name": "GCP",
+      "pattern": "\\bgcp\\b|\\bgoogle cloud\\b"
+    },
+    {
+      "name": "Git",
+      "pattern": "\\bgit\\b"
+    },
+    {
+      "name": "Linux",
+      "pattern": "\\blinux\\b|\\bunix\\b"
+    },
+    {
+      "name": "REST APIs",
+      "pattern": "\\brest\\b|\\bapi(?:s)?\\b"
+    },
+    {
+      "name": "CI/CD",
+      "pattern": "\\bci/cd\\b|\\bcicd\\b|\\bcontinuous integration\\b|\\bcontinuous delivery\\b"
+    },
+    {
+      "name": "Data Engineering",
+      "pattern": "\\bdata engineering\\b|\\betl\\b|\\belt\\b"
+    },
+    {
+      "name": "Machine Learning",
+      "pattern": "\\bmachine learning\\b|\\bml\\b|\\bai\\b"
+    },
+    {
+      "name": "Communication",
+      "pattern": "\\bcommunication\\b|\\bcommunicate\\b"
+    },
+    {
+      "name": "Team Collaboration",
+      "pattern": "\\bcollaboration\\b|\\bteam player\\b|\\bteamwork\\b"
+    }
+  ]
+}

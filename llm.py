@@ -4,6 +4,7 @@ This module provides a thin wrapper around `llama_cpp.Llama` if available.
 It keeps the rest of the codebase decoupled so the agent can run offline
 with a quantized GGUF model.
 """
+
 from typing import Optional
 
 try:
@@ -13,7 +14,12 @@ except Exception:  # pragma: no cover - graceful fallback when package missing
 
 
 class LocalLLM:
-    def __init__(self, model_path: Optional[str] = None, n_ctx: int = 2048, verbose: bool = True):
+    def __init__(
+        self,
+        model_path: Optional[str] = None,
+        n_ctx: int = 2048,
+        verbose: bool = True,
+    ):
         self.model_path = model_path
         self.n_ctx = n_ctx
         self.verbose = verbose
@@ -26,7 +32,12 @@ class LocalLLM:
             raise RuntimeError("model_path is not set")
         self.model = Llama(model_path=self.model_path, n_ctx=self.n_ctx, verbose=self.verbose)
 
-    def generate(self, prompt: str, max_tokens: int = 256, stop: Optional[list] = None) -> str:
+    def generate(
+        self,
+        prompt: str,
+        max_tokens: int = 256,
+        stop: Optional[list] = None,
+    ) -> str:
         if self.model is None:
             self.load()
         if hasattr(self.model, "create_completion"):

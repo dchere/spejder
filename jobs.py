@@ -3,13 +3,16 @@ import os
 import re
 import sqlite3
 from collections import Counter
+from collections.abc import Callable
 from datetime import datetime
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Optional
 from urllib.parse import parse_qs, urlparse
+
 from bs4 import BeautifulSoup
 
+DEFAULT_PROFILE_FILE = "default_profile.json"
 
-DEFAULT_PROFILE = {
+FALLBACK_DEFAULT_PROFILE = {
     "include_keywords": [
         "python",
         "backend",
@@ -39,16 +42,192 @@ DEFAULT_PROFILE = {
     "max_input_chars": 4500,
     "server_host": "127.0.0.1",
     "server_port": 8765,
+    "skill_learning_max_positions": 180,
+    "skill_learning_min_occurrences": 3,
+    "skill_learning_max_new_patterns": 20,
+    "skill_match_weight": 1.2,
+    "skill_missing_penalty": 0.15,
+    "missing_skills_max_items": 25,
+    "skill_new_confidence_threshold": 0.9,
+    "skill_new_max_per_job": 2,
+    "user_skills": [],
+    "missing_skills_suggestions": [],
+    "known_skill_patterns": [],
 }
 
 
+def _default_profile_file_path() -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), DEFAULT_PROFILE_FILE)
+
+
+def _safe_int(value, default: int) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return int(default)
+
+
+def _safe_float(value, default: float) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return float(default)
+
+
+def _load_default_profile() -> dict:
+    profile = FALLBACK_DEFAULT_PROFILE.copy()
+
+    file_path = _default_profile_file_path()
+    try:
+        with open(file_path, encoding="utf-8") as f:
+            loaded = json.load(f)
+        if isinstance(loaded, dict):
+            profile.update(loaded)
+    except Exception:
+        pass
+
+    list_fields = [
+        "include_keywords",
+        "exclude_keywords",
+        "learned_include_keywords",
+        "learned_exclude_keywords",
+        "user_skills",
+        "missing_skills_suggestions",
+    ]
+    for field in list_fields:
+        if not isinstance(profile.get(field), list):
+            profile[field] = list(FALLBACK_DEFAULT_PROFILE.get(field, []))
+
+    profile["min_score"] = _safe_float(
+        profile.get("min_score"), FALLBACK_DEFAULT_PROFILE["min_score"]
+    )
+    profile["max_input_chars"] = _safe_int(
+        profile.get("max_input_chars"), FALLBACK_DEFAULT_PROFILE["max_input_chars"]
+    )
+    profile["server_port"] = _safe_int(
+        profile.get("server_port"), FALLBACK_DEFAULT_PROFILE["server_port"]
+    )
+    profile["skill_learning_max_positions"] = _safe_int(
+        profile.get("skill_learning_max_positions"),
+        FALLBACK_DEFAULT_PROFILE["skill_learning_max_positions"],
+    )
+    profile["skill_learning_min_occurrences"] = _safe_int(
+        profile.get("skill_learning_min_occurrences"),
+        FALLBACK_DEFAULT_PROFILE["skill_learning_min_occurrences"],
+    )
+    profile["skill_learning_max_new_patterns"] = _safe_int(
+        profile.get("skill_learning_max_new_patterns"),
+        FALLBACK_DEFAULT_PROFILE["skill_learning_max_new_patterns"],
+    )
+    profile["skill_match_weight"] = _safe_float(
+        profile.get("skill_match_weight"), FALLBACK_DEFAULT_PROFILE["skill_match_weight"]
+    )
+    profile["skill_missing_penalty"] = _safe_float(
+        profile.get("skill_missing_penalty"),
+        FALLBACK_DEFAULT_PROFILE["skill_missing_penalty"],
+    )
+    profile["missing_skills_max_items"] = _safe_int(
+        profile.get("missing_skills_max_items"),
+        FALLBACK_DEFAULT_PROFILE["missing_skills_max_items"],
+    )
+    profile["skill_new_confidence_threshold"] = _safe_float(
+        profile.get("skill_new_confidence_threshold"),
+        FALLBACK_DEFAULT_PROFILE["skill_new_confidence_threshold"],
+    )
+    profile["skill_new_max_per_job"] = _safe_int(
+        profile.get("skill_new_max_per_job"),
+        FALLBACK_DEFAULT_PROFILE["skill_new_max_per_job"],
+    )
+
+    default_path_fields = [
+        "default_inbox",
+        "default_db",
+        "default_report_dir",
+        "default_model",
+        "server_host",
+    ]
+    for field in default_path_fields:
+        value = profile.get(field, FALLBACK_DEFAULT_PROFILE.get(field, ""))
+        profile[field] = str(value) if value is not None else ""
+
+    raw_patterns = profile.get("known_skill_patterns")
+    clean_patterns = []
+    if isinstance(raw_patterns, list):
+        for item in raw_patterns:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name", "")).strip()
+            pattern = str(item.get("pattern", "")).strip()
+            if not name or not pattern:
+                continue
+            clean_patterns.append({"name": name, "pattern": pattern})
+    profile["known_skill_patterns"] = clean_patterns
+
+    return profile
+
+
+DEFAULT_PROFILE = _load_default_profile()
+
+
 LEARNING_STOPWORDS = {
-    "about", "above", "after", "again", "against", "all", "also", "and", "any", "are", "because",
-    "been", "before", "being", "below", "between", "both", "but", "can", "company", "could", "danish",
-    "denmark", "developer", "email", "for", "from", "have", "into", "job", "jobs", "just", "more",
-    "not", "our", "out", "position", "role", "than", "that", "the", "their", "them", "there", "these",
-    "this", "those", "through", "under", "using", "very", "want", "when", "where", "which", "with",
-    "you", "your",
+    "about",
+    "above",
+    "after",
+    "again",
+    "against",
+    "all",
+    "also",
+    "and",
+    "any",
+    "are",
+    "because",
+    "been",
+    "before",
+    "being",
+    "below",
+    "between",
+    "both",
+    "but",
+    "can",
+    "company",
+    "could",
+    "danish",
+    "denmark",
+    "developer",
+    "email",
+    "for",
+    "from",
+    "have",
+    "into",
+    "job",
+    "jobs",
+    "just",
+    "more",
+    "not",
+    "our",
+    "out",
+    "position",
+    "role",
+    "than",
+    "that",
+    "the",
+    "their",
+    "them",
+    "there",
+    "these",
+    "this",
+    "those",
+    "through",
+    "under",
+    "using",
+    "very",
+    "want",
+    "when",
+    "where",
+    "which",
+    "with",
+    "you",
+    "your",
 }
 
 SQLITE_TIMEOUT_SECONDS = 30.0
@@ -62,7 +241,7 @@ def _connect(db_path: str) -> sqlite3.Connection:
     return conn
 
 
-def _unique_keywords(values: List[str]) -> List[str]:
+def _unique_keywords(values: list[str]) -> list[str]:
     seen = set()
     out = []
     for value in values:
@@ -74,7 +253,7 @@ def _unique_keywords(values: List[str]) -> List[str]:
     return out
 
 
-def _tokenize_learning_text(text: str) -> List[str]:
+def _tokenize_learning_text(text: str) -> list[str]:
     if not text:
         return []
     raw = re.findall(r"[a-zA-Z][a-zA-Z0-9+#.-]{2,}", text.lower())
@@ -89,7 +268,55 @@ def _tokenize_learning_text(text: str) -> List[str]:
     return cleaned
 
 
-def _suggest_keywords_from_labeled_jobs(db_path: str, max_keywords: int = 20) -> Tuple[List[str], List[str], int]:
+def _normalize_skill_key(value: str) -> str:
+    return " ".join((value or "").strip().lower().split())
+
+
+def _profile_skill_patterns(profile: dict) -> list[tuple[str, str]]:
+    raw = profile.get("known_skill_patterns") or []
+    out: list[tuple[str, str]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", "")).strip()
+        pattern = str(item.get("pattern", "")).strip()
+        if not name or not pattern:
+            continue
+        out.append((name, pattern))
+    return out
+
+
+def _extract_required_skills_from_text(
+    text: str, skill_patterns: list[tuple[str, str]]
+) -> list[str]:
+    low = (text or "").lower()
+    if not low or not skill_patterns:
+        return []
+
+    hits: list[tuple[int, str]] = []
+    for name, pattern in skill_patterns:
+        try:
+            m = re.search(pattern, low, flags=re.IGNORECASE)
+        except re.error:
+            continue
+        if m:
+            hits.append((m.start(), name.strip()))
+
+    hits.sort(key=lambda x: x[0])
+    out: list[str] = []
+    seen = set()
+    for _, name in hits:
+        key = _normalize_skill_key(name)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(name)
+    return out
+
+
+def _suggest_keywords_from_labeled_jobs(
+    db_path: str, max_keywords: int = 20
+) -> tuple[list[str], list[str], int]:
     conn = _connect(db_path)
     try:
         cur = conn.cursor()
@@ -110,13 +337,15 @@ def _suggest_keywords_from_labeled_jobs(db_path: str, max_keywords: int = 20) ->
     not_relevant_df = Counter()
 
     for category, title, company, place, work_type, raw_text in rows:
-        text = "\n".join([
-            title or "",
-            company or "",
-            place or "",
-            work_type or "",
-            raw_text or "",
-        ])
+        text = "\n".join(
+            [
+                title or "",
+                company or "",
+                place or "",
+                work_type or "",
+                raw_text or "",
+            ]
+        )
         tokens = set(_tokenize_learning_text(text))
         if not tokens:
             continue
@@ -154,8 +383,60 @@ def _suggest_keywords_from_labeled_jobs(db_path: str, max_keywords: int = 20) ->
     exclude_ranked.sort(key=lambda x: (x[0], x[1], x[2]), reverse=True)
 
     learned_include = [token for _, _, token in include_ranked[:max_keywords]]
-    learned_exclude = [token for _, _, token in exclude_ranked[:max_keywords] if token not in learned_include]
+    learned_exclude = [
+        token
+        for _, _, token in exclude_ranked[:max_keywords]
+        if token not in learned_include
+    ]
     return learned_include, learned_exclude, total_labeled
+
+
+def _suggest_missing_skills_from_applied_jobs(
+    db_path: str, profile: dict, max_items: int = 25
+) -> list[str]:
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT title, summary, raw_text
+            FROM jobs
+            WHERE applied=1
+            """
+        )
+        rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    if not rows:
+        return []
+
+    skill_patterns = _profile_skill_patterns(profile)
+    if not skill_patterns:
+        return []
+
+    user_skills = {
+        _normalize_skill_key(s)
+        for s in (profile.get("user_skills") or [])
+        if _normalize_skill_key(str(s))
+    }
+
+    freq: Counter = Counter()
+    display_by_key: dict[str, str] = {}
+    for title, summary, raw_text in rows:
+        text = "\n".join([(title or ""), (summary or ""), (raw_text or "")])
+        skills = _extract_required_skills_from_text(text, skill_patterns)
+        for skill in skills:
+            key = _normalize_skill_key(skill)
+            if not key or key in user_skills:
+                continue
+            display_by_key.setdefault(key, skill)
+            freq[key] += 1
+
+    ordered = [
+        display_by_key.get(name, name) for name, _ in freq.most_common(max_items)
+    ]
+    return ordered[:max_items]
 
 
 def ensure_db(db_path: str):
@@ -271,6 +552,36 @@ def ensure_db(db_path: str):
 
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS skill_patterns (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                name_key TEXT UNIQUE NOT NULL,
+                pattern TEXT NOT NULL,
+                source TEXT DEFAULT 'seed',
+                occurrences INTEGER DEFAULT 0,
+                weight REAL DEFAULT 0,
+                enabled INTEGER DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                last_seen_at TEXT
+            )
+            """
+        )
+
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS job_skills (
+                job_id INTEGER NOT NULL,
+                skill_id INTEGER NOT NULL,
+                PRIMARY KEY (job_id, skill_id),
+                FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE,
+                FOREIGN KEY (skill_id) REFERENCES skill_patterns(id) ON DELETE CASCADE
+            )
+            """
+        )
+
+        cur.execute(
+            """
             DELETE FROM jobs
             WHERE NOT (
                 lower(position_link) LIKE '%linkedin.com/%jobs/view/%'
@@ -304,12 +615,13 @@ def ensure_db(db_path: str):
             """
         )
 
-        cur.execute("UPDATE jobs SET work_type='Unknown' WHERE work_type IS NULL OR work_type='' ")
+        cur.execute(
+            "UPDATE jobs SET work_type='Unknown' WHERE work_type IS NULL OR work_type='' "
+        )
         cur.execute("UPDATE jobs SET viewed=0 WHERE viewed IS NULL")
         cur.execute("UPDATE jobs SET applied=0 WHERE applied IS NULL")
         cur.execute("UPDATE jobs SET source='' WHERE source IS NULL")
         cur.execute("UPDATE jobs SET description_raw='' WHERE description_raw IS NULL")
-        cur.execute("UPDATE jobs SET description_raw='' WHERE TRIM(description_raw)<>''")
         cur.execute("UPDATE jobs SET description='' WHERE description IS NULL")
 
         cur.execute("SELECT id, position_link FROM jobs")
@@ -329,7 +641,9 @@ def ensure_db(db_path: str):
             cur.execute("SELECT position_link FROM jobs WHERE id=?", (keep_id,))
             row = cur.fetchone()
             if row and row[0] != norm:
-                cur.execute("UPDATE jobs SET position_link=? WHERE id=?", (norm, keep_id))
+                cur.execute(
+                    "UPDATE jobs SET position_link=? WHERE id=?", (norm, keep_id)
+                )
 
         cur.execute("SELECT id, position_link, source FROM jobs")
         for rid, link, source in cur.fetchall():
@@ -342,10 +656,146 @@ def ensure_db(db_path: str):
         conn.close()
 
 
-def load_profile(profile_path: Optional[str]) -> Dict:
+def _normalize_skill_name_key(name: str) -> str:
+    return " ".join((name or "").strip().lower().split())
+
+
+def get_skill_patterns(db_path: str, enabled_only: bool = True) -> list[dict]:
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        q = (
+            "SELECT name, pattern, source, occurrences, weight, enabled, last_seen_at "
+            "FROM skill_patterns"
+        )
+        params: list = []
+        if enabled_only:
+            q += " WHERE enabled=1"
+        q += " ORDER BY weight DESC, occurrences DESC, name ASC"
+        cur.execute(q, params)
+        rows = cur.fetchall()
+        return [
+            {
+                "name": r[0] or "",
+                "pattern": r[1] or "",
+                "source": r[2] or "",
+                "occurrences": int(r[3] or 0),
+                "weight": float(r[4] or 0),
+                "enabled": int(r[5] or 0),
+                "last_seen_at": r[6] or "",
+            }
+            for r in rows
+        ]
+    finally:
+        conn.close()
+
+
+def upsert_skill_pattern(
+    db_path: str,
+    name: str,
+    pattern: str,
+    source: str = "learned",
+    occurrences_inc: int = 0,
+    weight_inc: float = 0.0,
+    enabled: bool = True,
+) -> bool:
+    name_clean = (name or "").strip()
+    pattern_clean = (pattern or "").strip()
+    name_key = _normalize_skill_name_key(name_clean)
+    if not name_clean or not name_key or not pattern_clean:
+        return False
+
+    now = datetime.utcnow().isoformat()
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO skill_patterns
+                (name, name_key, pattern, source, occurrences, weight, enabled, created_at, updated_at, last_seen_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(name_key) DO UPDATE SET
+                name=excluded.name,
+                pattern=CASE
+                    WHEN excluded.pattern IS NOT NULL AND TRIM(excluded.pattern)<>'' THEN excluded.pattern
+                    ELSE skill_patterns.pattern
+                END,
+                source=CASE
+                    WHEN skill_patterns.source IS NULL OR TRIM(skill_patterns.source)='' THEN excluded.source
+                    ELSE skill_patterns.source
+                END,
+                occurrences=skill_patterns.occurrences + excluded.occurrences,
+                weight=skill_patterns.weight + excluded.weight,
+                enabled=excluded.enabled,
+                updated_at=excluded.updated_at,
+                last_seen_at=excluded.last_seen_at
+            """,
+            (
+                name_clean,
+                name_key,
+                pattern_clean,
+                source,
+                max(0, int(occurrences_inc)),
+                max(0.0, float(weight_inc)),
+                1 if enabled else 0,
+                now,
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def migrate_profile_skill_patterns_to_db(
+    db_path: str, profile_path: str
+) -> dict[str, int]:
+    ensure_db(db_path)
+
+    profile: dict = {}
+    if profile_path and os.path.exists(profile_path):
+        try:
+            with open(profile_path, encoding="utf-8") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, dict):
+                profile = loaded
+        except Exception:
+            profile = {}
+
+    raw = profile.get("known_skill_patterns")
+    if not isinstance(raw, list) or not raw:
+        raw = DEFAULT_PROFILE.get("known_skill_patterns") or []
+
+    inserted = 0
+    seed_count = 0
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", "")).strip()
+        pattern = str(item.get("pattern", "")).strip()
+        if not name or not pattern:
+            continue
+        seed_count += 1
+        if upsert_skill_pattern(
+            db_path,
+            name=name,
+            pattern=pattern,
+            source="profile_seed",
+            occurrences_inc=0,
+            weight_inc=0.0,
+            enabled=True,
+        ):
+            inserted += 1
+
+    return {"seed_count": int(seed_count), "inserted": int(inserted)}
+
+
+def load_profile(profile_path: Optional[str]) -> dict:
     if not profile_path:
         return DEFAULT_PROFILE.copy()
-    with open(profile_path, "r", encoding="utf-8") as f:
+    with open(profile_path, encoding="utf-8") as f:
         data = json.load(f)
     profile = DEFAULT_PROFILE.copy()
     profile.update(data)
@@ -355,23 +805,43 @@ def load_profile(profile_path: Optional[str]) -> Dict:
     learned_include = profile.get("learned_include_keywords", []) or []
     learned_exclude = profile.get("learned_exclude_keywords", []) or []
 
-    profile["include_keywords"] = _unique_keywords(list(base_include) + list(learned_include))
-    profile["exclude_keywords"] = _unique_keywords(list(base_exclude) + list(learned_exclude))
+    profile["include_keywords"] = _unique_keywords(
+        list(base_include) + list(learned_include)
+    )
+    profile["exclude_keywords"] = _unique_keywords(
+        list(base_exclude) + list(learned_exclude)
+    )
     profile["learned_include_keywords"] = _unique_keywords(list(learned_include))
     profile["learned_exclude_keywords"] = _unique_keywords(list(learned_exclude))
+    profile["user_skills"] = _unique_keywords(
+        list(profile.get("user_skills", []) or [])
+    )
+    profile["missing_skills_suggestions"] = _unique_keywords(
+        list(profile.get("missing_skills_suggestions", []) or [])
+    )
     return profile
 
 
-def update_profile_from_db_signals(db_path: str, profile_path: str, max_keywords: int = 20) -> Dict[str, int]:
+def update_profile_from_db_signals(
+    db_path: str, profile_path: str, max_keywords: int = 20
+) -> dict[str, int]:
     profile = DEFAULT_PROFILE.copy()
     if profile_path and os.path.exists(profile_path):
-        with open(profile_path, "r", encoding="utf-8") as f:
+        with open(profile_path, encoding="utf-8") as f:
             existing = json.load(f)
         profile.update(existing)
 
-    learned_include, learned_exclude, labeled_count = _suggest_keywords_from_labeled_jobs(db_path, max_keywords=max_keywords)
+    learned_include, learned_exclude, labeled_count = (
+        _suggest_keywords_from_labeled_jobs(db_path, max_keywords=max_keywords)
+    )
     profile["learned_include_keywords"] = learned_include
     profile["learned_exclude_keywords"] = learned_exclude
+
+    max_missing_items = int(profile.get("missing_skills_max_items", 25) or 25)
+    missing_skills = _suggest_missing_skills_from_applied_jobs(
+        db_path, profile, max_items=max_missing_items
+    )
+    profile["missing_skills_suggestions"] = missing_skills
 
     os.makedirs(os.path.dirname(os.path.abspath(profile_path)), exist_ok=True)
     with open(profile_path, "w", encoding="utf-8") as f:
@@ -381,6 +851,7 @@ def update_profile_from_db_signals(db_path: str, profile_path: str, max_keywords
         "labeled_count": int(labeled_count),
         "learned_include_count": len(learned_include),
         "learned_exclude_count": len(learned_exclude),
+        "missing_skills_count": len(missing_skills),
     }
 
 
@@ -414,7 +885,9 @@ def _work_type_from_html_for_link(html_text: str, normalized_link: str) -> str:
         if not token_positions:
             continue
         for link_pos in link_positions:
-            nearest_distance = min(abs(token_pos - link_pos) for token_pos in token_positions)
+            nearest_distance = min(
+                abs(token_pos - link_pos) for token_pos in token_positions
+            )
             if best_distance is None or nearest_distance < best_distance:
                 best_distance = nearest_distance
                 best_type = work_type
@@ -435,7 +908,7 @@ def _infer_work_type_from_text(text: str) -> str:
     return ""
 
 
-def _parse_card_text_fields(card_text: str) -> Dict[str, str]:
+def _parse_card_text_fields(card_text: str) -> dict[str, str]:
     compact = " ".join((card_text or "").split())
     if not compact:
         return {"title": "", "company": "", "place": "", "work_type": ""}
@@ -455,9 +928,7 @@ def _parse_card_text_fields(card_text: str) -> Dict[str, str]:
     wt = match.group("wt") or ""
     if wt:
         wt_low = wt.lower()
-        if wt_low == "onsite":
-            work_type = "On-site"
-        elif wt_low == "on-site":
+        if wt_low == "onsite" or wt_low == "on-site":
             work_type = "On-site"
         elif wt_low == "hybrid":
             work_type = "Hybrid"
@@ -472,7 +943,7 @@ def _parse_card_text_fields(card_text: str) -> Dict[str, str]:
     }
 
 
-def _parse_anchor_fragments(fragments: List[str]) -> Dict[str, str]:
+def _parse_anchor_fragments(fragments: list[str]) -> dict[str, str]:
     if not fragments:
         return {"title": "", "company": "", "place": "", "work_type": ""}
 
@@ -502,7 +973,9 @@ def _parse_anchor_fragments(fragments: List[str]) -> Dict[str, str]:
         company = left.strip(" -|:")[:180]
         right = right.strip()
 
-        wt_match = re.search(r"\((Hybrid|Remote|On-site|Onsite)\)", right, flags=re.IGNORECASE)
+        wt_match = re.search(
+            r"\((Hybrid|Remote|On-site|Onsite)\)", right, flags=re.IGNORECASE
+        )
         if wt_match:
             wt = wt_match.group(1).lower()
             if wt in ("on-site", "onsite"):
@@ -511,7 +984,9 @@ def _parse_anchor_fragments(fragments: List[str]) -> Dict[str, str]:
                 work_type = "Hybrid"
             elif wt == "remote":
                 work_type = "Remote"
-            right = re.sub(r"\((Hybrid|Remote|On-site|Onsite)\)", "", right, flags=re.IGNORECASE).strip()
+            right = re.sub(
+                r"\((Hybrid|Remote|On-site|Onsite)\)", "", right, flags=re.IGNORECASE
+            ).strip()
 
         place = right.strip(" -|:")[:180]
 
@@ -519,7 +994,11 @@ def _parse_anchor_fragments(fragments: List[str]) -> Dict[str, str]:
         maybe_title, maybe_place = title.rsplit(" - ", 1)
         if maybe_title and maybe_place:
             maybe_place_low = maybe_place.lower()
-            if "," in maybe_place or maybe_place_low.endswith(" dk") or "denmark" in maybe_place_low:
+            if (
+                "," in maybe_place
+                or maybe_place_low.endswith(" dk")
+                or "denmark" in maybe_place_low
+            ):
                 title = maybe_title.strip(" -|:")[:180]
                 place = maybe_place.strip(" -|:")[:180]
 
@@ -531,15 +1010,21 @@ def _parse_anchor_fragments(fragments: List[str]) -> Dict[str, str]:
     }
 
 
-def _extract_html_entries_by_link(html_text: str) -> Dict[str, Dict[str, str]]:
+def _extract_html_entries_by_link(html_text: str) -> dict[str, dict[str, str]]:
     if not html_text:
         return {}
     soup = BeautifulSoup(html_text, "html.parser")
-    by_link: Dict[str, Dict[str, str]] = {}
+    by_link: dict[str, dict[str, str]] = {}
 
-    def field_score(fields: Dict[str, str], has_detail: bool) -> Tuple[int, int, int]:
-        count = sum(1 for key in ["title", "company", "place", "work_type"] if fields.get(key))
-        richness = len(fields.get("title", "")) + len(fields.get("company", "")) + len(fields.get("place", ""))
+    def field_score(fields: dict[str, str], has_detail: bool) -> tuple[int, int, int]:
+        count = sum(
+            1 for key in ["title", "company", "place", "work_type"] if fields.get(key)
+        )
+        richness = (
+            len(fields.get("title", ""))
+            + len(fields.get("company", ""))
+            + len(fields.get("place", ""))
+        )
         return (1 if has_detail else 0, count, richness)
 
     for anchor in soup.find_all("a", href=True):
@@ -560,7 +1045,10 @@ def _extract_html_entries_by_link(html_text: str) -> Dict[str, Dict[str, str]]:
             txt = " ".join(node.get_text(" ", strip=True).split())
             if txt and len(txt) >= 30:
                 card_text = txt
-            if node.name in ("tr", "table", "li", "div", "td") and 30 <= len(txt) <= 900:
+            if (
+                node.name in ("tr", "table", "li", "div", "td")
+                and 30 <= len(txt) <= 900
+            ):
                 card_text = txt
                 break
             node = node.parent
@@ -576,7 +1064,9 @@ def _extract_html_entries_by_link(html_text: str) -> Dict[str, Dict[str, str]]:
 
         current = by_link.get(normalized)
         current_has_detail = (current or {}).get("_has_detail") == "1"
-        if not current or field_score(fields, has_detail) > field_score(current, current_has_detail):
+        if not current or field_score(fields, has_detail) > field_score(
+            current, current_has_detail
+        ):
             by_link[normalized] = fields
 
     for value in by_link.values():
@@ -585,7 +1075,7 @@ def _extract_html_entries_by_link(html_text: str) -> Dict[str, Dict[str, str]]:
     return by_link
 
 
-def first_non_empty(lines: List[str]) -> str:
+def first_non_empty(lines: list[str]) -> str:
     for line in lines:
         cleaned = line.strip()
         if cleaned:
@@ -593,7 +1083,7 @@ def first_non_empty(lines: List[str]) -> str:
     return ""
 
 
-def extract_company_title(text: str, title_hint: str = "") -> Tuple[str, str]:
+def extract_company_title(text: str, title_hint: str = "") -> tuple[str, str]:
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     line0 = first_non_empty(lines)
     title = title_hint.strip() if title_hint else ""
@@ -621,20 +1111,29 @@ def extract_company_title(text: str, title_hint: str = "") -> Tuple[str, str]:
         company = pattern_at.group(2).strip(" -|:")
 
     if not company:
-        m_alert = re.search(r"^(?P<company>.+?)\s*-\s*job alert notification$", title, flags=re.IGNORECASE)
+        m_alert = re.search(
+            r"^(?P<company>.+?)\s*-\s*job alert notification$",
+            title,
+            flags=re.IGNORECASE,
+        )
         if m_alert:
             company = m_alert.group("company").strip(" \"'“”|:-")[:180]
 
     if not company:
         for ln in lines[:20]:
-            if re.search(r"\b(company|employer|organization)\b", ln, flags=re.IGNORECASE):
+            if re.search(
+                r"\b(company|employer|organization)\b", ln, flags=re.IGNORECASE
+            ):
                 parts = re.split(r":", ln, maxsplit=1)
                 if len(parts) == 2 and parts[1].strip():
                     company = parts[1].strip()[:180]
                     break
 
     if not company:
-        m = re.search(r"\b([A-Z][A-Za-z0-9&.,\- ]{2,50})(?:\s+is\s+hiring|\s+careers|\s+jobs?)\b", text)
+        m = re.search(
+            r"\b([A-Z][A-Za-z0-9&.,\- ]{2,50})(?:\s+is\s+hiring|\s+careers|\s+jobs?)\b",
+            text,
+        )
         if m:
             company = m.group(1).strip()
 
@@ -711,7 +1210,11 @@ def _normalize_position_link(link: str) -> str:
     if "jobs.teradyne.com" in low and "/job/" in low and parsed.path:
         return f"https://jobs.teradyne.com{parsed.path}".rstrip("/")
 
-    base = f"{parsed.scheme}://{parsed.netloc}{parsed.path}" if parsed.scheme and parsed.netloc else link
+    base = (
+        f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+        if parsed.scheme and parsed.netloc
+        else link
+    )
     return base.rstrip("/")
 
 
@@ -746,19 +1249,25 @@ def _is_linkedin_reference_position_link(raw_link: str, normalized_link: str) ->
 
     parsed = urlparse(raw_link)
     q = parse_qs(parsed.query)
-    reference_id = (q.get("referenceJobId", [""])[0] or q.get("referencejobid", [""])[0] or "").strip()
+    reference_id = (
+        q.get("referenceJobId", [""])[0] or q.get("referencejobid", [""])[0] or ""
+    ).strip()
     if not reference_id or not reference_id.isdigit():
         return False
 
-    m = re.search(r"linkedin\.com/(?:comm/)?jobs/view/(\d+)", (normalized_link or "").lower())
+    m = re.search(
+        r"linkedin\.com/(?:comm/)?jobs/view/(\d+)", (normalized_link or "").lower()
+    )
     if not m:
         return False
 
     return m.group(1) == reference_id
 
 
-def _is_linkedin_boilerplate_entry(entry: Dict) -> bool:
-    source = (entry.get("source") or _provider_from_link(entry.get("position_link", ""))).lower()
+def _is_linkedin_boilerplate_entry(entry: dict) -> bool:
+    source = (
+        entry.get("source") or _provider_from_link(entry.get("position_link", ""))
+    ).lower()
     if source != "linkedin":
         return False
 
@@ -773,16 +1282,32 @@ def _is_linkedin_boilerplate_entry(entry: Dict) -> bool:
     company = (entry.get("company") or "").strip().lower()
     place = (entry.get("place") or "").strip().lower()
 
-    return any(phrase in value for phrase in boilerplate_phrases for value in [title, company, place])
+    return any(
+        phrase in value
+        for phrase in boilerplate_phrases
+        for value in [title, company, place]
+    )
 
 
-def _extract_entries_from_text(text: str) -> List[Dict]:
+def _extract_entries_from_text(text: str) -> list[dict]:
     lines = [ln.strip() for ln in text.splitlines()]
     entries = []
 
     def score_title(line: str) -> int:
         low = line.lower()
-        keys = ["developer", "engineer", "specialist", "manager", "scientist", "lead", "architect", "analyst", "consultant", ".net", "software"]
+        keys = [
+            "developer",
+            "engineer",
+            "specialist",
+            "manager",
+            "scientist",
+            "lead",
+            "architect",
+            "analyst",
+            "consultant",
+            ".net",
+            "software",
+        ]
         return sum(1 for k in keys if k in low)
 
     def score_company(line: str) -> int:
@@ -792,7 +1317,15 @@ def _extract_entries_from_text(text: str) -> List[Dict]:
 
     def score_place(line: str) -> int:
         low = line.lower()
-        keys = ["aarhus", "copenhagen", "odense", "lystrup", "humleb", "denmark", "municipality"]
+        keys = [
+            "aarhus",
+            "copenhagen",
+            "odense",
+            "lystrup",
+            "humleb",
+            "denmark",
+            "municipality",
+        ]
         score = sum(1 for k in keys if k in low)
         if "," in line:
             score += 1
@@ -821,20 +1354,43 @@ def _extract_entries_from_text(text: str) -> List[Dict]:
         for j in range(start, idx):
             candidate = lines[j].strip()
             clow = candidate.lower()
-            if candidate and "http" not in clow and not any(sp in clow for sp in stop_phrases) and "----" not in candidate:
+            if (
+                candidate
+                and "http" not in clow
+                and not any(sp in clow for sp in stop_phrases)
+                and "----" not in candidate
+            ):
                 candidates.append(candidate)
 
         title = ""
         company = ""
         place = ""
         if candidates:
-            by_title = sorted(candidates, key=lambda s: (score_title(s), len(s)), reverse=True)
-            by_company = sorted(candidates, key=lambda s: (score_company(s), len(s)), reverse=True)
-            by_place = sorted(candidates, key=lambda s: (score_place(s), -len(s)), reverse=True)
+            by_title = sorted(
+                candidates, key=lambda s: (score_title(s), len(s)), reverse=True
+            )
+            by_company = sorted(
+                candidates, key=lambda s: (score_company(s), len(s)), reverse=True
+            )
+            by_place = sorted(
+                candidates, key=lambda s: (score_place(s), -len(s)), reverse=True
+            )
 
-            title = by_title[0] if score_title(by_title[0]) > 0 else (candidates[-3] if len(candidates) >= 3 else candidates[0])
-            company = by_company[0] if score_company(by_company[0]) > 0 else (candidates[-2] if len(candidates) >= 2 else "")
-            place = by_place[0] if score_place(by_place[0]) > 0 else (candidates[-1] if len(candidates) >= 3 else "")
+            title = (
+                by_title[0]
+                if score_title(by_title[0]) > 0
+                else (candidates[-3] if len(candidates) >= 3 else candidates[0])
+            )
+            company = (
+                by_company[0]
+                if score_company(by_company[0]) > 0
+                else (candidates[-2] if len(candidates) >= 2 else "")
+            )
+            place = (
+                by_place[0]
+                if score_place(by_place[0]) > 0
+                else (candidates[-1] if len(candidates) >= 3 else "")
+            )
 
             # prevent duplicates between fields
             used = {title}
@@ -850,14 +1406,14 @@ def _extract_entries_from_text(text: str) -> List[Dict]:
                         place = c
                         break
 
-        local_chunk = " ".join(lines[max(0, idx - 20): min(len(lines), idx + 5)]).lower()
+        local_chunk = " ".join(
+            lines[max(0, idx - 20) : min(len(lines), idx + 5)]
+        ).lower()
         if "remote" in local_chunk:
             work_type = "Remote"
         elif "hybrid" in local_chunk:
             work_type = "Hybrid"
-        elif "on-site" in local_chunk or "onsite" in local_chunk:
-            work_type = "On-site"
-        elif place:
+        elif "on-site" in local_chunk or "onsite" in local_chunk or place:
             work_type = "On-site"
         else:
             work_type = "Unknown"
@@ -881,12 +1437,12 @@ def _extract_entries_from_text(text: str) -> List[Dict]:
     return entries
 
 
-def _extract_jobindex_entries_by_link(html_text: str) -> Dict[str, Dict[str, str]]:
+def _extract_jobindex_entries_by_link(html_text: str) -> dict[str, dict[str, str]]:
     if not html_text:
         return {}
 
     soup = BeautifulSoup(html_text, "html.parser")
-    by_link: Dict[str, Dict[str, str]] = {}
+    by_link: dict[str, dict[str, str]] = {}
 
     for anchor in soup.find_all("a", href=True):
         href = anchor.get("href") or ""
@@ -913,7 +1469,18 @@ def _extract_jobindex_entries_by_link(html_text: str) -> Dict[str, Dict[str, str
             href2 = link_node.get("href") or ""
             t2 = _extract_jobindex_id(href2)
             txt2 = " ".join(link_node.get_text(" ", strip=True).split())
-            if t2 == job_id and txt2 and txt2.lower() not in {"view job", "apply", "about the company", "save job", "settings"}:
+            if (
+                t2 == job_id
+                and txt2
+                and txt2.lower()
+                not in {
+                    "view job",
+                    "apply",
+                    "about the company",
+                    "save job",
+                    "settings",
+                }
+            ):
                 title_candidates.append(txt2)
         if title_candidates:
             title = max(title_candidates, key=len)[:180]
@@ -932,16 +1499,26 @@ def _extract_jobindex_entries_by_link(html_text: str) -> Dict[str, Dict[str, str
 
         place = ""
         if title:
-            m_place = re.search(re.escape(title) + r"\s+(.{2,80}?)\s+\d+\s+min\b", compact, flags=re.IGNORECASE)
+            m_place = re.search(
+                re.escape(title) + r"\s+(.{2,80}?)\s+\d+\s+min\b",
+                compact,
+                flags=re.IGNORECASE,
+            )
             if m_place:
                 place = m_place.group(1).strip(" -|:")[:180]
 
         description_raw = ""
-        m_desc = re.search(r"settings\s*\)\s*(.*?)\s*PUBLISHED\s*:", compact, flags=re.IGNORECASE)
+        m_desc = re.search(
+            r"settings\s*\)\s*(.*?)\s*PUBLISHED\s*:", compact, flags=re.IGNORECASE
+        )
         if m_desc:
             description_raw = m_desc.group(1).strip()
         else:
-            m_desc2 = re.search(r"\d+\s+min\s*\(.*?\)\s*(.*?)\s*PUBLISHED\s*:", compact, flags=re.IGNORECASE)
+            m_desc2 = re.search(
+                r"\d+\s+min\s*\(.*?\)\s*(.*?)\s*PUBLISHED\s*:",
+                compact,
+                flags=re.IGNORECASE,
+            )
             if m_desc2:
                 description_raw = m_desc2.group(1).strip()
 
@@ -958,12 +1535,12 @@ def _extract_jobindex_entries_by_link(html_text: str) -> Dict[str, Dict[str, str
     return by_link
 
 
-def _extract_demant_entries_by_link(html_text: str) -> Dict[str, Dict[str, str]]:
+def _extract_demant_entries_by_link(html_text: str) -> dict[str, dict[str, str]]:
     if not html_text:
         return {}
 
     soup = BeautifulSoup(html_text, "html.parser")
-    by_link: Dict[str, Dict[str, str]] = {}
+    by_link: dict[str, dict[str, str]] = {}
 
     for anchor in soup.find_all("a", href=True):
         href = anchor.get("href") or ""
@@ -1001,12 +1578,12 @@ def _extract_demant_entries_by_link(html_text: str) -> Dict[str, Dict[str, str]]
     return by_link
 
 
-def _extract_danfoss_entries_by_link(html_text: str) -> Dict[str, Dict[str, str]]:
+def _extract_danfoss_entries_by_link(html_text: str) -> dict[str, dict[str, str]]:
     if not html_text:
         return {}
 
     soup = BeautifulSoup(html_text, "html.parser")
-    by_link: Dict[str, Dict[str, str]] = {}
+    by_link: dict[str, dict[str, str]] = {}
 
     for anchor in soup.find_all("a", href=True):
         href = anchor.get("href") or ""
@@ -1037,7 +1614,7 @@ def _extract_danfoss_entries_by_link(html_text: str) -> Dict[str, Dict[str, str]
     return by_link
 
 
-def extract_job_entries(doc: Dict) -> List[Dict]:
+def extract_job_entries(doc: dict) -> list[dict]:
     text = doc.get("text", "") or ""
     html_text = doc.get("html", "") or ""
     title_hint = doc.get("title", "") or ""
@@ -1106,7 +1683,9 @@ def extract_job_entries(doc: Dict) -> List[Dict]:
         if html_fields.get("place"):
             entry["place"] = html_fields["place"]
 
-        wt = html_fields.get("work_type") or _work_type_from_html_for_link(html_text, lnk)
+        wt = html_fields.get("work_type") or _work_type_from_html_for_link(
+            html_text, lnk
+        )
         if wt:
             entry["work_type"] = wt
 
@@ -1130,19 +1709,44 @@ def extract_job_entries(doc: Dict) -> List[Dict]:
         demant_fields = demant_by_link.get(normalized, {})
         danfoss_fields = danfoss_by_link.get(normalized, {})
         company, title = extract_company_title(text, title_hint)
-        wt = html_fields.get("work_type") or _work_type_from_html_for_link(html_text, normalized)
+        wt = html_fields.get("work_type") or _work_type_from_html_for_link(
+            html_text, normalized
+        )
         by_link[normalized] = {
-            "company": danfoss_fields.get("company") or demant_fields.get("company") or ji_fields.get("company") or html_fields.get("company") or company,
-            "title": danfoss_fields.get("title") or demant_fields.get("title") or ji_fields.get("title") or html_fields.get("title") or title,
-            "place": danfoss_fields.get("place") or demant_fields.get("place") or ji_fields.get("place") or html_fields.get("place") or "",
-            "work_type": danfoss_fields.get("work_type") or demant_fields.get("work_type") or (wt if wt else "Unknown"),
+            "company": danfoss_fields.get("company")
+            or demant_fields.get("company")
+            or ji_fields.get("company")
+            or html_fields.get("company")
+            or company,
+            "title": danfoss_fields.get("title")
+            or demant_fields.get("title")
+            or ji_fields.get("title")
+            or html_fields.get("title")
+            or title,
+            "place": danfoss_fields.get("place")
+            or demant_fields.get("place")
+            or ji_fields.get("place")
+            or html_fields.get("place")
+            or "",
+            "work_type": danfoss_fields.get("work_type")
+            or demant_fields.get("work_type")
+            or (wt if wt else "Unknown"),
             "position_link": normalized,
-            "raw_text": danfoss_fields.get("raw_text") or demant_fields.get("raw_text") or ji_fields.get("raw_text") or html_fields.get("raw_text") or text[:2500],
-            "description_raw": danfoss_fields.get("description_raw") or demant_fields.get("description_raw") or ji_fields.get("description_raw") or "",
-            "source": danfoss_fields.get("source") or demant_fields.get("source") or _provider_from_link(normalized),
+            "raw_text": danfoss_fields.get("raw_text")
+            or demant_fields.get("raw_text")
+            or ji_fields.get("raw_text")
+            or html_fields.get("raw_text")
+            or text[:2500],
+            "description_raw": danfoss_fields.get("description_raw")
+            or demant_fields.get("description_raw")
+            or ji_fields.get("description_raw")
+            or "",
+            "source": danfoss_fields.get("source")
+            or demant_fields.get("source")
+            or _provider_from_link(normalized),
         }
 
-    filtered_entries: List[Dict] = []
+    filtered_entries: list[dict] = []
     for entry in by_link.values():
         if "description_raw" not in entry:
             entry["description_raw"] = ""
@@ -1157,13 +1761,15 @@ def extract_job_entries(doc: Dict) -> List[Dict]:
     return filtered_entries
 
 
-def upsert_job(db_path: str, job: Dict) -> bool:
+def upsert_job(db_path: str, job: dict) -> bool:
     now = datetime.utcnow().isoformat()
     conn = _connect(db_path)
     try:
         cur = conn.cursor()
         position_link = job.get("position_link", "")
-        cur.execute("SELECT 1 FROM jobs WHERE position_link=? LIMIT 1", (position_link,))
+        cur.execute(
+            "SELECT 1 FROM jobs WHERE position_link=? LIMIT 1", (position_link,)
+        )
         is_new_record = cur.fetchone() is None
         if is_new_record:
             cur.execute(
@@ -1175,11 +1781,11 @@ def upsert_job(db_path: str, job: Dict) -> bool:
                     job.get("source") or _provider_from_link(position_link),
                     job.get("company", ""),
                     job.get("title", ""),
-                                    job.get("place", ""),
-                                    job.get("work_type", "Unknown"),
+                    job.get("place", ""),
+                    job.get("work_type", "Unknown"),
                     position_link,
                     job.get("raw_text", ""),
-                                    "",
+                    "",
                     now,
                     now,
                 ),
@@ -1190,9 +1796,17 @@ def upsert_job(db_path: str, job: Dict) -> bool:
         conn.close()
 
 
-def score_relevance(text: str, profile: Dict) -> Tuple[float, str, int, str]:
-    include = [k.lower().strip() for k in profile.get("include_keywords", []) if k.strip()]
-    exclude = [k.lower().strip() for k in profile.get("exclude_keywords", []) if k.strip()]
+def score_relevance(
+    text: str,
+    profile: dict,
+    skill_patterns: Optional[list[tuple[str, str]]] = None,
+) -> tuple[float, str, int, str]:
+    include = [
+        k.lower().strip() for k in profile.get("include_keywords", []) if k.strip()
+    ]
+    exclude = [
+        k.lower().strip() for k in profile.get("exclude_keywords", []) if k.strip()
+    ]
     min_score = float(profile.get("min_score", 1))
 
     corpus = text.lower()
@@ -1209,23 +1823,61 @@ def score_relevance(text: str, profile: Dict) -> Tuple[float, str, int, str]:
             score -= 2.0
             hit_exc.append(kw)
 
-    relevant = 1 if score >= min_score else 0
-    if score >= min_score:
-        category = "relevant"
-    else:
-        category = "not relevant"
+    user_skills = {
+        _normalize_skill_key(s)
+        for s in (profile.get("user_skills") or [])
+        if _normalize_skill_key(str(s))
+    }
+    extracted_required = _extract_required_skills_from_text(text, skill_patterns or [])
+    required_keys = {_normalize_skill_key(s) for s in extracted_required}
 
-    reason = f"score={score:.1f}; include={hit_inc[:6]}; exclude={hit_exc[:6]}"
+    matched = sorted(
+        [s for s in extracted_required if _normalize_skill_key(s) in user_skills]
+    )
+    missing = sorted(
+        [s for s in extracted_required if _normalize_skill_key(s) not in user_skills]
+    )
+
+    skill_match_weight = float(profile.get("skill_match_weight", 1.2) or 1.2)
+    skill_missing_penalty = float(profile.get("skill_missing_penalty", 0.15) or 0.15)
+
+    if user_skills:
+        score += float(len(matched)) * skill_match_weight
+        score -= float(len(missing)) * skill_missing_penalty
+
+    relevant = 1 if score >= min_score else 0
+    category = "relevant" if score >= min_score else "not relevant"
+
+    reason = (
+        f"score={score:.1f}; include={hit_inc[:6]}; exclude={hit_exc[:6]}; "
+        f"required_skills={list(required_keys)[:8]}; matched_skills={matched[:8]}; missing_skills={missing[:8]}"
+    )
     return score, reason, relevant, category
 
 
-def apply_relevance(db_path: str, profile: Dict, prune_irrelevant: bool = False) -> Tuple[int, int]:
+def apply_relevance(
+    db_path: str, profile: dict, prune_irrelevant: bool = False
+) -> tuple[int, int]:
     conn = _connect(db_path)
     try:
         cur = conn.cursor()
         cur.execute("SELECT id, title, company, raw_text, relevance_reason FROM jobs")
         rows = cur.fetchall()
         relevant_count = 0
+
+        skill_pattern_rows = get_skill_patterns(db_path, enabled_only=True)
+        if skill_pattern_rows:
+            skill_patterns = [
+                (
+                    str(item.get("name", "")).strip(),
+                    str(item.get("pattern", "")).strip(),
+                )
+                for item in skill_pattern_rows
+                if str(item.get("name", "")).strip()
+                and str(item.get("pattern", "")).strip()
+            ]
+        else:
+            skill_patterns = _profile_skill_patterns(profile)
 
         for rid, title, company, raw_text, relevance_reason in rows:
             manual_reason = (relevance_reason or "").strip().lower()
@@ -1236,7 +1888,9 @@ def apply_relevance(db_path: str, profile: Dict, prune_irrelevant: bool = False)
                 continue
 
             composed = f"{title or ''}\n{company or ''}\n{raw_text or ''}"
-            score, reason, relevant, category = score_relevance(composed, profile)
+            score, reason, relevant, category = score_relevance(
+                composed, profile, skill_patterns=skill_patterns
+            )
             cur.execute(
                 "UPDATE jobs SET relevance_score=?, relevance_reason=?, relevant=?, category=?, updated_at=? WHERE id=?",
                 (score, reason, relevant, category, datetime.utcnow().isoformat(), rid),
@@ -1253,7 +1907,7 @@ def apply_relevance(db_path: str, profile: Dict, prune_irrelevant: bool = False)
         conn.close()
 
 
-def get_relevant_jobs(db_path: str, limit: int = 0) -> List[Dict]:
+def get_relevant_jobs(db_path: str, limit: int = 0) -> list[dict]:
     conn = _connect(db_path)
     try:
         cur = conn.cursor()
@@ -1280,7 +1934,9 @@ def get_relevant_jobs(db_path: str, limit: int = 0) -> List[Dict]:
         conn.close()
 
 
-def get_jobs_by_category(db_path: str, category: str, limit: int = 0, unviewed_only: bool = False) -> List[Dict]:
+def get_jobs_by_category(
+    db_path: str, category: str, limit: int = 0, unviewed_only: bool = False
+) -> list[dict]:
     conn = _connect(db_path)
     try:
         cur = conn.cursor()
@@ -1300,7 +1956,9 @@ def get_jobs_by_category(db_path: str, category: str, limit: int = 0, unviewed_o
         return [
             {
                 "id": r[0],
-                "source": (r[1] or _provider_from_link(r[6] or "")) if len(r) > 1 else "Unknown",
+                "source": (r[1] or _provider_from_link(r[6] or ""))
+                if len(r) > 1
+                else "Unknown",
                 "company": r[2] or "",
                 "title": r[3] or "",
                 "place": r[4] or "",
@@ -1322,7 +1980,7 @@ def get_jobs_by_category(db_path: str, category: str, limit: int = 0, unviewed_o
         conn.close()
 
 
-def get_applied_jobs(db_path: str, limit: int = 0) -> List[Dict]:
+def get_applied_jobs(db_path: str, limit: int = 0) -> list[dict]:
     conn = _connect(db_path)
     try:
         cur = conn.cursor()
@@ -1330,7 +1988,7 @@ def get_applied_jobs(db_path: str, limit: int = 0) -> List[Dict]:
             "SELECT id, source, company, title, place, work_type, position_link, raw_text, relevance_score, relevance_reason, summary, viewed, applied, description_raw, description, category "
             "FROM jobs WHERE applied=1 ORDER BY updated_at DESC"
         )
-        params: List = []
+        params: list = []
         if limit and limit > 0:
             q += " LIMIT ?"
             params.append(int(limit))
@@ -1339,7 +1997,9 @@ def get_applied_jobs(db_path: str, limit: int = 0) -> List[Dict]:
         return [
             {
                 "id": r[0],
-                "source": (r[1] or _provider_from_link(r[6] or "")) if len(r) > 1 else "Unknown",
+                "source": (r[1] or _provider_from_link(r[6] or ""))
+                if len(r) > 1
+                else "Unknown",
                 "company": r[2] or "",
                 "title": r[3] or "",
                 "place": r[4] or "",
@@ -1376,12 +2036,12 @@ def get_jobs_for_description_refresh(
     db_path: str,
     category: str = "",
     source: str = "",
-    links: List[str] = None,
-    job_ids: List[int] = None,
+    links: list[str] = None,
+    job_ids: list[int] = None,
     limit: int = 0,
     missing_only: bool = True,
     unviewed_only: bool = False,
-) -> List[Dict]:
+) -> list[dict]:
     conn = _connect(db_path)
     try:
         cur = conn.cursor()
@@ -1389,7 +2049,7 @@ def get_jobs_for_description_refresh(
             "SELECT id, source, company, title, place, work_type, position_link, raw_text, category, description_raw, description, summary "
             "FROM jobs WHERE 1=1"
         )
-        params: List = []
+        params: list = []
 
         q += " AND (applied IS NULL OR applied=0)"
 
@@ -1402,7 +2062,9 @@ def get_jobs_for_description_refresh(
             params.append(source)
 
         if links:
-            normalized_links = [_normalize_position_link(link) for link in links if (link or "").strip()]
+            normalized_links = [
+                _normalize_position_link(link) for link in links if (link or "").strip()
+            ]
             if normalized_links:
                 placeholders = ",".join(["?"] * len(normalized_links))
                 q += f" AND position_link IN ({placeholders})"
@@ -1431,7 +2093,9 @@ def get_jobs_for_description_refresh(
         return [
             {
                 "id": r[0],
-                "source": (r[1] or _provider_from_link(r[6] or "")) if len(r) > 1 else "Unknown",
+                "source": (r[1] or _provider_from_link(r[6] or ""))
+                if len(r) > 1
+                else "Unknown",
                 "company": r[2] or "",
                 "title": r[3] or "",
                 "place": r[4] or "",
@@ -1481,11 +2145,125 @@ def set_job_description_raw(db_path: str, job_id: int, description_raw: str):
         cur = conn.cursor()
         cur.execute(
             "UPDATE jobs SET description_raw=?, updated_at=? WHERE id=?",
-            ("", datetime.utcnow().isoformat(), job_id),
+            (description_raw, datetime.utcnow().isoformat(), job_id),
         )
         conn.commit()
     finally:
         conn.close()
+
+
+def set_job_skills(db_path: str, job_id: int, skill_names: list[str]) -> None:
+    """Persist the extracted skill list for a job as links to skill_patterns rows."""
+    if not job_id or not skill_names:
+        return
+    now = datetime.utcnow().isoformat()
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        for name in skill_names:
+            name = (name or "").strip()
+            if not name:
+                continue
+            key = _normalize_skill_key(name)
+            # Ensure the skill_pattern row exists (source='detected', no weight bump here)
+            cur.execute(
+                """
+                INSERT INTO skill_patterns (name, name_key, pattern, source, occurrences, weight, enabled, created_at, updated_at)
+                VALUES (?, ?, ?, 'detected', 0, 0, 1, ?, ?)
+                ON CONFLICT(name_key) DO NOTHING
+                """,
+                (name, key, _skill_to_regex_simple(name), now, now),
+            )
+            cur.execute("SELECT id FROM skill_patterns WHERE name_key=?", (key,))
+            row = cur.fetchone()
+            if row:
+                cur.execute(
+                    "INSERT OR IGNORE INTO job_skills (job_id, skill_id) VALUES (?, ?)",
+                    (job_id, row[0]),
+                )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_job_skills(db_path: str, job_id: int) -> list[str]:
+    """Return the cached skill names for a job, or empty list if not yet stored."""
+    if not job_id:
+        return []
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT sp.name FROM job_skills js
+            JOIN skill_patterns sp ON sp.id = js.skill_id
+            WHERE js.job_id = ?
+            ORDER BY sp.name
+            """,
+            (job_id,),
+        )
+        return [r[0] for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def clear_job_skills_for_unviewed_jobs(db_path: str) -> int:
+    """Clear cached job->skill links for unviewed jobs so skills can be re-extracted."""
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            DELETE FROM job_skills
+            WHERE job_id IN (
+                SELECT id FROM jobs WHERE COALESCE(viewed, 0)=0
+            )
+            """
+        )
+        conn.commit()
+        return int(cur.rowcount or 0)
+    finally:
+        conn.close()
+
+
+def delete_skill_from_db(db_path: str, skill_name: str) -> dict[str, int]:
+    """Delete a skill from skill_patterns and all job links by normalized name key."""
+    key = _normalize_skill_key(skill_name)
+    if not key:
+        return {"skill_rows_deleted": 0, "job_skill_links_deleted": 0}
+
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM skill_patterns WHERE name_key=?", (key,))
+        skill_ids = [int(r[0]) for r in cur.fetchall()]
+        if not skill_ids:
+            return {"skill_rows_deleted": 0, "job_skill_links_deleted": 0}
+
+        links_deleted = 0
+        for skill_id in skill_ids:
+            cur.execute("DELETE FROM job_skills WHERE skill_id=?", (skill_id,))
+            links_deleted += int(cur.rowcount or 0)
+
+        skill_rows_deleted = 0
+        for skill_id in skill_ids:
+            cur.execute("DELETE FROM skill_patterns WHERE id=?", (skill_id,))
+            skill_rows_deleted += int(cur.rowcount or 0)
+
+        conn.commit()
+        return {
+            "skill_rows_deleted": int(skill_rows_deleted),
+            "job_skill_links_deleted": int(links_deleted),
+        }
+    finally:
+        conn.close()
+
+
+def _skill_to_regex_simple(name: str) -> str:
+    tokens = [re.escape(t) for t in re.findall(r"[A-Za-z0-9+#.]+", name or "") if t]
+    if not tokens:
+        return name
+    return r"\b" + r"\s+".join(tokens) + r"\b"
 
 
 def set_job_feedback(db_path: str, job_id: int, signal: str) -> bool:
@@ -1506,7 +2284,14 @@ def set_job_feedback(db_path: str, job_id: int, signal: str) -> bool:
             SET relevant=?, category=?, relevance_reason=?, applied=COALESCE(?, applied), updated_at=?
             WHERE id=?
             """,
-            (relevant, normalized, f"manual_feedback={normalized}", applied, now, int(job_id)),
+            (
+                relevant,
+                normalized,
+                f"manual_feedback={normalized}",
+                applied,
+                now,
+                int(job_id),
+            ),
         )
         conn.commit()
         return cur.rowcount > 0
@@ -1558,10 +2343,10 @@ def set_job_applied(db_path: str, job_id: int, applied: bool) -> bool:
 
 def ingest_docs_to_db(
     db_path: str,
-    docs: List[Dict],
+    docs: list[dict],
     on_new_record: Optional[Callable[[], None]] = None,
     on_progress: Optional[Callable[[int, int, int], None]] = None,
-) -> Dict[str, int]:
+) -> dict[str, int]:
     processed = 0
     inserted_new = 0
     skipped_existing = 0

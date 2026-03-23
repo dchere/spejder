@@ -1,13 +1,16 @@
 # spejder
 
-`spejder` is a local CLI tool for parsing job emails (`.html`, `.htm`, `.eml`), storing extracted positions in SQLite, scoring relevance with a profile, and generating a browser dashboard for triage.
+`spejder` is a local CLI tool for parsing job emails (`.html`, `.htm`, `.eml`), storing extracted positions in SQLite, scoring relevance with a profile, extracting skills, and generating a browser dashboard for triage.
 
 ## Current functionality
 
 - Parse HTML and EML job emails, extract links, and normalize job posting URLs.
 - Ingest jobs into SQLite with de-duplication on normalized `position_link`.
-- Classify jobs as `relevant` or `not relevant` using a keyword profile.
+- Classify jobs as `relevant` or `not relevant` using profile keywords and skill-aware scoring.
 - Generate `summary` and `description` text for jobs, optionally with a local GGUF model through `llama-cpp-python`.
+- Extract up to 10 skills per position and display them as tags in the dashboard.
+- Persist known skill patterns in DB (`skill_patterns` table) and update them from applied/relevant positions.
+- Learn missing skills from applied jobs and write suggestions to `profile.json`.
 - Render `outbox/report.html` with three views: unviewed relevant jobs, unviewed not relevant jobs, and applied jobs.
 - Serve the dashboard with feedback endpoints for `Relevant`, `Viewed`, and `Applied` actions.
 - Learn additional profile keywords from labeled jobs and write them back to `profile.json`.
@@ -20,7 +23,7 @@
 Install dependencies:
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -r spejder/requirements.txt
 ```
@@ -29,8 +32,8 @@ pip install -r spejder/requirements.txt
 
 There are two supported ways to invoke the CLI:
 
-- From the workspace root: `python -m spejder.cli ...`
-- From inside the `spejder` directory: `python -m cli ...`
+- From the workspace root: `python3 -m spejder.cli ...`
+- From inside the `spejder` directory: `python3 -m cli ...`
 
 Examples below use the workspace-root form because `profile.json`, `inbox`, and `outbox` typically live next to the `spejder` folder.
 
@@ -39,19 +42,19 @@ Examples below use the workspace-root form because `profile.json`, `inbox`, and 
 1. Create a profile file.
 
 ```bash
-python -m spejder.cli init-profile --path ./profile.json
+python3 -m spejder.cli init-profile --path ./profile.json
 ```
 
 2. Process files from `./inbox` into `./jobs.db` and build `./outbox/report.html`.
 
 ```bash
-python -m spejder.cli process-inbox --profile ./profile.json
+python3 -m spejder.cli process-inbox --profile ./profile.json
 ```
 
 3. Serve the dashboard and feedback API.
 
 ```bash
-python -m spejder.cli serve-gui --profile ./profile.json
+python3 -m spejder.cli serve-gui --profile ./profile.json
 ```
 
 Open `http://127.0.0.1:8765/report.html`.
@@ -72,7 +75,7 @@ Open `http://127.0.0.1:8765/report.html`.
 Show the most frequent links found in parsed files.
 
 ```bash
-python -m spejder.cli report-links ./inbox
+python3 -m spejder.cli report-links ./inbox
 ```
 
 ### `summarize-file`
@@ -80,7 +83,7 @@ python -m spejder.cli report-links ./inbox
 Summarize a single file with a local model.
 
 ```bash
-python -m spejder.cli summarize-file --path ./inbox/example.eml --model ./models/model.gguf
+python3 -m spejder.cli summarize-file --path ./inbox/example.eml --model ./models/model.gguf
 ```
 
 Options: `--max-tokens`.
@@ -90,7 +93,7 @@ Options: `--max-tokens`.
 Summarize files in a folder, optionally writing JSONL output.
 
 ```bash
-python -m spejder.cli summarize-folder \
+python3 -m spejder.cli summarize-folder \
   --folder ./inbox \
   --model ./models/model.gguf \
   --out ./outbox/summaries.jsonl
@@ -100,10 +103,10 @@ Options: `--max-tokens`, `--limit`, `--out`.
 
 ### `process-inbox`
 
-Parse inbox files, ingest to DB, score relevance, generate missing descriptions, and write dashboard output.
+Parse inbox files, ingest to DB, score relevance, generate missing descriptions, learn skill patterns, update profile learning signals, and write dashboard output.
 
 ```bash
-python -m spejder.cli process-inbox \
+python3 -m spejder.cli process-inbox \
   --profile ./profile.json \
   --model ./models/model.gguf \
   --max-input-chars 4500
@@ -115,14 +118,16 @@ Notes:
 
 - Relevant jobs get a `summary` during ingest.
 - Missing descriptions are generated only for jobs that are still unviewed.
-- If no model is supplied, fallback text is used for summaries.
+- Position skills are extracted and shown in report cards.
+- Skill patterns are loaded from DB and may be auto-extended from applied/relevant jobs.
+- `profile.json` gets updated with learned include/exclude keywords and `missing_skills_suggestions`.
 
 ### `serve-gui`
 
 Serve `report.html` and the feedback API.
 
 ```bash
-python -m spejder.cli serve-gui --profile ./profile.json
+python3 -m spejder.cli serve-gui --profile ./profile.json
 ```
 
 Options: `--report-dir`, `--db`, `--profile`, `--host`, `--port`, `--no-open`, `--verbose`.
@@ -138,7 +143,7 @@ API endpoints:
 Refresh descriptions for selected jobs without re-ingesting inbox files.
 
 ```bash
-python -m spejder.cli refresh-descriptions \
+python3 -m spejder.cli refresh-descriptions \
   --profile ./profile.json \
   --model ./models/model.gguf \
   --category relevant \
@@ -154,12 +159,30 @@ Notes:
 - If `--report-dir` is provided, the dashboard is regenerated after the refresh.
 - The job `summary` is prepended to the raw source text before generating the description.
 
+### `sync-user-skills`
+
+Extract user skills from a CV file/folder and write them into `profile.json` as `user_skills`.
+
+```bash
+python3 -m spejder.cli sync-user-skills \
+  --profile ./profile.json \
+  --cv ./CV \
+  --model ./models/model.gguf
+```
+
+Options: `--db`, `--model`, `--cv`, `--limit`, `--max-chars`, `--replace`, `--quiet-model`.
+
+Notes:
+
+- If `--replace` is omitted, extracted skills are merged into existing `user_skills`.
+- Works with either a single CV text file or a folder of CV-related text files.
+
 ### `init-profile`
 
 Write the default profile JSON file.
 
 ```bash
-python -m spejder.cli init-profile --path ./profile.json
+python3 -m spejder.cli init-profile --path ./profile.json
 ```
 
 Options: `--force`.
@@ -169,7 +192,7 @@ Options: `--force`.
 Render a simple HTML page from a JSONL input.
 
 ```bash
-python -m spejder.cli render-html \
+python3 -m spejder.cli render-html \
   --input ./outbox/relevant_positions.jsonl \
   --out ./outbox/relevant_positions.html
 ```
@@ -198,6 +221,23 @@ Main fields in the `jobs` table include:
 - `applied`
 - `created_at`
 - `updated_at`
+
+Additional table:
+
+- `skill_patterns`: known skill names + regex patterns, source, popularity stats (`occurrences`, `weight`), and enable flag.
+
+## Profile fields related to skills
+
+Default profile values are stored in `spejder/default_profile.json`. Runtime loads this file, then merges `profile.json` over it, and applies schema-style normalization in code (type coercion and fallback defaults).
+
+In `profile.json`:
+
+- `user_skills`: your editable skill list used for scoring.
+- `missing_skills_suggestions`: generated from applied jobs.
+- `skill_match_weight`: bonus per matched required skill.
+- `skill_missing_penalty`: penalty per missing required skill.
+- `missing_skills_max_items`: max missing-skill suggestions written to profile.
+- `skill_learning_max_positions`, `skill_learning_min_occurrences`, `skill_learning_max_new_patterns`: controls for learning new DB skill patterns.
 
 ## Notes
 
