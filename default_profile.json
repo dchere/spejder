@@ -37,6 +37,7 @@
   "skill_new_confidence_threshold": 0.9,
   "skill_new_max_per_job": 2,
   "user_skills": [],
+  "blocked_skills": [],
   "missing_skills_suggestions": [],
   "known_skill_patterns": [
     {
@@ -90,10 +91,6 @@
     {
       "name": "Azure",
       "pattern": "\\bazure\\b"
-    },
-    {
-      "name": "GCP",
-      "pattern": "\\bgcp\\b|\\bgoogle cloud\\b"
     },
     {
       "name": "Git",

@@ -51,6 +51,7 @@ FALLBACK_DEFAULT_PROFILE = {
     "skill_new_confidence_threshold": 0.9,
     "skill_new_max_per_job": 2,
     "user_skills": [],
+    "blocked_skills": [],
     "missing_skills_suggestions": [],
     "known_skill_patterns": [],
 }
@@ -92,6 +93,7 @@ def _load_default_profile() -> dict:
         "learned_include_keywords",
         "learned_exclude_keywords",
         "user_skills",
+        "blocked_skills",
         "missing_skills_suggestions",
     ]
     for field in list_fields:
@@ -272,15 +274,25 @@ def _normalize_skill_key(value: str) -> str:
     return " ".join((value or "").strip().lower().split())
 
 
+def _blocked_skill_keys(profile: Optional[dict]) -> set[str]:
+    values = (profile or {}).get("blocked_skills") or []
+    return {
+        _normalize_skill_key(str(item))
+        for item in values
+        if _normalize_skill_key(str(item))
+    }
+
+
 def _profile_skill_patterns(profile: dict) -> list[tuple[str, str]]:
     raw = profile.get("known_skill_patterns") or []
+    blocked_keys = _blocked_skill_keys(profile)
     out: list[tuple[str, str]] = []
     for item in raw:
         if not isinstance(item, dict):
             continue
         name = str(item.get("name", "")).strip()
         pattern = str(item.get("pattern", "")).strip()
-        if not name or not pattern:
+        if not name or not pattern or _normalize_skill_key(name) in blocked_keys:
             continue
         out.append((name, pattern))
     return out
@@ -420,6 +432,7 @@ def _suggest_missing_skills_from_applied_jobs(
         for s in (profile.get("user_skills") or [])
         if _normalize_skill_key(str(s))
     }
+    blocked_skills = _blocked_skill_keys(profile)
 
     freq: Counter = Counter()
     display_by_key: dict[str, str] = {}
@@ -428,7 +441,7 @@ def _suggest_missing_skills_from_applied_jobs(
         skills = _extract_required_skills_from_text(text, skill_patterns)
         for skill in skills:
             key = _normalize_skill_key(skill)
-            if not key or key in user_skills:
+            if not key or key in user_skills or key in blocked_skills:
                 continue
             display_by_key.setdefault(key, skill)
             freq[key] += 1
@@ -816,6 +829,9 @@ def load_profile(profile_path: Optional[str]) -> dict:
     profile["user_skills"] = _unique_keywords(
         list(profile.get("user_skills", []) or [])
     )
+    profile["blocked_skills"] = _unique_keywords(
+        list(profile.get("blocked_skills", []) or [])
+    )
     profile["missing_skills_suggestions"] = _unique_keywords(
         list(profile.get("missing_skills_suggestions", []) or [])
     )
@@ -1144,6 +1160,11 @@ def _is_job_link(link: str) -> bool:
     low = link.lower()
     if "linkedin.com/comm/jobs/view/" in low or "linkedin.com/jobs/view/" in low:
         return True
+    if re.search(
+        r"(?:careers\.google\.com|google\.com)/.+/jobs/results/\d+",
+        low,
+    ):
+        return True
     if "jobindex.dk" in low and (
         "jobid=" in low
         or re.search(r"/jobannonce/[hr]\d+", low)
@@ -1197,6 +1218,14 @@ def _normalize_position_link(link: str) -> str:
     if m:
         return f"https://www.linkedin.com/jobs/view/{m.group(1)}"
 
+    if re.search(
+        r"(?:careers\.google\.com|google\.com)/.+/jobs/results/\d+",
+        low,
+    ):
+        if parsed.path:
+            return f"https://careers.google.com{parsed.path}".rstrip("/")
+        return ""
+
     if "jobindex.dk" in low:
         job_id = _extract_jobindex_id(link)
         if job_id:
@@ -1222,6 +1251,8 @@ def _provider_from_link(link: str) -> str:
     low = (link or "").lower()
     if "linkedin.com" in low:
         return "LinkedIn"
+    if "careers.google.com" in low or "google.com/about/careers/applications/jobs/results/" in low:
+        return "Google Careers"
     if "jobindex.dk" in low:
         return "Jobindex"
     if "careers.demant.com" in low:
@@ -1614,6 +1645,53 @@ def _extract_danfoss_entries_by_link(html_text: str) -> dict[str, dict[str, str]
     return by_link
 
 
+def _extract_google_entries_by_link(html_text: str) -> dict[str, dict[str, str]]:
+    if not html_text:
+        return {}
+
+    soup = BeautifulSoup(html_text, "html.parser")
+    by_link: dict[str, dict[str, str]] = {}
+
+    for anchor in soup.find_all("a", href=True):
+        href = anchor.get("href") or ""
+        normalized = _normalize_position_link(href)
+        if not normalized or _provider_from_link(normalized) != "Google Careers":
+            continue
+
+        title = " ".join(anchor.get_text(" ", strip=True).split())
+        if not title:
+            continue
+
+        block = anchor.find_parent("td") or anchor.find_parent("tr") or anchor.parent
+        compact = " ".join(block.get_text(" ", strip=True).split()) if block else title
+        compact = compact[:2500]
+
+        company = "Google"
+        place = ""
+
+        suffix = compact[len(title) :].strip() if compact.startswith(title) else compact
+        location_match = re.match(
+            r"^(?P<company>[^–-]{2,80}?)\s*[–-]\s*(?P<place>.+?)(?:\s+\d+\s+(?:minute|minutes|hour|hours|day|days|week|weeks)\s+ago\b|$)",
+            suffix,
+            flags=re.IGNORECASE,
+        )
+        if location_match:
+            company = (location_match.group("company") or company).strip(" -|:")[:180]
+            place = (location_match.group("place") or "").strip(" -|:")[:180]
+
+        by_link[normalized] = {
+            "title": title[:180],
+            "company": company,
+            "place": place,
+            "work_type": "Unknown",
+            "raw_text": compact,
+            "description_raw": "",
+            "source": "Google Careers",
+        }
+
+    return by_link
+
+
 def extract_job_entries(doc: dict) -> list[dict]:
     text = doc.get("text", "") or ""
     html_text = doc.get("html", "") or ""
@@ -1623,6 +1701,7 @@ def extract_job_entries(doc: dict) -> list[dict]:
     jobindex_by_link = _extract_jobindex_entries_by_link(html_text)
     demant_by_link = _extract_demant_entries_by_link(html_text)
     danfoss_by_link = _extract_danfoss_entries_by_link(html_text)
+    google_by_link = _extract_google_entries_by_link(html_text)
 
     by_text = _extract_entries_from_text(text)
     by_link = {}
@@ -1634,6 +1713,22 @@ def extract_job_entries(doc: dict) -> list[dict]:
         ji_fields = jobindex_by_link.get(lnk, {})
         demant_fields = demant_by_link.get(lnk, {})
         danfoss_fields = danfoss_by_link.get(lnk, {})
+        google_fields = google_by_link.get(lnk, {})
+
+        if google_fields.get("title"):
+            entry["title"] = google_fields["title"]
+        if google_fields.get("company"):
+            entry["company"] = google_fields["company"]
+        if google_fields.get("place"):
+            entry["place"] = google_fields["place"]
+        if google_fields.get("work_type"):
+            entry["work_type"] = google_fields["work_type"]
+        if google_fields.get("raw_text"):
+            entry["raw_text"] = google_fields["raw_text"]
+        if google_fields.get("description_raw"):
+            entry["description_raw"] = google_fields["description_raw"]
+        if google_fields.get("source"):
+            entry["source"] = google_fields["source"]
 
         if danfoss_fields.get("title"):
             entry["title"] = danfoss_fields["title"]
@@ -1708,40 +1803,48 @@ def extract_job_entries(doc: dict) -> list[dict]:
         ji_fields = jobindex_by_link.get(normalized, {})
         demant_fields = demant_by_link.get(normalized, {})
         danfoss_fields = danfoss_by_link.get(normalized, {})
+        google_fields = google_by_link.get(normalized, {})
         company, title = extract_company_title(text, title_hint)
         wt = html_fields.get("work_type") or _work_type_from_html_for_link(
             html_text, normalized
         )
         by_link[normalized] = {
-            "company": danfoss_fields.get("company")
+            "company": google_fields.get("company")
+            or danfoss_fields.get("company")
             or demant_fields.get("company")
             or ji_fields.get("company")
             or html_fields.get("company")
             or company,
-            "title": danfoss_fields.get("title")
+            "title": google_fields.get("title")
+            or danfoss_fields.get("title")
             or demant_fields.get("title")
             or ji_fields.get("title")
             or html_fields.get("title")
             or title,
-            "place": danfoss_fields.get("place")
+            "place": google_fields.get("place")
+            or danfoss_fields.get("place")
             or demant_fields.get("place")
             or ji_fields.get("place")
             or html_fields.get("place")
             or "",
-            "work_type": danfoss_fields.get("work_type")
+            "work_type": google_fields.get("work_type")
+            or danfoss_fields.get("work_type")
             or demant_fields.get("work_type")
             or (wt if wt else "Unknown"),
             "position_link": normalized,
-            "raw_text": danfoss_fields.get("raw_text")
+            "raw_text": google_fields.get("raw_text")
+            or danfoss_fields.get("raw_text")
             or demant_fields.get("raw_text")
             or ji_fields.get("raw_text")
             or html_fields.get("raw_text")
             or text[:2500],
-            "description_raw": danfoss_fields.get("description_raw")
+            "description_raw": google_fields.get("description_raw")
+            or danfoss_fields.get("description_raw")
             or demant_fields.get("description_raw")
             or ji_fields.get("description_raw")
             or "",
-            "source": danfoss_fields.get("source")
+            "source": google_fields.get("source")
+            or danfoss_fields.get("source")
             or demant_fields.get("source")
             or _provider_from_link(normalized),
         }

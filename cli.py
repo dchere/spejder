@@ -130,16 +130,40 @@ def _normalize_skill_name(skill: str) -> str:
     return s
 
 
+def _blocked_skill_keys(profile: Optional[dict] = None) -> set[str]:
+    values = (profile or {}).get("blocked_skills") or []
+    return {
+        _normalize_skill_name(str(item)).lower()
+        for item in values
+        if _normalize_skill_name(str(item))
+    }
+
+
+def _filter_blocked_skill_names(skills: list[str], profile: Optional[dict] = None) -> list[str]:
+    blocked = _blocked_skill_keys(profile)
+    out = []
+    seen = set()
+    for skill in skills:
+        normalized = _normalize_skill_name(skill)
+        key = normalized.lower()
+        if not normalized or key in blocked or key in seen:
+            continue
+        seen.add(key)
+        out.append(normalized)
+    return out
+
+
 def _get_skill_patterns(
     db_path: str, profile: Optional[dict] = None
 ) -> list[tuple[str, str]]:
+    blocked_keys = _blocked_skill_keys(profile)
     db_rows = get_db_skill_patterns(db_path, enabled_only=True)
     if db_rows:
         patterns = []
         for row in db_rows:
             name = str(row.get("name", "")).strip()
             pattern = str(row.get("pattern", "")).strip()
-            if name and pattern:
+            if name and pattern and _normalize_skill_name(name).lower() not in blocked_keys:
                 patterns.append((name, pattern))
         if patterns:
             return patterns
@@ -154,7 +178,7 @@ def _get_skill_patterns(
             continue
         name = str(item.get("name", "")).strip()
         pattern = str(item.get("pattern", "")).strip()
-        if not name or not pattern:
+        if not name or not pattern or _normalize_skill_name(name).lower() in blocked_keys:
             continue
         patterns.append((name, pattern))
 
@@ -467,7 +491,9 @@ def _extract_job_skills(
                         break
 
             if selected:
-                return _format_skills(selected, limit=limit)
+                filtered_selected = _filter_blocked_skill_names(selected, profile)
+                if filtered_selected:
+                    return _format_skills(filtered_selected, limit=limit)
 
             parsed_text = _split_skills_from_text(clean_model_output(out))
             constrained = []
@@ -475,8 +501,9 @@ def _extract_job_skills(
                 key = skill.lower()
                 if key in known_by_key and _passes_phrase_quality(skill):
                     constrained.append(known_by_key[key])
-            if constrained:
-                return _format_skills(constrained, limit=limit)
+            filtered_constrained = _filter_blocked_skill_names(constrained, profile)
+            if filtered_constrained:
+                return _format_skills(filtered_constrained, limit=limit)
         except Exception:
             pass
 
@@ -488,10 +515,11 @@ def _extract_job_skills(
         and position_link in page_context_cache
     ):
         fallback_source = page_context_cache.get(position_link, "")
-    return _format_skills(
+    fallback_skills = _filter_blocked_skill_names(
         _extract_skills_fallback(fallback_source, skill_patterns=skill_patterns, limit=limit),
-        limit=limit,
+        profile,
     )
+    return _format_skills(fallback_skills, limit=limit)
 
 
 def _get_or_extract_job_skills(
@@ -508,7 +536,7 @@ def _get_or_extract_job_skills(
     if job_id:
         cached = get_job_skills(db_path, job_id)
         if cached:
-            return _format_skills(cached, limit=limit)
+            return _format_skills(_filter_blocked_skill_names(cached, profile), limit=limit)
     skills_text = _extract_job_skills(
         db_path,
         description_raw,
@@ -933,16 +961,47 @@ def _remove_skill_from_profile(profile: dict, skill_name: str) -> dict[str, int]
     return {"removed": int(removed)}
 
 
+def _block_skill_in_profile(profile: dict, skill_name: str) -> dict[str, int]:
+    skill = _normalize_skill_name(skill_name)
+    key = skill.lower()
+    if not key:
+        return {"blocked_added": 0, "removed": 0}
+
+    removed_info = _remove_skill_from_profile(profile, skill)
+    blocked_values = profile.get("blocked_skills")
+    if not isinstance(blocked_values, list):
+        blocked_values = []
+
+    cleaned = []
+    seen = set()
+    for item in blocked_values:
+        normalized = _normalize_skill_name(str(item))
+        normalized_key = normalized.lower()
+        if not normalized_key or normalized_key in seen:
+            continue
+        seen.add(normalized_key)
+        cleaned.append(normalized)
+
+    blocked_added = 0
+    if key not in seen:
+        cleaned.append(skill)
+        blocked_added = 1
+
+    profile["blocked_skills"] = cleaned
+    return {"blocked_added": int(blocked_added), "removed": int(removed_info.get("removed", 0))}
+
+
 def _build_skills_tab_items(db_path: str, profile: dict) -> list[dict]:
+    blocked_keys = _blocked_skill_keys(profile)
     user_keys = {
         _normalize_skill_name(str(s)).lower()
         for s in (profile.get("user_skills") or [])
-        if _normalize_skill_name(str(s))
+        if _normalize_skill_name(str(s)) and _normalize_skill_name(str(s)).lower() not in blocked_keys
     }
     learn_keys = {
         _normalize_skill_name(str(s)).lower()
         for s in (profile.get("missing_skills_suggestions") or [])
-        if _normalize_skill_name(str(s))
+        if _normalize_skill_name(str(s)) and _normalize_skill_name(str(s)).lower() not in blocked_keys
     }
 
     by_key: dict[str, dict] = {}
@@ -950,7 +1009,7 @@ def _build_skills_tab_items(db_path: str, profile: dict) -> list[dict]:
     def upsert(name: str, source: str, occurrences: int = 0, weight: float = 0.0):
         clean = _normalize_skill_name(name)
         key = clean.lower()
-        if not key:
+        if not key or key in blocked_keys:
             return
         row = by_key.get(key)
         if row is None:
@@ -1082,10 +1141,16 @@ def _render_html_dashboard(
             summary = html.escape(str(item.get("summary", "")))
             description = html.escape(str(item.get("description", "")))
             skills_text = str(item.get("skills", ""))
-            skills_items = [html.escape(s.strip()) for s in skills_text.split(",") if s.strip()]
-            skills_html = "".join(
-                [f'<span class="skill-tag">{skill}</span>' for skill in skills_items]
-            )
+            skill_tags = []
+            for raw_skill in [s.strip() for s in skills_text.split(",") if s.strip()]:
+                skill_label = html.escape(raw_skill)
+                skill_key = html.escape(_normalize_skill_name(raw_skill), quote=True)
+                if not skill_key:
+                    continue
+                skill_tags.append(
+                    f'<button type="button" class="skill-tag skill-tag-btn" data-skill-key="{skill_key}" onclick="openSkillsForSkill(this.dataset.skillKey)">{skill_label}</button>'
+                )
+            skills_html = "".join(skill_tags)
             relevance_score = float(item.get("relevance_score", 0) or 0)
             link = str(item.get("position_link", ""))
             safe_link = html.escape(link, quote=True)
@@ -1135,7 +1200,7 @@ def _render_html_dashboard(
                 <td>{occurrences}</td>
                 <td><input type=\"checkbox\" {has_skill_checked} onchange=\"setUserSkill({skill_key_js}, this.checked, this)\" /></td>
                 <td><input type=\"checkbox\" {learn_checked} onchange=\"setLearnSkill({skill_key_js}, this.checked, this)\" /></td>
-                <td><button type=\"button\" class=\"delete-skill-btn\" onclick=\"deleteSkill({skill_key_js}, this)\">Delete</button></td>
+                <td><button type=\"button\" class=\"block-skill-btn\" onclick=\"blockSkill({skill_key_js}, this)\">Block</button><button type=\"button\" class=\"delete-skill-btn\" onclick=\"deleteSkill({skill_key_js}, this)\">Delete</button></td>
             </tr>
             """.strip()
         )
@@ -1181,6 +1246,7 @@ def _render_html_dashboard(
             .card p {{ margin: 6px 0; }}
             .skill-tags {{ display: inline-flex; flex-wrap: wrap; gap: 6px; vertical-align: middle; }}
             .skill-tag {{ display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid #c9d6f0; background: #eef4ff; color: #1f3a6d; font-size: 12px; }}
+            .skill-tag-btn {{ cursor: pointer; }}
             .skills-empty {{ color: #777; font-size: 12px; }}
             .relevance-score {{ position: absolute; top: 8px; right: 10px; font-size: 11px; color: #9aa0a6; }}
             .feedback {{ display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }}
@@ -1195,7 +1261,9 @@ def _render_html_dashboard(
             .skills-table {{ width: 100%; border-collapse: collapse; min-width: 760px; }}
             .skills-table th, .skills-table td {{ border-bottom: 1px solid #eee; text-align: left; padding: 8px; font-size: 13px; }}
             .skills-table th {{ background: #fafafa; font-weight: 700; }}
+            .skills-table tbody tr.skill-row-focus {{ outline: 2px solid #0a58ca; outline-offset: -2px; background: #eef4ff; transition: background-color 0.8s ease; }}
             .delete-skill-btn {{ border: 1px solid #cc8c8c; color: #7b1111; background: #fff; border-radius: 6px; padding: 4px 8px; cursor: pointer; }}
+            .block-skill-btn {{ border: 1px solid #d2a24a; color: #7a5200; background: #fff7e8; border-radius: 6px; padding: 4px 8px; cursor: pointer; margin-right: 6px; }}
         </style>
     </head>
     <body>
@@ -1271,6 +1339,23 @@ def _render_html_dashboard(
                 btnSkills.classList.toggle('active', isSkills);
             }}
 
+            function focusSkillRow(skillKey) {{
+                if (!skillKey) return;
+                const row = panelSkills.querySelector(`tr[data-skill-key="${{CSS.escape(skillKey)}}"]`);
+                if (!row) return;
+                panelSkills.querySelectorAll('tbody tr.skill-row-focus').forEach((item) => item.classList.remove('skill-row-focus'));
+                row.classList.add('skill-row-focus');
+                row.setAttribute('tabindex', '-1');
+                row.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+                window.setTimeout(() => row.focus({{ preventScroll: true }}), 120);
+                window.setTimeout(() => row.classList.remove('skill-row-focus'), 2200);
+            }}
+
+            function openSkillsForSkill(skillKey) {{
+                setMode('skills');
+                focusSkillRow(skillKey);
+            }}
+
             btnRelevant.addEventListener('click', () => setMode('relevant'));
             btnNotRelevant.addEventListener('click', () => setMode('not relevant'));
             btnApplied.addEventListener('click', () => setMode('applied'));
@@ -1334,6 +1419,28 @@ def _render_html_dashboard(
                     refreshCounts();
                 }} catch (err) {{
                     alert(`Failed to delete skill: ${{err.message}}`);
+                    btnEl.disabled = false;
+                }}
+            }}
+
+            async function blockSkill(skillKey, btnEl) {{
+                if (!confirm(`Block skill '${{skillKey}}' and hide it from all positions and the skills tab?`)) return;
+                btnEl.disabled = true;
+                try {{
+                    const response = await fetch(apiUrl('/api/skill/block'), {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{ skill: skillKey }})
+                    }});
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {{
+                        throw new Error(data.error || 'Request failed');
+                    }}
+                    const row = btnEl.closest('tr');
+                    if (row) row.remove();
+                    refreshCounts();
+                }} catch (err) {{
+                    alert(`Failed to block skill: ${{err.message}}`);
                     btnEl.disabled = false;
                 }}
             }}
@@ -1453,6 +1560,8 @@ def _render_html_dashboard(
             window.setApplied = setApplied;
             window.setUserSkill = setUserSkill;
             window.setLearnSkill = setLearnSkill;
+            window.openSkillsForSkill = openSkillsForSkill;
+            window.blockSkill = blockSkill;
             window.deleteSkill = deleteSkill;
             refreshCounts();
         </script>
@@ -2379,6 +2488,7 @@ def cmd_serve_gui(args):
                 "/api/applied",
                 "/api/skill/user",
                 "/api/skill/learn",
+                "/api/skill/block",
                 "/api/skill/delete",
             }:
                 self._write_json(404, {"ok": False, "error": "Not found"})
@@ -2504,6 +2614,28 @@ def cmd_serve_gui(args):
                         },
                     )
                     return
+                elif path == "/api/skill/block":
+                    skill = _normalize_skill_name(str(payload.get("skill", "")))
+                    if not skill:
+                        self._write_json(400, {"ok": False, "error": "skill is required"})
+                        return
+
+                    profile_blocked = _block_skill_in_profile(runtime_profile, skill)
+                    _persist_runtime_profile()
+                    _reload_runtime_profile()
+
+                    db_deleted = delete_skill_from_db(db_path, skill)
+                    _rebuild_dashboard(reason=f"skill blocked cleanup {skill}")
+                    self._write_json(
+                        200,
+                        {
+                            "ok": True,
+                            "skill": skill,
+                            "profile_blocked": profile_blocked,
+                            "db_deleted": db_deleted,
+                        },
+                    )
+                    return
 
                 if not updated:
                     self._write_json(404, {"ok": False, "error": "job id not found"})
@@ -2571,6 +2703,7 @@ def cmd_serve_gui(args):
     print(f"Applied API at http://{host}:{selected_port}/api/applied")
     print(f"Skill API (have): http://{host}:{selected_port}/api/skill/user")
     print(f"Skill API (learn): http://{host}:{selected_port}/api/skill/learn")
+    print(f"Skill API (block): http://{host}:{selected_port}/api/skill/block")
     print(f"Skill API (delete): http://{host}:{selected_port}/api/skill/delete")
 
     if not args.no_open:

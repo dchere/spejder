@@ -233,6 +233,7 @@ Default profile values are stored in `spejder/default_profile.json`. Runtime loa
 In `profile.json`:
 
 - `user_skills`: your editable skill list used for scoring.
+- `blocked_skills`: skills hidden from the Skills tab and filtered out from extracted skill results.
 - `missing_skills_suggestions`: generated from applied jobs.
 - `skill_match_weight`: bonus per matched required skill.
 - `skill_missing_penalty`: penalty per missing required skill.
