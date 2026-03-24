@@ -5,6 +5,8 @@ It keeps the rest of the codebase decoupled so the agent can run offline
 with a quantized GGUF model.
 """
 
+import os
+from contextlib import contextmanager
 from typing import Optional
 
 try:
@@ -18,7 +20,7 @@ class LocalLLM:
         self,
         model_path: Optional[str] = None,
         n_ctx: int = 2048,
-        verbose: bool = True,
+        verbose: bool = False,
     ):
         self.model_path = model_path
         self.n_ctx = n_ctx
@@ -30,7 +32,37 @@ class LocalLLM:
             raise RuntimeError("llama_cpp (llama-cpp-python) is not installed")
         if not self.model_path:
             raise RuntimeError("model_path is not set")
-        self.model = Llama(model_path=self.model_path, n_ctx=self.n_ctx, verbose=self.verbose)
+        if self.verbose:
+            self.model = Llama(model_path=self.model_path, n_ctx=self.n_ctx, verbose=True)
+            return
+
+        # Some native llama.cpp startup messages bypass Python logging flags.
+        # Silence both stdout/stderr while initializing the model in quiet mode.
+        with _suppress_native_stdio():
+            self.model = Llama(model_path=self.model_path, n_ctx=self.n_ctx, verbose=False)
+
+
+@contextmanager
+def _suppress_native_stdio():
+    saved_stdout = None
+    saved_stderr = None
+    devnull = None
+    try:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        saved_stdout = os.dup(1)
+        saved_stderr = os.dup(2)
+        os.dup2(devnull, 1)
+        os.dup2(devnull, 2)
+        yield
+    finally:
+        if saved_stdout is not None:
+            os.dup2(saved_stdout, 1)
+            os.close(saved_stdout)
+        if saved_stderr is not None:
+            os.dup2(saved_stderr, 2)
+            os.close(saved_stderr)
+        if devnull is not None:
+            os.close(devnull)
 
     def generate(
         self,

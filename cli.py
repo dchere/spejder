@@ -85,6 +85,31 @@ SKILL_CUE_PATTERN = re.compile(
     r"\b(requirements?|required|must have|qualifications?|you (?:will|should)|experience with|we are looking for)\b",
     flags=re.IGNORECASE,
 )
+EASY_APPLY_PATTERN = re.compile(r"\beasy\s*apply\b", flags=re.IGNORECASE)
+
+
+def _is_linkedin_item(source: str, position_link: str) -> bool:
+    source_low = (source or "").strip().lower()
+    link_low = (position_link or "").strip().lower()
+    return source_low == "linkedin" or "linkedin.com/" in link_low
+
+
+def _has_easy_apply_signal(*parts: str) -> bool:
+    compact = " ".join(" ".join((part or "").split()) for part in parts if part)
+    return bool(compact and EASY_APPLY_PATTERN.search(compact))
+
+
+def _is_easy_apply_item(item: dict) -> bool:
+    source = str(item.get("source", ""))
+    position_link = str(item.get("position_link", ""))
+    if not _is_linkedin_item(source, position_link):
+        return False
+    return _has_easy_apply_signal(
+        str(item.get("title", "")),
+        str(item.get("summary", "")),
+        str(item.get("description", "")),
+        str(item.get("raw_text", "")),
+    )
 
 
 def _normalize_skill_name(skill: str) -> str:
@@ -599,6 +624,7 @@ def _learn_skill_patterns_from_positions(
 
     counts: Counter[str] = Counter()
     page_context_cache: dict[str, str] = {}
+    title_translation_cache: dict[str, str] = {}
     considered = 0
 
     if progress:
@@ -606,7 +632,11 @@ def _learn_skill_patterns_from_positions(
 
     for row, weight in rows[:max_positions]:
         raw = _enrich_raw_text_with_position_page(
-            db_path, row, page_context_cache=page_context_cache
+            db_path,
+            row,
+            page_context_cache=page_context_cache,
+            llm=llm,
+            title_translation_cache=title_translation_cache,
         )
         skills_text = _get_or_extract_job_skills(
             db_path,
@@ -1070,11 +1100,18 @@ def _render_html_from_items(items, out_html: str, title: str):
         skills_html = "".join([f'<span class="skill-tag">{skill}</span>' for skill in skills_items])
         link = str(item.get("position_link", ""))
         safe_link = html.escape(link, quote=True)
+        is_easy_apply = _is_easy_apply_item(item)
+        easy_apply_badge = (
+            '<span class="easy-apply-badge" title="LinkedIn Easy Apply detected">Easy Apply</span>'
+            if is_easy_apply
+            else ""
+        )
+        card_class = "card easy-apply-card" if is_easy_apply else "card"
 
         cards.append(
             f"""
-            <article class=\"card\">
-                            <p><strong>Title:</strong> <a href=\"{safe_link}\" target=\"_blank\" rel=\"noopener noreferrer\">{role}</a></p>
+            <article class=\"{card_class}\">
+                            <p><strong>Title:</strong> <a href=\"{safe_link}\" target=\"_blank\" rel=\"noopener noreferrer\">{role}</a> {easy_apply_badge}</p>
                             <p><strong>Source:</strong> {source}</p>
                             <p><strong>Company:</strong> {company}</p>
                             <p><strong>Place:</strong> {place}</p>
@@ -1097,6 +1134,8 @@ def _render_html_from_items(items, out_html: str, title: str):
             .subtitle {{ margin-top: 0; color: #555; }}
             .grid {{ display: grid; gap: 12px; }}
             .card {{ background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 12px; }}
+            .easy-apply-card {{ border-color: #d7a127; box-shadow: inset 0 0 0 1px #f6d36b; }}
+            .easy-apply-badge {{ display: inline-block; margin-left: 6px; padding: 2px 8px; border-radius: 999px; border: 1px solid #d7a127; background: #fff6d9; color: #7a5a00; font-size: 11px; font-weight: 700; vertical-align: middle; }}
             .card p {{ margin: 6px 0; }}
             .skill-tags {{ display: inline-flex; flex-wrap: wrap; gap: 6px; vertical-align: middle; }}
             .skill-tag {{ display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid #c9d6f0; background: #eef4ff; color: #1f3a6d; font-size: 12px; }}
@@ -1153,12 +1192,19 @@ def _render_html_dashboard(
             relevance_score = float(item.get("relevance_score", 0) or 0)
             link = str(item.get("position_link", ""))
             safe_link = html.escape(link, quote=True)
+            is_easy_apply = _is_easy_apply_item(item)
+            easy_apply_badge = (
+                '<span class="easy-apply-badge" title="LinkedIn Easy Apply detected">Easy Apply</span>'
+                if is_easy_apply
+                else ""
+            )
+            card_class = "card easy-apply-card" if is_easy_apply else "card"
 
             cards.append(
                 f"""
-                <article class=\"card\" data-job-id=\"{job_id}\">
+                <article class=\"{card_class}\" data-job-id=\"{job_id}\">
                     <span class=\"relevance-score\" title=\"Relevance score\">{relevance_score:.2f}</span>
-                    <p><strong>Title:</strong> <a href=\"{safe_link}\" target=\"_blank\" rel=\"noopener noreferrer\">{role}</a></p>
+                    <p><strong>Title:</strong> <a href=\"{safe_link}\" target=\"_blank\" rel=\"noopener noreferrer\">{role}</a> {easy_apply_badge}</p>
                     <p><strong>Source:</strong> {source}</p>
                     <p><strong>Company:</strong> {company}</p>
                     <p><strong>Place:</strong> {place}</p>
@@ -1241,6 +1287,8 @@ def _render_html_dashboard(
             .mode-btn.active {{ border-color: #0a58ca; font-weight: 700; }}
             .grid {{ display: grid; gap: 12px; }}
             .card {{ background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 12px; position: relative; }}
+            .easy-apply-card {{ border-color: #d7a127; box-shadow: inset 0 0 0 1px #f6d36b; }}
+            .easy-apply-badge {{ display: inline-block; margin-left: 6px; padding: 2px 8px; border-radius: 999px; border: 1px solid #d7a127; background: #fff6d9; color: #7a5a00; font-size: 11px; font-weight: 700; vertical-align: middle; }}
             .card p {{ margin: 6px 0; }}
             .skill-tags {{ display: inline-flex; flex-wrap: wrap; gap: 6px; vertical-align: middle; }}
             .skill-tag {{ display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid #c9d6f0; background: #eef4ff; color: #1f3a6d; font-size: 12px; }}
@@ -1592,7 +1640,7 @@ def cmd_summarize_file(args):
         print("File not found:", args.path)
         return
     doc = email_parser.parse_html_file(args.path)
-    llm = LocalLLM(model_path=args.model)
+    llm = LocalLLM(model_path=args.model, verbose=bool(args.verbose_model))
     try:
         summary = llm.summarize(doc.get("text", ""), max_tokens=args.max_tokens)
         print("--- Summary ---")
@@ -1607,7 +1655,7 @@ def cmd_summarize_folder(args):
         print("No documents found in folder:", args.folder)
         return
 
-    llm = LocalLLM(model_path=args.model)
+    llm = LocalLLM(model_path=args.model, verbose=bool(args.verbose_model))
     if args.out:
         os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
 
@@ -1722,6 +1770,59 @@ def _normalize_title_compare_key(text: str) -> str:
     return compact
 
 
+def _clean_translated_title_output(text: str) -> str:
+    cleaned = " ".join((text or "").replace("```", " ").split()).strip()
+    if not cleaned:
+        return ""
+
+    cleaned = re.sub(r"^english\s+title\s*:\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"^translated\s+title(?:\s+text)?\s*:\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = cleaned.strip(" \"'`[]()")
+
+    marker_pattern = re.compile(
+        r"\b(?:translated\s+title|translated\s+title\s+text|original\s+title|original\s+text|english\s+title|english\s+translation|translation\s+result|return\s+value|return\s+only|unchanged\s+title|step\s+1|note:|you\s+are\s+an\s+ai\s+assistant|translate\s+this\s+job\s+title\s+to\s+english|this\s+translation|translation\s+conveys|the\s+translated\s+title|is\s+already\s+in\s+english)\b",
+        flags=re.IGNORECASE,
+    )
+    match = marker_pattern.search(cleaned)
+    if match:
+        cleaned = cleaned[: match.start()].rstrip(" -|:;,/")
+
+    while cleaned.count("(") > cleaned.count(")") and "(" in cleaned:
+        cleaned = cleaned.rsplit("(", 1)[0].rstrip(" -|:;,/")
+
+    return cleaned.strip(" \"'`[]()").rstrip(" -|:;,/")[:180]
+
+
+def _is_plausible_translated_title(candidate: str, original: str) -> bool:
+    text = " ".join((candidate or "").split()).strip()
+    base = " ".join((original or "").split()).strip()
+    if not text:
+        return False
+    if len(text) > max(80, int(len(base) * 2.2)):
+        return False
+
+    low = text.lower()
+    bad_fragments = [
+        "translation",
+        "translated title",
+        "original title",
+        "you are an ai assistant",
+        "return only",
+        "step 1",
+        "this title",
+        "in english",
+    ]
+    if any(fragment in low for fragment in bad_fragments):
+        return False
+
+    words = re.findall(r"[a-zA-Z0-9+#.&/-]+", text)
+    if len(words) > 14:
+        return False
+    if text.count(".") >= 2:
+        return False
+    return True
+
+
 def _translate_title_to_english(
     title: str,
     llm: LocalLLM = None,
@@ -1746,10 +1847,8 @@ def _translate_title_to_english(
         )
         try:
             out = llm.generate(prompt, max_tokens=64)
-            english = " ".join((out or "").replace("```", " ").split()).strip()
-            english = re.sub(r"^english\s+title\s*:\s*", "", english, flags=re.IGNORECASE)
-            english = english.strip(" \"'`[]()")
-            if english:
+            english = _clean_translated_title_output(out)
+            if english and _is_plausible_translated_title(english, title_clean):
                 same = _normalize_title_compare_key(english) == _normalize_title_compare_key(
                     title_clean
                 )
@@ -1883,8 +1982,9 @@ def _build_description_summary(
         )
         prompt = (
             "Summarize this job description in English. "
-            "Keep only key responsibilities and context, no bullets, no extra commentary. "
+            "Keep only key responsibilities, key requirements, and main purpose, no general information and common words. "
             "Use the Description as primary truth; use page context only to refine missing details.\n\n"
+            "Do not include job title, company name, location, or other metadata in the summary unless they are explicitly explain the position. "
             f"Description:\n{cleaned}\n\n"
             f"{page_block}"
             "Summary:"
@@ -1903,6 +2003,13 @@ def _fallback_description_text(description: str, raw_text: str, max_chars: int =
         return description
     compact = " ".join((raw_text or "").split())
     compact = re.sub(r"\[POSITION_PAGE_CONTEXT[^\]]*\]", " ", compact, flags=re.IGNORECASE)
+    compact = re.sub(r"\(\s*settings\s*\)", " ", compact, flags=re.IGNORECASE)
+    compact = re.sub(r"\bPUBLISHED\s*:\s*\d{1,2}-\d{1,2}-\d{4}\b", " ", compact, flags=re.IGNORECASE)
+    compact = re.sub(r"\bRetrieved\s+from\s+Jobcenter\b", " ", compact, flags=re.IGNORECASE)
+    compact = re.sub(r"\bCheck\s+the\s+job\s+satisfaction\s*:\s*[^.\n]*", " ", compact, flags=re.IGNORECASE)
+    compact = re.sub(r"\b\d{1,3}(?:,\d{3})*\s+ratings\b", " ", compact, flags=re.IGNORECASE)
+    compact = re.sub(r"\bSave\s+job\b", " ", compact, flags=re.IGNORECASE)
+    compact = re.sub(r"\bView\s+job\b", " ", compact, flags=re.IGNORECASE)
     compact = " ".join(compact.split())
     if not compact:
         return ""
@@ -1914,6 +2021,54 @@ def _fallback_description_text(description: str, raw_text: str, max_chars: int =
 
 def _has_invalid_description_marker(text: str) -> bool:
     return "[POSITION_PAGE_CONTEXT" in (text or "").upper()
+
+
+def _is_low_quality_description(
+    description: str,
+    raw_text: str = "",
+    title: str = "",
+) -> bool:
+    desc = " ".join((description or "").split()).strip()
+    if not desc:
+        return False
+
+    low = desc.lower()
+    bad_markers = [
+        "you are an ai assistant",
+        "translated title",
+        "original title",
+        "english title",
+        "return only",
+        "step 1",
+    ]
+    if any(marker in low for marker in bad_markers):
+        return True
+
+    # Word spam / repeated fragments are usually model failure artifacts.
+    if re.search(r"\b(\w+)(?:\s+\1){4,}\b", low):
+        return True
+
+    words = re.findall(r"[a-zA-Z0-9+#.-]+", low)
+    if len(words) >= 45:
+        unique_ratio = len(set(words)) / max(1, len(words))
+        if unique_ratio < 0.42:
+            return True
+
+    raw_clean = " ".join((raw_text or "").split()).strip()
+    if raw_clean and len(raw_clean) < 240 and len(desc) > 360:
+        return True
+
+    title_tokens = [
+        token
+        for token in re.findall(r"[a-zA-Z0-9+#.-]+", (title or "").lower())
+        if len(token) > 2
+    ]
+    if title_tokens and len(words) >= 30:
+        repeats = sum(low.count(token) for token in set(title_tokens))
+        if repeats > max(6, len(words) // 4):
+            return True
+
+    return False
 
 
 def _generate_missing_descriptions_for_ingest(
@@ -1953,6 +2108,7 @@ def _generate_missing_descriptions_for_ingest(
         print(f"{progress_label}: starting ({total_rows} items)")
 
     page_context_cache: dict[str, str] = {}
+    title_translation_cache: dict[str, str] = {}
     for idx, row in enumerate(rows, start=1):
         if progress:
             elapsed = time.monotonic() - started_at
@@ -1964,8 +2120,13 @@ def _generate_missing_descriptions_for_ingest(
                 f"(updated={updated}, skipped={skipped}, elapsed={_fmt_eta(elapsed)}, eta={_fmt_eta(eta_sec)})"
             )
 
+        source_raw = row.get("raw_text", "") or ""
         raw = _enrich_raw_text_with_position_page(
-            db_path, row, page_context_cache=page_context_cache
+            db_path,
+            row,
+            page_context_cache=page_context_cache,
+            llm=llm,
+            title_translation_cache=title_translation_cache,
         )
         if not raw:
             skipped += 1
@@ -1977,11 +2138,16 @@ def _generate_missing_descriptions_for_ingest(
             position_link=row.get("position_link", ""),
             page_context_cache=page_context_cache,
         )
-        if not description:
-            description = _fallback_description_text("", raw)
-        if _has_invalid_description_marker(description):
-            skipped += 1
-            continue
+        if (
+            not description
+            or _has_invalid_description_marker(description)
+            or _is_low_quality_description(
+                description,
+                raw_text=raw,
+                title=row.get("title", ""),
+            )
+        ):
+            description = _fallback_description_text("", source_raw or raw)
         if not description and not allow_empty:
             skipped += 1
             continue
@@ -2111,14 +2277,20 @@ def cmd_process_inbox(args):
 
     report_data = {}
     page_context_cache: dict[str, str] = {}
+    title_translation_cache: dict[str, str] = {}
     for cat in ["relevant", "not relevant"]:
         rows = get_jobs_by_category(db_path, cat, limit=0, unviewed_only=True)
         records = []
         for row in rows:
             summary = row.get("summary") or " ".join((row.get("raw_text") or "").split())[:260]
             description = row.get("description") or ""
+            source_raw = row.get("raw_text", "") or ""
             raw_text = _enrich_raw_text_with_position_page(
-                db_path, row, page_context_cache=page_context_cache
+                db_path,
+                row,
+                page_context_cache=page_context_cache,
+                llm=llm,
+                title_translation_cache=title_translation_cache,
             )
             skills = _get_or_extract_job_skills(
                 db_path,
@@ -2131,24 +2303,37 @@ def cmd_process_inbox(args):
                 limit=10,
             )
             if not description:
-                description = _build_description_summary(
+                generated = _build_description_summary(
                     raw_text,
                     llm=llm,
                     position_link=row.get("position_link", ""),
                     page_context_cache=page_context_cache,
                 )
-                if not _has_invalid_description_marker(description):
+                if (
+                    generated
+                    and not _has_invalid_description_marker(generated)
+                    and not _is_low_quality_description(
+                        generated,
+                        raw_text=raw_text,
+                        title=row.get("title", ""),
+                    )
+                ):
+                    description = generated
                     set_job_description(db_path, row.get("id", 0), description)
-                else:
-                    description = ""
             if not description:
-                description = _fallback_description_text("", raw_text)
+                description = _fallback_description_text("", source_raw or raw_text)
+                if description:
+                    set_job_description(db_path, row.get("id", 0), description)
             records.append(
                 {
                     "id": row.get("id", 0),
                     "source": row.get("source", "Unknown"),
                     "company": row.get("company", ""),
-                    "title": row.get("title", ""),
+                    "title": _translate_title_to_english(
+                        row.get("title", ""),
+                        llm=llm,
+                        title_translation_cache=title_translation_cache,
+                    ),
                     "place": row.get("place", ""),
                     "work_type": row.get("work_type", "Unknown"),
                     "description": description,
@@ -2169,7 +2354,11 @@ def cmd_process_inbox(args):
         summary = row.get("summary") or " ".join((row.get("raw_text") or "").split())[:260]
         description = row.get("description") or ""
         raw_text = _enrich_raw_text_with_position_page(
-            db_path, row, page_context_cache=page_context_cache
+            db_path,
+            row,
+            page_context_cache=page_context_cache,
+            llm=llm,
+            title_translation_cache=title_translation_cache,
         )
         skills = _get_or_extract_job_skills(
             db_path,
@@ -2186,7 +2375,11 @@ def cmd_process_inbox(args):
                 "id": row.get("id", 0),
                 "source": row.get("source", "Unknown"),
                 "company": row.get("company", ""),
-                "title": row.get("title", ""),
+                "title": _translate_title_to_english(
+                    row.get("title", ""),
+                    llm=llm,
+                    title_translation_cache=title_translation_cache,
+                ),
                 "place": row.get("place", ""),
                 "work_type": row.get("work_type", "Unknown"),
                 "description": description,
@@ -2239,6 +2432,17 @@ def cmd_serve_gui(args):
     os.makedirs(report_dir, exist_ok=True)
     dashboard_path = os.path.join(report_dir, "report.html")
     dashboard_lock = threading.Lock()
+    title_translation_cache: dict[str, str] = {}
+    title_translation_llm: Optional[LocalLLM] = None
+
+    def _get_title_translation_llm() -> Optional[LocalLLM]:
+        nonlocal title_translation_llm
+        if title_translation_llm is not None:
+            return title_translation_llm
+        if not model_path:
+            return None
+        title_translation_llm = LocalLLM(model_path=model_path, verbose=False)
+        return title_translation_llm
 
     def _persist_runtime_profile() -> None:
         _save_profile(profile_path, runtime_profile)
@@ -2280,7 +2484,11 @@ def cmd_serve_gui(args):
             "id": row.get("id", 0),
             "source": row.get("source", "Unknown"),
             "company": row.get("company", ""),
-            "title": row.get("title", ""),
+            "title": _translate_title_to_english(
+                row.get("title", ""),
+                llm=_get_title_translation_llm(),
+                title_translation_cache=title_translation_cache,
+            ),
             "place": row.get("place", ""),
             "work_type": row.get("work_type", "Unknown"),
             "description": _fallback_description_text(
@@ -2302,6 +2510,7 @@ def cmd_serve_gui(args):
             return 0
 
         page_context_cache: dict[str, str] = {}
+        title_translation_cache: dict[str, str] = {}
         updated = 0
         total = len(rows)
         for idx, row in enumerate(rows, start=1):
@@ -2313,6 +2522,8 @@ def cmd_serve_gui(args):
                 db_path,
                 row,
                 page_context_cache=page_context_cache,
+                llm=llm,
+                title_translation_cache=title_translation_cache,
             )
             skills = _get_or_extract_job_skills(
                 db_path,
@@ -2849,9 +3060,15 @@ def cmd_refresh_descriptions(args):
     updated = 0
     skipped = 0
     page_context_cache: dict[str, str] = {}
+    title_translation_cache: dict[str, str] = {}
     for row in rows:
+        source_raw = row.get("raw_text", "") or ""
         raw = _enrich_raw_text_with_position_page(
-            db_path, row, page_context_cache=page_context_cache
+            db_path,
+            row,
+            page_context_cache=page_context_cache,
+            llm=llm,
+            title_translation_cache=title_translation_cache,
         )
         if not raw:
             skipped += 1
@@ -2862,11 +3079,16 @@ def cmd_refresh_descriptions(args):
             position_link=row.get("position_link", ""),
             page_context_cache=page_context_cache,
         )
-        if not description:
-            description = _fallback_description_text("", raw)
-        if _has_invalid_description_marker(description):
-            skipped += 1
-            continue
+        if (
+            not description
+            or _has_invalid_description_marker(description)
+            or _is_low_quality_description(
+                description,
+                raw_text=raw,
+                title=row.get("title", ""),
+            )
+        ):
+            description = _fallback_description_text("", source_raw or raw)
         if not description and not args.allow_empty:
             skipped += 1
             continue
@@ -2893,12 +3115,17 @@ def cmd_refresh_descriptions(args):
         os.makedirs(args.report_dir, exist_ok=True)
         report_data = {}
         page_context_cache: dict[str, str] = {}
+        title_translation_cache: dict[str, str] = {}
         for cat in ["relevant", "not relevant"]:
             cat_rows = get_jobs_by_category(db_path, cat, limit=0, unviewed_only=True)
             records = []
             for row in cat_rows:
                 raw_text = _enrich_raw_text_with_position_page(
-                    db_path, row, page_context_cache=page_context_cache
+                    db_path,
+                    row,
+                    page_context_cache=page_context_cache,
+                    llm=llm,
+                    title_translation_cache=title_translation_cache,
                 )
                 skills = _get_or_extract_job_skills(
                     db_path,
@@ -2915,7 +3142,11 @@ def cmd_refresh_descriptions(args):
                         "id": row.get("id", 0),
                         "source": row.get("source", "Unknown"),
                         "company": row.get("company", ""),
-                        "title": row.get("title", ""),
+                        "title": _translate_title_to_english(
+                            row.get("title", ""),
+                            llm=llm,
+                            title_translation_cache=title_translation_cache,
+                        ),
                         "place": row.get("place", ""),
                         "work_type": row.get("work_type", "Unknown"),
                         "description": _fallback_description_text(
@@ -2938,7 +3169,11 @@ def cmd_refresh_descriptions(args):
         applied_records = []
         for row in applied_rows:
             raw_text = _enrich_raw_text_with_position_page(
-                db_path, row, page_context_cache=page_context_cache
+                db_path,
+                row,
+                page_context_cache=page_context_cache,
+                llm=llm,
+                title_translation_cache=title_translation_cache,
             )
             skills = _get_or_extract_job_skills(
                 db_path,
@@ -2955,7 +3190,11 @@ def cmd_refresh_descriptions(args):
                     "id": row.get("id", 0),
                     "source": row.get("source", "Unknown"),
                     "company": row.get("company", ""),
-                    "title": row.get("title", ""),
+                    "title": _translate_title_to_english(
+                        row.get("title", ""),
+                        llm=llm,
+                        title_translation_cache=title_translation_cache,
+                    ),
                     "place": row.get("place", ""),
                     "work_type": row.get("work_type", "Unknown"),
                     "description": _fallback_description_text(
@@ -2997,6 +3236,7 @@ def main(argv=None):
     psm.add_argument("--path", required=True)
     psm.add_argument("--model", required=True)
     psm.add_argument("--max-tokens", type=int, default=200)
+    psm.add_argument("--verbose-model", action="store_true")
     psm.set_defaults(func=cmd_summarize_file)
 
     psf = sub.add_parser("summarize-folder")
@@ -3005,6 +3245,7 @@ def main(argv=None):
     psf.add_argument("--max-tokens", type=int, default=200)
     psf.add_argument("--limit", type=int, default=0)
     psf.add_argument("--out", default="")
+    psf.add_argument("--verbose-model", action="store_true")
     psf.set_defaults(func=cmd_summarize_folder)
 
     pip = sub.add_parser("process-inbox")

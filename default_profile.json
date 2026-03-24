@@ -33,6 +33,7 @@
   "skill_learning_max_new_patterns": 20,
   "skill_match_weight": 1.2,
   "skill_missing_penalty": 0.15,
+  "easy_apply_bonus": 0.75,
   "missing_skills_max_items": 25,
   "skill_new_confidence_threshold": 0.9,
   "skill_new_max_per_job": 2,

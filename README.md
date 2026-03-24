@@ -12,6 +12,7 @@
 - Persist known skill patterns in DB (`skill_patterns` table) and update them from applied/relevant positions.
 - Learn missing skills from applied jobs and write suggestions to `profile.json`.
 - Render `outbox/report.html` with three views: unviewed relevant jobs, unviewed not relevant jobs, and applied jobs.
+- Detect LinkedIn `Easy Apply` from existing text, highlight those cards in the dashboard, and apply a relevance bonus.
 - Serve the dashboard with feedback endpoints for `Relevant`, `Viewed`, and `Applied` actions.
 - Learn additional profile keywords from labeled jobs and write them back to `profile.json`.
 
@@ -86,6 +87,8 @@ Summarize a single file with a local model.
 python3 -m spejder.cli summarize-file --path ./inbox/example.eml --model ./models/model.gguf
 ```
 
+Add `--verbose-model` only if you want llama.cpp initialization/debug logs printed to the terminal.
+
 Options: `--max-tokens`.
 
 ### `summarize-folder`
@@ -98,6 +101,8 @@ python3 -m spejder.cli summarize-folder \
   --model ./models/model.gguf \
   --out ./outbox/summaries.jsonl
 ```
+
+Add `--verbose-model` only if you want llama.cpp initialization/debug logs printed to the terminal.
 
 Options: `--max-tokens`, `--limit`, `--out`.
 
@@ -236,6 +241,7 @@ In `profile.json`:
 - `missing_skills_suggestions`: generated from applied jobs.
 - `skill_match_weight`: bonus per matched required skill.
 - `skill_missing_penalty`: penalty per missing required skill.
+- `easy_apply_bonus`: extra score added for LinkedIn jobs when `Easy Apply` is detected in existing text.
 - `missing_skills_max_items`: max missing-skill suggestions written to profile.
 - `skill_learning_max_positions`, `skill_learning_min_occurrences`, `skill_learning_max_new_patterns`: controls for learning new DB skill patterns.
 

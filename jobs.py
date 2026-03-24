@@ -47,6 +47,7 @@ FALLBACK_DEFAULT_PROFILE = {
     "skill_learning_max_new_patterns": 20,
     "skill_match_weight": 1.2,
     "skill_missing_penalty": 0.15,
+    "easy_apply_bonus": 0.75,
     "missing_skills_max_items": 25,
     "skill_new_confidence_threshold": 0.9,
     "skill_new_max_per_job": 2,
@@ -127,6 +128,10 @@ def _load_default_profile() -> dict:
     profile["skill_missing_penalty"] = _safe_float(
         profile.get("skill_missing_penalty"),
         FALLBACK_DEFAULT_PROFILE["skill_missing_penalty"],
+    )
+    profile["easy_apply_bonus"] = _safe_float(
+        profile.get("easy_apply_bonus"),
+        FALLBACK_DEFAULT_PROFILE["easy_apply_bonus"],
     )
     profile["missing_skills_max_items"] = _safe_int(
         profile.get("missing_skills_max_items"),
@@ -235,6 +240,58 @@ LEARNING_STOPWORDS = {
 SQLITE_TIMEOUT_SECONDS = 30.0
 SQLITE_BUSY_TIMEOUT_MS = 30000
 JOB_RETENTION_DAYS = 90
+EASY_APPLY_PATTERN = re.compile(r"\beasy\s*apply\b", flags=re.IGNORECASE)
+
+TITLE_GARBAGE_MARKERS = [
+    "translated title",
+    "translated title text",
+    "original title",
+    "original text",
+    "english title",
+    "english translation",
+    "translation result",
+    "translation:",
+    "return value",
+    "return only",
+    "unchanged title",
+    "step 1",
+    "you are an ai assistant",
+    "translate this job title to english",
+    "the english title",
+    "this translated title",
+    "note:",
+]
+
+
+def _normalize_title_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", (value or "").lower())
+
+
+def sanitize_job_title(title: str) -> str:
+    clean = " ".join((title or "").split()).strip().strip('"\'“”')
+    if not clean:
+        return ""
+
+    low = clean.lower()
+    cut_positions = [low.find(marker) for marker in TITLE_GARBAGE_MARKERS if marker in low]
+    if cut_positions:
+        clean = clean[: min(cut_positions)].rstrip(" -|:;,/")
+
+    while clean.count("(") > clean.count(")") and "(" in clean:
+        clean = clean.rsplit("(", 1)[0].rstrip(" -|:;,/")
+    while clean.count("[") > clean.count("]") and "[" in clean:
+        clean = clean.rsplit("[", 1)[0].rstrip(" -|:;,/")
+
+    clean = clean.strip().strip('"\'“”').rstrip(" -|:;,/")
+
+    match = re.match(r"^(?P<outer>.+?)\s*\((?P<inner>.+?)\)$", clean)
+    if match:
+        outer = (match.group("outer") or "").strip()
+        inner = (match.group("inner") or "").strip()
+        if outer and inner and _normalize_title_key(outer) == _normalize_title_key(inner):
+            clean = outer
+
+    return clean[:180]
 
 
 def _connect(db_path: str) -> sqlite3.Connection:
@@ -700,6 +757,15 @@ def ensure_db(db_path: str):
         cur.execute("UPDATE jobs SET applied=0 WHERE applied IS NULL")
         cur.execute("UPDATE jobs SET source='' WHERE source IS NULL")
         cur.execute("UPDATE jobs SET description='' WHERE description IS NULL")
+
+        cur.execute("SELECT id, title FROM jobs")
+        for rid, title in cur.fetchall():
+            cleaned_title = sanitize_job_title(title or "")
+            if cleaned_title and cleaned_title != (title or ""):
+                cur.execute(
+                    "UPDATE jobs SET title=?, updated_at=? WHERE id=?",
+                    (cleaned_title, datetime.now(timezone.utc).isoformat(), rid),
+                )
 
         cur.execute("SELECT id, position_link FROM jobs")
         rows = cur.fetchall()
@@ -1337,6 +1403,11 @@ def _provider_from_link(link: str) -> str:
     return host or "Unknown"
 
 
+def _has_easy_apply_signal(text: str) -> bool:
+    compact = " ".join((text or "").split())
+    return bool(compact and EASY_APPLY_PATTERN.search(compact))
+
+
 def _is_linkedin_reference_position_link(raw_link: str, normalized_link: str) -> bool:
     low = (raw_link or "").lower()
     if "linkedin.com" not in low:
@@ -1919,6 +1990,7 @@ def upsert_job(db_path: str, job: dict) -> bool:
     try:
         cur = conn.cursor()
         position_link = job.get("position_link", "")
+        title = sanitize_job_title(job.get("title", ""))
         cur.execute(
             "SELECT 1 FROM jobs WHERE position_link=? LIMIT 1", (position_link,)
         )
@@ -1932,7 +2004,7 @@ def upsert_job(db_path: str, job: dict) -> bool:
                 (
                     job.get("source") or _provider_from_link(position_link),
                     job.get("company", ""),
-                    job.get("title", ""),
+                    title,
                     job.get("place", ""),
                     job.get("work_type", "Unknown"),
                     position_link,
@@ -1951,6 +2023,8 @@ def score_relevance(
     text: str,
     profile: dict,
     skill_patterns: Optional[list[tuple[str, str]]] = None,
+    source: str = "",
+    position_link: str = "",
 ) -> tuple[float, str, int, str]:
     include = [
         k.lower().strip() for k in profile.get("include_keywords", []) if k.strip()
@@ -1996,12 +2070,21 @@ def score_relevance(
         score += float(len(matched)) * skill_match_weight
         score -= float(len(missing)) * skill_missing_penalty
 
+    easy_apply_bonus = float(profile.get("easy_apply_bonus", 0.75) or 0.75)
+    source_low = (source or "").strip().lower()
+    link_low = (position_link or "").strip().lower()
+    is_linkedin = source_low == "linkedin" or "linkedin.com/" in link_low
+    has_easy_apply = bool(is_linkedin and _has_easy_apply_signal(text))
+    if has_easy_apply and easy_apply_bonus:
+        score += easy_apply_bonus
+
     relevant = 1 if score >= min_score else 0
     category = "relevant" if score >= min_score else "not relevant"
 
     reason = (
         f"score={score:.1f}; include={hit_inc[:6]}; exclude={hit_exc[:6]}; "
-        f"required_skills={list(required_keys)[:8]}; matched_skills={matched[:8]}; missing_skills={missing[:8]}"
+        f"required_skills={list(required_keys)[:8]}; matched_skills={matched[:8]}; missing_skills={missing[:8]}; "
+        f"easy_apply={has_easy_apply}; easy_apply_bonus={easy_apply_bonus if has_easy_apply else 0}"
     )
     return score, reason, relevant, category
 
@@ -2012,7 +2095,9 @@ def apply_relevance(
     conn = _connect(db_path)
     try:
         cur = conn.cursor()
-        cur.execute("SELECT id, title, company, raw_text, relevance_reason FROM jobs")
+        cur.execute(
+            "SELECT id, source, title, company, position_link, raw_text, relevance_reason FROM jobs"
+        )
         rows = cur.fetchall()
         relevant_count = 0
 
@@ -2030,7 +2115,7 @@ def apply_relevance(
         else:
             skill_patterns = _profile_skill_patterns(profile)
 
-        for rid, title, company, raw_text, relevance_reason in rows:
+        for rid, source, title, company, position_link, raw_text, relevance_reason in rows:
             manual_reason = (relevance_reason or "").strip().lower()
             if manual_reason == "manual_feedback=relevant":
                 relevant_count += 1
@@ -2040,7 +2125,11 @@ def apply_relevance(
 
             composed = f"{title or ''}\n{company or ''}\n{raw_text or ''}"
             score, reason, relevant, category = score_relevance(
-                composed, profile, skill_patterns=skill_patterns
+                composed,
+                profile,
+                skill_patterns=skill_patterns,
+                source=source or "",
+                position_link=position_link or "",
             )
             cur.execute(
                 "UPDATE jobs SET relevance_score=?, relevance_reason=?, relevant=?, category=?, updated_at=? WHERE id=?",
