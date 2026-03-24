@@ -104,6 +104,9 @@ def _is_easy_apply_item(item: dict) -> bool:
     position_link = str(item.get("position_link", ""))
     if not _is_linkedin_item(source, position_link):
         return False
+    reason = str(item.get("relevance_reason", ""))
+    if re.search(r"\beasy_apply\s*=\s*true\b", reason, flags=re.IGNORECASE):
+        return True
     return _has_easy_apply_signal(
         str(item.get("title", "")),
         str(item.get("summary", "")),
@@ -1718,11 +1721,18 @@ def _extract_position_page_text(
     except Exception:
         return ""
 
+    html_low = html_text.lower()
+    linkedin_apply_marker = ""
+    if "linkedin.com/" in link.lower() and "public_jobs_apply-link-onsite" in html_low:
+        linkedin_apply_marker = "Easy Apply"
+
     soup = BeautifulSoup(html_text, "html.parser")
     for node in soup(["script", "style", "noscript"]):
         node.decompose()
 
     text = " ".join(soup.get_text(" ", strip=True).split())
+    if linkedin_apply_marker and not EASY_APPLY_PATTERN.search(text):
+        text = f"{linkedin_apply_marker} {text}".strip()
     if not text:
         return ""
     return text[:max_chars]
@@ -2339,7 +2349,9 @@ def cmd_process_inbox(args):
                     "description": description,
                     "skills": skills,
                     "position_link": row.get("position_link", ""),
+                    "raw_text": raw_text,
                     "relevance_score": row.get("relevance_score", 0),
+                    "relevance_reason": row.get("relevance_reason", ""),
                     "summary": summary,
                     "category": cat,
                     "viewed": row.get("viewed", 0),
@@ -2385,7 +2397,9 @@ def cmd_process_inbox(args):
                 "description": description,
                 "skills": skills,
                 "position_link": row.get("position_link", ""),
+                "raw_text": raw_text,
                 "relevance_score": row.get("relevance_score", 0),
+                "relevance_reason": row.get("relevance_reason", ""),
                 "summary": summary,
                 "category": row.get("category", "relevant"),
                 "viewed": row.get("viewed", 1),
@@ -2432,6 +2446,7 @@ def cmd_serve_gui(args):
     os.makedirs(report_dir, exist_ok=True)
     dashboard_path = os.path.join(report_dir, "report.html")
     dashboard_lock = threading.Lock()
+    page_context_cache: dict[str, str] = {}
     title_translation_cache: dict[str, str] = {}
     title_translation_llm: Optional[LocalLLM] = None
 
@@ -2478,7 +2493,8 @@ def cmd_serve_gui(args):
         default_viewed: int = 0,
         default_applied: int = 0,
     ) -> dict:
-        summary = row.get("summary") or " ".join((row.get("raw_text") or "").split())[:260]
+        raw_text = row.get("raw_text") or ""
+        summary = row.get("summary") or " ".join((raw_text or "").split())[:260]
         cached_skills = get_job_skills(db_path, int(row.get("id", 0) or 0))
         return {
             "id": row.get("id", 0),
@@ -2492,11 +2508,13 @@ def cmd_serve_gui(args):
             "place": row.get("place", ""),
             "work_type": row.get("work_type", "Unknown"),
             "description": _fallback_description_text(
-                row.get("description") or "", row.get("raw_text") or ""
+                row.get("description") or "", raw_text or row.get("raw_text") or ""
             ),
             "skills": _format_skills(cached_skills, limit=10),
             "position_link": row.get("position_link", ""),
+            "raw_text": raw_text,
             "relevance_score": row.get("relevance_score", 0),
+            "relevance_reason": row.get("relevance_reason", ""),
             "summary": summary,
             "category": row.get("category", default_category),
             "viewed": row.get("viewed", default_viewed),
@@ -3151,13 +3169,15 @@ def cmd_refresh_descriptions(args):
                         "work_type": row.get("work_type", "Unknown"),
                         "description": _fallback_description_text(
                             row.get("description") or "",
-                            row.get("raw_text") or "",
+                            raw_text or row.get("raw_text") or "",
                         ),
                         "skills": skills,
                         "position_link": row.get("position_link", ""),
+                        "raw_text": raw_text,
                         "relevance_score": row.get("relevance_score", 0),
+                        "relevance_reason": row.get("relevance_reason", ""),
                         "summary": row.get("summary")
-                        or " ".join((row.get("raw_text") or "").split())[:260],
+                        or " ".join((raw_text or row.get("raw_text") or "").split())[:260],
                         "category": cat,
                         "viewed": row.get("viewed", 0),
                         "applied": row.get("applied", 0),
@@ -3198,13 +3218,15 @@ def cmd_refresh_descriptions(args):
                     "place": row.get("place", ""),
                     "work_type": row.get("work_type", "Unknown"),
                     "description": _fallback_description_text(
-                        row.get("description") or "", row.get("raw_text") or ""
+                        row.get("description") or "", raw_text or row.get("raw_text") or ""
                     ),
                     "skills": skills,
                     "position_link": row.get("position_link", ""),
+                    "raw_text": raw_text,
                     "relevance_score": row.get("relevance_score", 0),
+                    "relevance_reason": row.get("relevance_reason", ""),
                     "summary": row.get("summary")
-                    or " ".join((row.get("raw_text") or "").split())[:260],
+                    or " ".join((raw_text or row.get("raw_text") or "").split())[:260],
                     "category": row.get("category", "relevant"),
                     "viewed": row.get("viewed", 1),
                     "applied": row.get("applied", 1),

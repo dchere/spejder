@@ -6,7 +6,9 @@ from collections import Counter
 from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Optional
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
+from urllib.request import Request, urlopen
 
 from bs4 import BeautifulSoup
 
@@ -1408,6 +1410,45 @@ def _has_easy_apply_signal(text: str) -> bool:
     return bool(compact and EASY_APPLY_PATTERN.search(compact))
 
 
+def _has_linkedin_public_easy_apply(
+    position_link: str, easy_apply_cache: Optional[dict[str, bool]] = None
+) -> bool:
+    link = (position_link or "").strip()
+    if not link or "linkedin.com/" not in link.lower():
+        return False
+    if easy_apply_cache is not None and link in easy_apply_cache:
+        return bool(easy_apply_cache[link])
+
+    req = Request(
+        link,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml",
+        },
+    )
+
+    has_easy_apply = False
+    try:
+        with urlopen(req, timeout=8) as response:
+            ctype = (response.headers.get("Content-Type") or "").lower()
+            if not ctype or "html" in ctype or "text" in ctype:
+                payload = response.read()
+                charset = response.headers.get_content_charset() or "utf-8"
+                html_text = payload.decode(charset, errors="ignore")
+                has_easy_apply = "public_jobs_apply-link-onsite" in html_text.lower()
+    except (HTTPError, URLError, TimeoutError, ValueError):
+        has_easy_apply = False
+    except Exception:
+        has_easy_apply = False
+
+    if easy_apply_cache is not None:
+        easy_apply_cache[link] = has_easy_apply
+    return has_easy_apply
+
+
 def _is_linkedin_reference_position_link(raw_link: str, normalized_link: str) -> bool:
     low = (raw_link or "").lower()
     if "linkedin.com" not in low:
@@ -2025,6 +2066,7 @@ def score_relevance(
     skill_patterns: Optional[list[tuple[str, str]]] = None,
     source: str = "",
     position_link: str = "",
+    easy_apply_cache: Optional[dict[str, bool]] = None,
 ) -> tuple[float, str, int, str]:
     include = [
         k.lower().strip() for k in profile.get("include_keywords", []) if k.strip()
@@ -2075,6 +2117,10 @@ def score_relevance(
     link_low = (position_link or "").strip().lower()
     is_linkedin = source_low == "linkedin" or "linkedin.com/" in link_low
     has_easy_apply = bool(is_linkedin and _has_easy_apply_signal(text))
+    if is_linkedin and not has_easy_apply:
+        has_easy_apply = _has_linkedin_public_easy_apply(
+            position_link, easy_apply_cache=easy_apply_cache
+        )
     if has_easy_apply and easy_apply_bonus:
         score += easy_apply_bonus
 
@@ -2115,6 +2161,8 @@ def apply_relevance(
         else:
             skill_patterns = _profile_skill_patterns(profile)
 
+        easy_apply_cache: dict[str, bool] = {}
+
         for rid, source, title, company, position_link, raw_text, relevance_reason in rows:
             manual_reason = (relevance_reason or "").strip().lower()
             if manual_reason == "manual_feedback=relevant":
@@ -2130,6 +2178,7 @@ def apply_relevance(
                 skill_patterns=skill_patterns,
                 source=source or "",
                 position_link=position_link or "",
+                easy_apply_cache=easy_apply_cache,
             )
             cur.execute(
                 "UPDATE jobs SET relevance_score=?, relevance_reason=?, relevant=?, category=?, updated_at=? WHERE id=?",
