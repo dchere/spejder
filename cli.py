@@ -33,11 +33,14 @@ try:
         load_profile,
         migrate_profile_skill_patterns_to_db,
         set_job_applied,
+        append_applied_job_raw_text,
+        rescore_job_by_id,
         set_job_description,
         set_job_feedback,
         set_job_skills,
         set_job_summary,
         set_job_viewed,
+        clear_job_skills_for_job,
         clear_job_skills_for_unviewed_jobs,
         update_profile_from_db_signals,
         upsert_skill_pattern,
@@ -64,11 +67,14 @@ except ImportError:
         load_profile,
         migrate_profile_skill_patterns_to_db,
         set_job_applied,
+        append_applied_job_raw_text,
+        rescore_job_by_id,
         set_job_description,
         set_job_feedback,
         set_job_skills,
         set_job_summary,
         set_job_viewed,
+        clear_job_skills_for_job,
         clear_job_skills_for_unviewed_jobs,
         update_profile_from_db_signals,
         upsert_skill_pattern,
@@ -80,12 +86,14 @@ except ImportError:
 
 
 DEFAULT_PROFILE_PATH = "./profile.json"
+MAX_INGEST_FILE_STATS_LINES = 200
 
 SKILL_CUE_PATTERN = re.compile(
     r"\b(requirements?|required|must have|qualifications?|you (?:will|should)|experience with|we are looking for)\b",
     flags=re.IGNORECASE,
 )
 EASY_APPLY_PATTERN = re.compile(r"\beasy\s*apply\b", flags=re.IGNORECASE)
+MANUAL_APPLIED_RAW_MARKER = "[MANUAL_APPLIED_DESCRIPTION]"
 
 
 def _is_linkedin_item(source: str, position_link: str) -> bool:
@@ -113,6 +121,86 @@ def _is_easy_apply_item(item: dict) -> bool:
         str(item.get("description", "")),
         str(item.get("raw_text", "")),
     )
+
+
+def _print_ingest_file_stats(ingest_stats: dict) -> None:
+    rows = ingest_stats.get("positions_by_file") or []
+    if not isinstance(rows, list) or not rows:
+        return
+
+    print("Positions found by file:")
+    shown = 0
+    for row in rows:
+        if shown >= MAX_INGEST_FILE_STATS_LINES:
+            remaining = len(rows) - shown
+            print(f"  ... and {remaining} more files")
+            break
+        file_path = str(row.get("file", "") or "")
+        file_label = file_path if file_path else "(unknown file)"
+        found = int(row.get("found", 0) or 0)
+        inserted = int(row.get("inserted_new", 0) or 0)
+        skipped = int(row.get("skipped_existing", 0) or 0)
+        print(
+            f"  - {file_label}: found={found}, inserted_new={inserted}, skipped_existing={skipped}"
+        )
+        shown += 1
+
+
+def _delete_processed_inbox_files(ingest_stats: dict, inbox_root: str = "") -> dict[str, int]:
+    rows = ingest_stats.get("positions_by_file") or []
+    if not isinstance(rows, list) or not rows:
+        return {"eligible": 0, "deleted": 0, "missing": 0, "failed": 0}
+
+    root = os.path.abspath(inbox_root) if inbox_root else ""
+    eligible = 0
+    deleted = 0
+    missing = 0
+    failed = 0
+
+    for row in rows:
+        found = int(row.get("found", 0) or 0)
+        file_path = str(row.get("file", "") or "").strip()
+        if found <= 0 or not file_path:
+            continue
+
+        abs_path = os.path.abspath(file_path)
+        if root:
+            try:
+                if os.path.commonpath([abs_path, root]) != root:
+                    continue
+            except Exception:
+                continue
+
+        eligible += 1
+
+        if not os.path.exists(abs_path):
+            missing += 1
+            continue
+        if not os.path.isfile(abs_path):
+            failed += 1
+            continue
+
+        try:
+            os.remove(abs_path)
+            deleted += 1
+        except Exception:
+            failed += 1
+
+    return {
+        "eligible": int(eligible),
+        "deleted": int(deleted),
+        "missing": int(missing),
+        "failed": int(failed),
+    }
+
+
+def _report_max_positions(runtime_profile: Optional[dict]) -> int:
+    raw = (runtime_profile or {}).get("report_max_positions", 7)
+    try:
+        value = int(raw)
+    except Exception:
+        return 7
+    return value if value > 0 else 7
 
 
 def _normalize_skill_name(skill: str) -> str:
@@ -1168,8 +1256,17 @@ def _render_html_dashboard(
     title: str,
     viewed_total: int = 0,
     skills_items: Optional[list[dict]] = None,
+    report_max_positions: int = 7,
 ):
     os.makedirs(os.path.dirname(os.path.abspath(out_html)), exist_ok=True)
+    relevant_total_count = len(relevant_items)
+    not_relevant_total_count = len(not_relevant_items)
+    relevant_items = list(relevant_items)[: max(1, int(report_max_positions or 7))]
+    not_relevant_items = list(not_relevant_items)[: max(1, int(report_max_positions or 7))]
+    applied_items = sorted(
+        list(applied_items),
+        key=lambda item: MANUAL_APPLIED_RAW_MARKER in str(item.get("raw_text", "")),
+    )
 
     def build_cards(items):
         cards = []
@@ -1202,6 +1299,24 @@ def _render_html_dashboard(
                 else ""
             )
             card_class = "card easy-apply-card" if is_easy_apply else "card"
+            is_applied = int(item.get("applied", 0) or 0) == 1
+            has_manual_applied_text = MANUAL_APPLIED_RAW_MARKER in str(item.get("raw_text", ""))
+            manual_status = (
+                '<span class="manual-status done">Manual full text: added</span>'
+                if has_manual_applied_text
+                else '<span class="manual-status todo">Manual full text: not added</span>'
+            )
+            manual_controls = (
+                f"""
+                <div class=\"applied-manual-input\">
+                    <p><strong>Add full applied description to raw text</strong></p>
+                    <textarea class=\"raw-append-input\" placeholder=\"Paste full job description here...\"></textarea>
+                    <div><button type=\"button\" class=\"raw-append-btn\" onclick=\"appendAppliedRawText({job_id}, this)\">Append to raw text</button></div>
+                </div>
+                """.strip()
+                if is_applied and not has_manual_applied_text
+                else ""
+            )
 
             cards.append(
                 f"""
@@ -1213,6 +1328,8 @@ def _render_html_dashboard(
                     <p><strong>Place:</strong> {place}</p>
                     <p><strong>Type:</strong> {work_type}</p>
                     <p><strong>Description:</strong> {description}</p>
+                    {manual_status if is_applied else ""}
+                    {manual_controls}
                     <p><strong>Skills:</strong> <span class=\"skill-tags\">{skills_html or '<span class="skills-empty">No skills extracted</span>'}</span></p>
                     <div class=\"feedback\">
                         <label class=\"relevant-wrap\"><input type=\"checkbox\" {"checked" if str(item.get("category", "")).strip().lower() == "relevant" else ""} onchange=\"setRelevant({job_id}, this.checked, this)\"/> Relevant</label>
@@ -1297,6 +1414,13 @@ def _render_html_dashboard(
             .skill-tag {{ display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid #c9d6f0; background: #eef4ff; color: #1f3a6d; font-size: 12px; }}
             .skill-tag-btn {{ cursor: pointer; }}
             .skills-empty {{ color: #777; font-size: 12px; }}
+            .manual-status {{ display: inline-block; font-size: 11px; font-weight: 700; margin: 4px 0 8px 0; padding: 2px 8px; border-radius: 999px; }}
+            .manual-status.done {{ color: #114b1f; background: #e5f6e9; border: 1px solid #9ed3ab; }}
+            .manual-status.todo {{ color: #6b5a00; background: #fff8db; border: 1px solid #e4d08a; }}
+            .applied-manual-input {{ margin: 8px 0; padding: 8px; border: 1px dashed #c7d5ee; border-radius: 8px; background: #f7fbff; }}
+            .applied-manual-input p {{ margin: 0 0 6px 0; font-size: 12px; color: #1f3a6d; }}
+            .raw-append-input {{ width: 100%; min-height: 120px; resize: vertical; border: 1px solid #c9d6f0; border-radius: 6px; padding: 8px; font-size: 12px; font-family: monospace; box-sizing: border-box; }}
+            .raw-append-btn {{ margin-top: 8px; border: 1px solid #0a58ca; color: #0a58ca; background: #fff; border-radius: 6px; padding: 6px 10px; cursor: pointer; }}
             .relevance-score {{ position: absolute; top: 8px; right: 10px; font-size: 11px; color: #9aa0a6; }}
             .feedback {{ display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }}
             .relevant-wrap {{ font-size: 13px; color: #333; display: inline-flex; gap: 5px; align-items: center; }}
@@ -1318,8 +1442,8 @@ def _render_html_dashboard(
     <body>
         <h1>{html.escape(title)}</h1>
         <div class=\"controls\">
-            <button id=\"btn-relevant\" class=\"mode-btn active\" type=\"button\">Relevant ({len(relevant_items)})</button>
-            <button id=\"btn-not-relevant\" class=\"mode-btn\" type=\"button\">Not relevant ({len(not_relevant_items)})</button>
+            <button id="btn-relevant" class="mode-btn active" type="button" data-total="{int(relevant_total_count)}">Relevant ({len(relevant_items)}/{int(relevant_total_count)})</button>
+            <button id="btn-not-relevant" class="mode-btn" type="button" data-total="{int(not_relevant_total_count)}">Not relevant ({len(not_relevant_items)}/{int(not_relevant_total_count)})</button>
             <button id=\"btn-applied\" class=\"mode-btn\" type=\"button\">Applied ({len(applied_items)})</button>
             <button id="btn-skills" class="mode-btn" type="button">Skills ({len(skills_items)})</button>
         </div>
@@ -1364,8 +1488,10 @@ def _render_html_dashboard(
                 const notRelevantCount = panelNotRelevant.querySelectorAll('.card').length;
                 const appliedCount = panelApplied.querySelectorAll('.card').length;
                 const skillsCount = panelSkills.querySelectorAll('tbody tr').length;
-                btnRelevant.textContent = `Relevant (${{relevantCount}})`;
-                btnNotRelevant.textContent = `Not relevant (${{notRelevantCount}})`;
+                const relevantTotal = Number.parseInt(btnRelevant.dataset.total || String(relevantCount), 10) || relevantCount;
+                const notRelevantTotal = Number.parseInt(btnNotRelevant.dataset.total || String(notRelevantCount), 10) || notRelevantCount;
+                btnRelevant.textContent = `Relevant (${{relevantCount}}/${{relevantTotal}})`;
+                btnNotRelevant.textContent = `Not relevant (${{notRelevantCount}}/${{notRelevantTotal}})`;
                 btnApplied.textContent = `Applied (${{appliedCount}})`;
                 btnSkills.textContent = `Skills (${{skillsCount}})`;
                 ensureEmptyState(panelRelevant);
@@ -1604,6 +1730,46 @@ def _render_html_dashboard(
                 }}
             }}
 
+            async function appendAppliedRawText(jobId, btnEl) {{
+                const card = btnEl.closest('.card');
+                const statusEl = card ? card.querySelector('.feedback-status') : null;
+                const inputEl = card ? card.querySelector('.raw-append-input') : null;
+                const manualStatusEl = card ? card.querySelector('.manual-status') : null;
+                const text = inputEl ? inputEl.value : '';
+                if (!text || !text.trim()) {{
+                    if (statusEl) statusEl.textContent = 'Enter description text first';
+                    return;
+                }}
+
+                btnEl.disabled = true;
+                if (statusEl) statusEl.textContent = 'Appending...';
+                try {{
+                    const response = await fetch(apiUrl('/api/applied/raw-text'), {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{ job_id: jobId, text }})
+                    }});
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {{
+                        throw new Error(data.error || 'Request failed');
+                    }}
+                    if (inputEl) inputEl.value = '';
+                    if (manualStatusEl) {{
+                        manualStatusEl.textContent = 'Manual full text: added';
+                        manualStatusEl.classList.remove('todo');
+                        manualStatusEl.classList.add('done');
+                    }}
+                    if (card && card.parentElement === panelApplied) {{
+                        panelApplied.appendChild(card);
+                    }}
+                    if (statusEl) statusEl.textContent = 'Saved: full text appended';
+                }} catch (err) {{
+                    if (statusEl) statusEl.textContent = `Error: ${{err.message}}`;
+                }} finally {{
+                    btnEl.disabled = false;
+                }}
+            }}
+
             window.setRelevant = setRelevant;
             window.setViewed = setViewed;
             window.setApplied = setApplied;
@@ -1612,6 +1778,7 @@ def _render_html_dashboard(
             window.openSkillsForSkill = openSkillsForSkill;
             window.blockSkill = blockSkill;
             window.deleteSkill = deleteSkill;
+            window.appendAppliedRawText = appendAppliedRawText;
             refreshCounts();
         </script>
     </body>
@@ -1902,7 +2069,7 @@ def _prepend_summary_to_raw_text(
     summary_clean = " ".join((summary or "").split()).strip()
     raw_clean = (raw_text or "").strip()
 
-    if not summary_clean:
+    if not summary_clean or _is_invalid_summary_text(summary_clean):
         return raw_clean
 
     prefixed = f"Summary: {summary_clean}"
@@ -1916,6 +2083,26 @@ def _prepend_summary_to_raw_text(
 
     merged = f"{prefixed}\n\n{raw_clean}"
     return merged[:max_chars]
+
+
+def _is_invalid_summary_text(text: str) -> bool:
+    low = " ".join((text or "").split()).strip().lower()
+    if not low:
+        return True
+    bad_markers = [
+        "llm summary failed",
+        "model path does not exist",
+        "traceback",
+        "exception:",
+    ]
+    return any(marker in low for marker in bad_markers)
+
+
+def _summary_for_display(summary: str, raw_text: str, max_chars: int = 260) -> str:
+    summary_clean = " ".join((summary or "").split()).strip()
+    if summary_clean and not _is_invalid_summary_text(summary_clean):
+        return summary_clean[:max_chars]
+    return " ".join((raw_text or "").split())[:max_chars]
 
 
 def _enrich_raw_text_with_position_page(
@@ -2009,9 +2196,28 @@ def _build_description_summary(
 
 
 def _fallback_description_text(description: str, raw_text: str, max_chars: int = 280) -> str:
-    if (description or "").strip():
+    if (description or "").strip() and not _is_invalid_summary_text(description):
         return description
     compact = " ".join((raw_text or "").split())
+    # Remove legacy summary-failure artifacts that may be persisted in raw text.
+    compact = re.sub(
+        r"\bSummary\s*:\s*LLM\s+summary\s+failed\s*:[^.\n]*(?:\.|$)",
+        " ",
+        compact,
+        flags=re.IGNORECASE,
+    )
+    compact = re.sub(
+        r"\bLLM\s+summary\s+failed\s*:[^.\n]*(?:\.|$)",
+        " ",
+        compact,
+        flags=re.IGNORECASE,
+    )
+    compact = re.sub(
+        r"\bModel\s+path\s+does\s+not\s+exist\s*:[^.\n]*(?:\.|$)",
+        " ",
+        compact,
+        flags=re.IGNORECASE,
+    )
     compact = re.sub(r"\[POSITION_PAGE_CONTEXT[^\]]*\]", " ", compact, flags=re.IGNORECASE)
     compact = re.sub(r"\(\s*settings\s*\)", " ", compact, flags=re.IGNORECASE)
     compact = re.sub(r"\bPUBLISHED\s*:\s*\d{1,2}-\d{1,2}-\d{4}\b", " ", compact, flags=re.IGNORECASE)
@@ -2050,6 +2256,8 @@ def _is_low_quality_description(
         "english title",
         "return only",
         "step 1",
+        "llm summary failed",
+        "model path does not exist",
     ]
     if any(marker in low for marker in bad_markers):
         return True
@@ -2202,6 +2410,15 @@ def cmd_process_inbox(args):
         f"skipped_existing={ingest_stats.get('skipped_existing', 0)} "
         f"into DB: {db_path}"
     )
+    _print_ingest_file_stats(ingest_stats)
+    delete_stats = _delete_processed_inbox_files(ingest_stats, inbox_root=inbox)
+    print(
+        "Inbox cleanup: "
+        f"eligible={delete_stats.get('eligible', 0)}, "
+        f"deleted={delete_stats.get('deleted', 0)}, "
+        f"missing={delete_stats.get('missing', 0)}, "
+        f"failed={delete_stats.get('failed', 0)}"
+    )
 
     total, relevant_count = apply_relevance(
         db_path, profile, prune_irrelevant=args.prune_irrelevant
@@ -2261,10 +2478,14 @@ def cmd_process_inbox(args):
             try:
                 summary = llm.generate(prompt, max_tokens=args.max_tokens)
             except Exception as exc:
-                summary = f"LLM summary failed: {exc}"
+                print(f"Summary generation failed for job_id={job.get('id', 0)}: {exc}")
+                summary = ""
         else:
             snippet = " ".join(text.split())[:260]
             summary = f"{title} at {company}. Link: {link}. Snippet: {snippet}"
+
+        if _is_invalid_summary_text(summary):
+            summary = ""
 
         set_job_summary(db_path, job["id"], summary)
 
@@ -2292,7 +2513,10 @@ def cmd_process_inbox(args):
         rows = get_jobs_by_category(db_path, cat, limit=0, unviewed_only=True)
         records = []
         for row in rows:
-            summary = row.get("summary") or " ".join((row.get("raw_text") or "").split())[:260]
+            summary = _summary_for_display(
+                row.get("summary", ""),
+                row.get("raw_text", ""),
+            )
             description = row.get("description") or ""
             source_raw = row.get("raw_text", "") or ""
             raw_text = _enrich_raw_text_with_position_page(
@@ -2363,7 +2587,10 @@ def cmd_process_inbox(args):
     applied_rows = get_applied_jobs(db_path, limit=0)
     applied_records = []
     for row in applied_rows:
-        summary = row.get("summary") or " ".join((row.get("raw_text") or "").split())[:260]
+        summary = _summary_for_display(
+            row.get("summary", ""),
+            row.get("raw_text", ""),
+        )
         description = row.get("description") or ""
         raw_text = _enrich_raw_text_with_position_page(
             db_path,
@@ -2416,6 +2643,7 @@ def cmd_process_inbox(args):
         "Positions Report",
         viewed_total=get_viewed_jobs_count(db_path),
         skills_items=_build_skills_tab_items(db_path, profile),
+        report_max_positions=_report_max_positions(profile),
     )
     print(f"Report written: {dashboard_path}")
 
@@ -2494,7 +2722,10 @@ def cmd_serve_gui(args):
         default_applied: int = 0,
     ) -> dict:
         raw_text = row.get("raw_text") or ""
-        summary = row.get("summary") or " ".join((raw_text or "").split())[:260]
+        summary = _summary_for_display(
+            row.get("summary", ""),
+            raw_text,
+        )
         cached_skills = get_job_skills(db_path, int(row.get("id", 0) or 0))
         return {
             "id": row.get("id", 0),
@@ -2608,6 +2839,7 @@ def cmd_serve_gui(args):
                         "Positions Report",
                         viewed_total=get_viewed_jobs_count(db_path),
                         skills_items=_build_skills_tab_items(db_path, runtime_profile),
+                        report_max_positions=_report_max_positions(runtime_profile),
                     )
                 if should_log_rebuild and not reason.startswith("new record"):
                     print(f"Dashboard rebuild: done ({reason})")
@@ -2665,7 +2897,22 @@ def cmd_serve_gui(args):
                     on_progress=_on_progress,
                 )
             else:
-                ingest_stats = {"processed": 0, "inserted_new": 0, "skipped_existing": 0}
+                ingest_stats = {
+                    "processed": 0,
+                    "inserted_new": 0,
+                    "skipped_existing": 0,
+                    "positions_by_file": [],
+                }
+
+            _print_ingest_file_stats(ingest_stats)
+            delete_stats = _delete_processed_inbox_files(ingest_stats, inbox_root=inbox_path)
+            print(
+                "Background sync inbox cleanup: "
+                f"eligible={delete_stats.get('eligible', 0)}, "
+                f"deleted={delete_stats.get('deleted', 0)}, "
+                f"missing={delete_stats.get('missing', 0)}, "
+                f"failed={delete_stats.get('failed', 0)}"
+            )
 
             print("Background sync: scoring relevance...")
             total, relevant_count = apply_relevance(
@@ -2771,6 +3018,7 @@ def cmd_serve_gui(args):
                 "/api/feedback",
                 "/api/viewed",
                 "/api/applied",
+                "/api/applied/raw-text",
                 "/api/skill/user",
                 "/api/skill/learn",
                 "/api/skill/block",
@@ -2784,7 +3032,7 @@ def cmd_serve_gui(args):
                 body = self.rfile.read(content_length) if content_length > 0 else b"{}"
                 payload = json.loads(body.decode("utf-8"))
 
-                if path in {"/api/feedback", "/api/viewed", "/api/applied"}:
+                if path in {"/api/feedback", "/api/viewed", "/api/applied", "/api/applied/raw-text"}:
                     job_id = int(payload.get("job_id"))
 
                 if path == "/api/feedback":
@@ -2817,6 +3065,97 @@ def cmd_serve_gui(args):
                         self._write_json(400, {"ok": False, "error": "viewed must be boolean"})
                         return
                     updated = set_job_viewed(db_path, job_id, viewed_raw)
+                elif path == "/api/applied/raw-text":
+                    text = str(payload.get("text", "") or "").strip()
+                    if not text:
+                        self._write_json(400, {"ok": False, "error": "text is required"})
+                        return
+
+                    updated = append_applied_job_raw_text(
+                        db_path,
+                        job_id,
+                        text,
+                        marker=MANUAL_APPLIED_RAW_MARKER,
+                    )
+                    if not updated:
+                        self._write_json(
+                            404,
+                            {
+                                "ok": False,
+                                "error": "job id not found or job is not applied",
+                            },
+                        )
+                        return
+
+                    clear_job_skills_for_job(db_path, job_id)
+                    llm_for_manual = (
+                        LocalLLM(model_path=model_path, verbose=cli_verbose) if model_path else None
+                    )
+
+                    applied_rows = get_applied_jobs(db_path, limit=0)
+                    target_row = None
+                    for row in applied_rows:
+                        if int(row.get("id", 0) or 0) == int(job_id):
+                            target_row = row
+                            break
+
+                    if target_row is not None:
+                        page_context_cache: dict[str, str] = {}
+                        title_translation_cache: dict[str, str] = {}
+                        enriched_raw = _enrich_raw_text_with_position_page(
+                            db_path,
+                            target_row,
+                            page_context_cache=page_context_cache,
+                            llm=llm_for_manual,
+                            title_translation_cache=title_translation_cache,
+                        )
+
+                        description = _build_description_summary(
+                            enriched_raw,
+                            llm=llm_for_manual,
+                            position_link=target_row.get("position_link", ""),
+                            page_context_cache=page_context_cache,
+                        )
+                        if (
+                            not description
+                            or _has_invalid_description_marker(description)
+                            or _is_low_quality_description(
+                                description,
+                                raw_text=enriched_raw,
+                                title=target_row.get("title", ""),
+                            )
+                        ):
+                            description = _fallback_description_text(
+                                "", target_row.get("raw_text", "") or enriched_raw
+                            )
+                        if description:
+                            set_job_description(db_path, int(job_id), description)
+
+                        _get_or_extract_job_skills(
+                            db_path,
+                            int(job_id),
+                            enriched_raw,
+                            llm=llm_for_manual,
+                            profile=runtime_profile,
+                            position_link=target_row.get("position_link", ""),
+                            page_context_cache=page_context_cache,
+                            limit=10,
+                        )
+
+                    rescore_job_by_id(db_path, runtime_profile, int(job_id))
+                    learning_info = update_profile_from_db_signals(db_path, profile_path)
+
+                    _rebuild_dashboard(reason=f"applied manual text job {job_id}")
+                    self._write_json(
+                        200,
+                        {
+                            "ok": True,
+                            "job_id": int(job_id),
+                            "manual_text_added": True,
+                            "profile_learning": learning_info,
+                        },
+                    )
+                    return
                 elif path == "/api/skill/user":
                     skill = _normalize_skill_name(str(payload.get("skill", "")))
                     has_skill = payload.get("has_skill")
@@ -2986,6 +3325,7 @@ def cmd_serve_gui(args):
     print(f"Feedback API at http://{host}:{selected_port}/api/feedback")
     print(f"Viewed API at http://{host}:{selected_port}/api/viewed")
     print(f"Applied API at http://{host}:{selected_port}/api/applied")
+    print(f"Applied raw text API at http://{host}:{selected_port}/api/applied/raw-text")
     print(f"Skill API (have): http://{host}:{selected_port}/api/skill/user")
     print(f"Skill API (learn): http://{host}:{selected_port}/api/skill/learn")
     print(f"Skill API (block): http://{host}:{selected_port}/api/skill/block")
@@ -3176,8 +3516,10 @@ def cmd_refresh_descriptions(args):
                         "raw_text": raw_text,
                         "relevance_score": row.get("relevance_score", 0),
                         "relevance_reason": row.get("relevance_reason", ""),
-                        "summary": row.get("summary")
-                        or " ".join((raw_text or row.get("raw_text") or "").split())[:260],
+                        "summary": _summary_for_display(
+                            row.get("summary", ""),
+                            raw_text or row.get("raw_text") or "",
+                        ),
                         "category": cat,
                         "viewed": row.get("viewed", 0),
                         "applied": row.get("applied", 0),
@@ -3225,8 +3567,10 @@ def cmd_refresh_descriptions(args):
                     "raw_text": raw_text,
                     "relevance_score": row.get("relevance_score", 0),
                     "relevance_reason": row.get("relevance_reason", ""),
-                    "summary": row.get("summary")
-                    or " ".join((raw_text or row.get("raw_text") or "").split())[:260],
+                    "summary": _summary_for_display(
+                        row.get("summary", ""),
+                        raw_text or row.get("raw_text") or "",
+                    ),
                     "category": row.get("category", "relevant"),
                     "viewed": row.get("viewed", 1),
                     "applied": row.get("applied", 1),
@@ -3242,6 +3586,7 @@ def cmd_refresh_descriptions(args):
             "Positions Report",
             viewed_total=get_viewed_jobs_count(db_path),
             skills_items=_build_skills_tab_items(db_path, runtime_profile),
+            report_max_positions=_report_max_positions(runtime_profile),
         )
         print(f"Report written: {dashboard_path}")
 

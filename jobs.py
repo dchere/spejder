@@ -44,6 +44,7 @@ FALLBACK_DEFAULT_PROFILE = {
     "max_input_chars": 4500,
     "server_host": "127.0.0.1",
     "server_port": 8765,
+    "report_max_positions": 7,
     "skill_learning_max_positions": 180,
     "skill_learning_min_occurrences": 3,
     "skill_learning_max_new_patterns": 20,
@@ -111,6 +112,10 @@ def _load_default_profile() -> dict:
     )
     profile["server_port"] = _safe_int(
         profile.get("server_port"), FALLBACK_DEFAULT_PROFILE["server_port"]
+    )
+    profile["report_max_positions"] = _safe_int(
+        profile.get("report_max_positions"),
+        FALLBACK_DEFAULT_PROFILE["report_max_positions"],
     )
     profile["skill_learning_max_positions"] = _safe_int(
         profile.get("skill_learning_max_positions"),
@@ -2162,6 +2167,7 @@ def apply_relevance(
             skill_patterns = _profile_skill_patterns(profile)
 
         easy_apply_cache: dict[str, bool] = {}
+        pending_updates: list[tuple[int, float, str, int, str]] = []
 
         for rid, source, title, company, position_link, raw_text, relevance_reason in rows:
             manual_reason = (relevance_reason or "").strip().lower()
@@ -2180,18 +2186,82 @@ def apply_relevance(
                 position_link=position_link or "",
                 easy_apply_cache=easy_apply_cache,
             )
-            cur.execute(
-                "UPDATE jobs SET relevance_score=?, relevance_reason=?, relevant=?, category=?, updated_at=? WHERE id=?",
-                (score, reason, relevant, category, datetime.now(timezone.utc).isoformat(), rid),
-            )
+            pending_updates.append((rid, score, reason, relevant, category))
             if relevant:
                 relevant_count += 1
+
+        now = datetime.now(timezone.utc).isoformat()
+        for rid, score, reason, relevant, category in pending_updates:
+            cur.execute(
+                "UPDATE jobs SET relevance_score=?, relevance_reason=?, relevant=?, category=?, updated_at=? WHERE id=?",
+                (score, reason, relevant, category, now, rid),
+            )
 
         if prune_irrelevant:
             cur.execute("DELETE FROM jobs WHERE category='not relevant'")
 
         conn.commit()
         return len(rows), relevant_count
+    finally:
+        conn.close()
+
+
+def rescore_job_by_id(db_path: str, profile: dict, job_id: int) -> bool:
+    """Re-score one job and persist relevance score/reason.
+
+    For applied jobs, keeps category/relevant as relevant while updating score/reason.
+    """
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, source, title, company, position_link, raw_text, applied
+            FROM jobs
+            WHERE id=?
+            """,
+            (int(job_id),),
+        )
+        row = cur.fetchone()
+        if not row:
+            return False
+
+        rid, source, title, company, position_link, raw_text, applied = row
+
+        skill_pattern_rows = get_skill_patterns(db_path, enabled_only=True)
+        if skill_pattern_rows:
+            skill_patterns = [
+                (
+                    str(item.get("name", "")).strip(),
+                    str(item.get("pattern", "")).strip(),
+                )
+                for item in skill_pattern_rows
+                if str(item.get("name", "")).strip()
+                and str(item.get("pattern", "")).strip()
+            ]
+        else:
+            skill_patterns = _profile_skill_patterns(profile)
+
+        composed = f"{title or ''}\n{company or ''}\n{raw_text or ''}"
+        score, reason, relevant, category = score_relevance(
+            composed,
+            profile,
+            skill_patterns=skill_patterns,
+            source=source or "",
+            position_link=position_link or "",
+            easy_apply_cache={},
+        )
+
+        if int(applied or 0) == 1:
+            relevant = 1
+            category = "relevant"
+
+        cur.execute(
+            "UPDATE jobs SET relevance_score=?, relevance_reason=?, relevant=?, category=?, updated_at=? WHERE id=?",
+            (score, reason, int(relevant), category, datetime.now(timezone.utc).isoformat(), int(rid)),
+        )
+        conn.commit()
+        return cur.rowcount > 0
     finally:
         conn.close()
 
@@ -2425,6 +2495,47 @@ def set_job_description(db_path: str, job_id: int, description: str):
         conn.close()
 
 
+def append_applied_job_raw_text(
+    db_path: str,
+    job_id: int,
+    manual_text: str,
+    marker: str = "[MANUAL_APPLIED_DESCRIPTION]",
+    max_total_chars: int = 120000,
+) -> bool:
+    """Append manual description text to raw_text for an applied job only."""
+    cleaned = (manual_text or "").strip()
+    if not cleaned:
+        return False
+
+    block = f"{marker}\n{cleaned}".strip()
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT raw_text, applied FROM jobs WHERE id=?", (int(job_id),))
+        row = cur.fetchone()
+        if not row:
+            return False
+
+        raw_text = (row[0] or "").strip()
+        applied = int(row[1] or 0)
+        if applied != 1:
+            return False
+
+        if block in raw_text:
+            return True
+
+        merged = f"{raw_text}\n\n{block}".strip() if raw_text else block
+        merged = merged[-max_total_chars:]
+        cur.execute(
+            "UPDATE jobs SET raw_text=?, updated_at=? WHERE id=?",
+            (merged, datetime.now(timezone.utc).isoformat(), int(job_id)),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
 def set_job_skills(db_path: str, job_id: int, skill_names: list[str]) -> None:
     """Persist the extracted skill list for a job as links to skill_patterns rows."""
     if not job_id or not skill_names:
@@ -2493,6 +2604,20 @@ def clear_job_skills_for_unviewed_jobs(db_path: str) -> int:
             )
             """
         )
+        conn.commit()
+        return int(cur.rowcount or 0)
+    finally:
+        conn.close()
+
+
+def clear_job_skills_for_job(db_path: str, job_id: int) -> int:
+    """Clear cached job->skill links for one job so skills can be re-extracted."""
+    if not job_id:
+        return 0
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM job_skills WHERE job_id=?", (int(job_id),))
         conn.commit()
         return int(cur.rowcount or 0)
     finally:
@@ -2619,27 +2744,44 @@ def ingest_docs_to_db(
     docs: list[dict],
     on_new_record: Optional[Callable[[], None]] = None,
     on_progress: Optional[Callable[[int, int, int], None]] = None,
-) -> dict[str, int]:
+) -> dict[str, object]:
     processed = 0
     inserted_new = 0
     skipped_existing = 0
+    positions_by_file: list[dict[str, object]] = []
     for doc in docs:
+        file_path = str(doc.get("path") or doc.get("id") or "")
         entries = extract_job_entries(doc)
+        file_found = 0
+        file_inserted = 0
+        file_skipped = 0
         for entry in entries:
             if not entry.get("position_link"):
                 continue
+            file_found += 1
             is_new_record = upsert_job(db_path, entry)
             if is_new_record and on_new_record:
                 on_new_record()
             if is_new_record:
                 inserted_new += 1
+                file_inserted += 1
             else:
                 skipped_existing += 1
+                file_skipped += 1
             processed += 1
             if on_progress:
                 on_progress(processed, inserted_new, skipped_existing)
+        positions_by_file.append(
+            {
+                "file": file_path,
+                "found": int(file_found),
+                "inserted_new": int(file_inserted),
+                "skipped_existing": int(file_skipped),
+            }
+        )
     return {
         "processed": int(processed),
         "inserted_new": int(inserted_new),
         "skipped_existing": int(skipped_existing),
+        "positions_by_file": positions_by_file,
     }

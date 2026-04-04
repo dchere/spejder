@@ -243,6 +243,7 @@ In `profile.json`:
 - `skill_missing_penalty`: penalty per missing required skill.
 - `easy_apply_bonus`: extra score added for LinkedIn jobs when `Easy Apply` is detected in existing text.
 - `missing_skills_max_items`: max missing-skill suggestions written to profile.
+- `report_max_positions`: max number of positions shown in each report section (`Relevant` and `Not relevant`), default `7`.
 - `skill_learning_max_positions`, `skill_learning_min_occurrences`, `skill_learning_max_new_patterns`: controls for learning new DB skill patterns.
 
 ## Notes

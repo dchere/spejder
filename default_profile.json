@@ -28,6 +28,7 @@
   "max_input_chars": 4500,
   "server_host": "127.0.0.1",
   "server_port": 8765,
+  "report_max_positions": 7,
   "skill_learning_max_positions": 180,
   "skill_learning_min_occurrences": 3,
   "skill_learning_max_new_patterns": 20,
