@@ -41,7 +41,8 @@ FALLBACK_DEFAULT_PROFILE = {
     "default_db": "./jobs.db",
     "default_report_dir": "./outbox",
     "default_model": "",
-    "max_input_chars": 4500,
+    "max_input_chars": 24000,
+    "n_ctx": 8192,
     "server_host": "127.0.0.1",
     "server_port": 8765,
     "report_max_positions": 7,
@@ -109,6 +110,9 @@ def _load_default_profile() -> dict:
     )
     profile["max_input_chars"] = _safe_int(
         profile.get("max_input_chars"), FALLBACK_DEFAULT_PROFILE["max_input_chars"]
+    )
+    profile["n_ctx"] = _safe_int(
+        profile.get("n_ctx"), FALLBACK_DEFAULT_PROFILE["n_ctx"]
     )
     profile["server_port"] = _safe_int(
         profile.get("server_port"), FALLBACK_DEFAULT_PROFILE["server_port"]
@@ -2331,6 +2335,51 @@ def get_jobs_by_category(
                 "applied": int(r[12] or 0),
                 "description": r[13] or "",
                 "category": category,
+            }
+            for r in rows
+        ]
+    finally:
+        conn.close()
+
+
+def get_jobs_by_company(db_path: str, company: str, limit: int = 0) -> list[dict]:
+    normalized_company = str(company or "").strip()
+    if not normalized_company:
+        return []
+
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        q = (
+            "SELECT id, source, company, title, place, work_type, position_link, raw_text, relevance_score, relevance_reason, summary, viewed, applied, description, category "
+            "FROM jobs WHERE LOWER(TRIM(COALESCE(company, '')))=LOWER(TRIM(?)) "
+            "ORDER BY applied DESC, relevance_score DESC, updated_at DESC"
+        )
+        params: list = [normalized_company]
+        if limit and limit > 0:
+            q += " LIMIT ?"
+            params.append(int(limit))
+        cur.execute(q, params)
+        rows = cur.fetchall()
+        return [
+            {
+                "id": r[0],
+                "source": (r[1] or _provider_from_link(r[6] or ""))
+                if len(r) > 1
+                else "Unknown",
+                "company": r[2] or "",
+                "title": r[3] or "",
+                "place": r[4] or "",
+                "work_type": r[5] or "Unknown",
+                "position_link": r[6] or "",
+                "raw_text": r[7] or "",
+                "relevance_score": float(r[8] or 0),
+                "relevance_reason": r[9] or "",
+                "summary": r[10] or "",
+                "viewed": int(r[11] or 0),
+                "applied": int(r[12] or 0),
+                "description": r[13] or "",
+                "category": r[14] or "not relevant",
             }
             for r in rows
         ]

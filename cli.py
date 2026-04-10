@@ -12,6 +12,7 @@ from contextlib import nullcontext, suppress
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from typing import Optional
 from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
 from bs4 import BeautifulSoup
@@ -24,6 +25,7 @@ try:
         ensure_db,
         delete_skill_from_db,
         get_applied_jobs,
+        get_jobs_by_company,
         get_job_skills,
         get_jobs_by_category,
         get_jobs_for_description_refresh,
@@ -58,6 +60,7 @@ except ImportError:
         ensure_db,
         delete_skill_from_db,
         get_applied_jobs,
+        get_jobs_by_company,
         get_job_skills,
         get_jobs_by_category,
         get_jobs_for_description_refresh,
@@ -931,7 +934,7 @@ def cmd_sync_user_skills(args):
 
     print(f"Sync user skills: CV text loaded (chars={len(cv_text)})")
 
-    llm = LocalLLM(model_path=model_path, verbose=not args.quiet_model) if model_path else None
+    llm = LocalLLM(model_path=model_path, n_ctx=int(runtime_profile.get("n_ctx", 8192)), verbose=not args.quiet_model) if model_path else None
     if llm:
         print("Sync user skills: extracting with model")
     else:
@@ -1248,6 +1251,412 @@ def _render_html_from_items(items, out_html: str, title: str):
     print(f"Wrote HTML report: {out_html} (items={len(items)})")
 
 
+def _build_job_cards(
+    items,
+    company_links: bool = True,
+    skill_buttons: bool = True,
+):
+    cards = []
+    for item in items:
+        job_id = int(item.get("id", 0) or 0)
+        source = html.escape(str(item.get("source", "Unknown")))
+        raw_company = str(item.get("company", ""))
+        company = html.escape(raw_company)
+        if raw_company.strip() and company_links:
+            company_html = (
+                f'<button type="button" class="pseudo-link company-link" '
+                f'data-company-name="{html.escape(raw_company, quote=True)}" '
+                'onclick="openCompanyPage(this.dataset.companyName)">'
+                f"{company}</button>"
+            )
+        else:
+            company_html = company
+        role = html.escape(str(item.get("title", "")))
+        place = html.escape(str(item.get("place", "")))
+        work_type = html.escape(str(item.get("work_type", "Unknown")))
+        description = html.escape(str(item.get("description", "")))
+        skills_text = str(item.get("skills", ""))
+        skill_tags = []
+        for raw_skill in [s.strip() for s in skills_text.split(",") if s.strip()]:
+            skill_label = html.escape(raw_skill)
+            if skill_buttons:
+                skill_key = html.escape(_normalize_skill_name(raw_skill), quote=True)
+                if not skill_key:
+                    continue
+                skill_tags.append(
+                    f'<button type="button" class="skill-tag skill-tag-btn" data-skill-key="{skill_key}" onclick="openSkillsForSkill(this.dataset.skillKey)">{skill_label}</button>'
+                )
+            else:
+                skill_tags.append(f'<span class="skill-tag">{skill_label}</span>')
+        skills_html = "".join(skill_tags)
+        relevance_score = float(item.get("relevance_score", 0) or 0)
+        link = str(item.get("position_link", ""))
+        safe_link = html.escape(link, quote=True)
+        is_easy_apply = _is_easy_apply_item(item)
+        easy_apply_badge = (
+            '<span class="easy-apply-badge" title="LinkedIn Easy Apply detected">Easy Apply</span>'
+            if is_easy_apply
+            else ""
+        )
+        card_class = "card easy-apply-card" if is_easy_apply else "card"
+        is_applied = int(item.get("applied", 0) or 0) == 1
+        has_manual_applied_text = MANUAL_APPLIED_RAW_MARKER in str(item.get("raw_text", ""))
+        manual_status = (
+            '<span class="manual-status done">Manual full text: added</span>'
+            if has_manual_applied_text
+            else '<span class="manual-status todo">Manual full text: not added</span>'
+        )
+        manual_controls = (
+            f"""
+            <div class="applied-manual-input">
+                <p><strong>Add full applied description to raw text</strong></p>
+                <textarea class="raw-append-input" placeholder="Paste full job description here..."></textarea>
+                <div><button type="button" class="raw-append-btn" onclick="appendAppliedRawText({job_id}, this)">Append to raw text</button></div>
+            </div>
+            """.strip()
+            if is_applied and not has_manual_applied_text
+            else ""
+        )
+
+        cards.append(
+            f"""
+            <article class="{card_class}" data-job-id="{job_id}">
+                <span class="relevance-score" title="Relevance score">{relevance_score:.2f}</span>
+                <p><strong>Title:</strong> <a href="{safe_link}" target="_blank" rel="noopener noreferrer">{role}</a> {easy_apply_badge}</p>
+                <p><strong>Source:</strong> {source}</p>
+                <p><strong>Company:</strong> {company_html}</p>
+                <p><strong>Place:</strong> {place}</p>
+                <p><strong>Type:</strong> {work_type}</p>
+                <p><strong>Description:</strong> {description}</p>
+                {manual_status if is_applied else ""}
+                {manual_controls}
+                <p><strong>Skills:</strong> <span class="skill-tags">{skills_html or '<span class="skills-empty">No skills extracted</span>'}</span></p>
+                <div class="feedback">
+                    <label class="relevant-wrap"><input type="checkbox" {"checked" if str(item.get("category", "")).strip().lower() == "relevant" else ""} onchange="setRelevant({job_id}, this.checked, this)"/> Relevant</label>
+                    <label class="viewed-wrap"><input type="checkbox" {"checked" if int(item.get("viewed", 0) or 0) == 1 else ""} onchange="setViewed({job_id}, this.checked, this)"/> Viewed</label>
+                    <label class="applied-wrap"><input type="checkbox" {"checked" if int(item.get("applied", 0) or 0) == 1 else ""} onchange="setApplied({job_id}, this.checked, this)"/> Applied</label>
+                    <span class="feedback-status"></span>
+                </div>
+            </article>
+            """.strip()
+        )
+    return "".join(cards)
+
+
+def _sort_positions_unviewed_then_score(items: list[dict]) -> list[dict]:
+    def _key(item: dict):
+        viewed = int(item.get("viewed", 0) or 0)
+        score = float(item.get("relevance_score", 0) or 0.0)
+        return (viewed, -score)
+
+    return sorted(list(items), key=_key)
+
+
+def _sort_applied_positions(items: list[dict]) -> list[dict]:
+    def _key(item: dict):
+        has_manual_applied_text = MANUAL_APPLIED_RAW_MARKER in str(item.get("raw_text", ""))
+        viewed = int(item.get("viewed", 0) or 0)
+        score = float(item.get("relevance_score", 0) or 0.0)
+        return (has_manual_applied_text, viewed, -score)
+
+    return sorted(list(items), key=_key)
+
+
+def _render_company_dashboard_html(company_name: str, company_items: list[dict]) -> str:
+    company_label = (company_name or "").strip() or "Unknown company"
+    safe_company_label = html.escape(company_label)
+    applied_items = [item for item in company_items if int(item.get("applied", 0) or 0) == 1]
+    relevant_items = [
+        item
+        for item in company_items
+        if str(item.get("category", "")).strip().lower() == "relevant"
+        and int(item.get("applied", 0) or 0) != 1
+    ]
+    not_relevant_items = [
+        item
+        for item in company_items
+        if str(item.get("category", "")).strip().lower() == "not relevant"
+        and int(item.get("applied", 0) or 0) != 1
+    ]
+
+    relevant_items = _sort_positions_unviewed_then_score(relevant_items)
+    not_relevant_items = _sort_positions_unviewed_then_score(not_relevant_items)
+    applied_items = _sort_applied_positions(applied_items)
+
+    relevant_cards = _build_job_cards(relevant_items, company_links=False, skill_buttons=False)
+    not_relevant_cards = _build_job_cards(
+        not_relevant_items,
+        company_links=False,
+        skill_buttons=False,
+    )
+    applied_cards = _build_job_cards(applied_items, company_links=False, skill_buttons=False)
+
+    return f"""<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Company Positions: {safe_company_label}</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; margin: 24px; background: #f7f7f7; color: #111; }}
+            h1 {{ margin-bottom: 8px; }}
+            .subtitle {{ margin: 0 0 12px 0; color: #555; }}
+            .subtitle a {{ color: #0a58ca; }}
+            .controls {{ display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }}
+            .mode-btn {{ border: 1px solid #bbb; background: #fff; border-radius: 8px; padding: 8px 12px; cursor: pointer; }}
+            .mode-btn.active {{ border-color: #0a58ca; font-weight: 700; }}
+            .grid {{ display: grid; gap: 12px; }}
+            .card {{ background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 12px; position: relative; }}
+            .easy-apply-card {{ border-color: #d7a127; box-shadow: inset 0 0 0 1px #f6d36b; }}
+            .easy-apply-badge {{ display: inline-block; margin-left: 6px; padding: 2px 8px; border-radius: 999px; border: 1px solid #d7a127; background: #fff6d9; color: #7a5a00; font-size: 11px; font-weight: 700; vertical-align: middle; }}
+            .card p {{ margin: 6px 0; }}
+            .skill-tags {{ display: inline-flex; flex-wrap: wrap; gap: 6px; vertical-align: middle; }}
+            .skill-tag {{ display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid #c9d6f0; background: #eef4ff; color: #1f3a6d; font-size: 12px; }}
+            .skills-empty {{ color: #777; font-size: 12px; }}
+            .manual-status {{ display: inline-block; font-size: 11px; font-weight: 700; margin: 4px 0 8px 0; padding: 2px 8px; border-radius: 999px; }}
+            .manual-status.done {{ color: #114b1f; background: #e5f6e9; border: 1px solid #9ed3ab; }}
+            .manual-status.todo {{ color: #6b5a00; background: #fff8db; border: 1px solid #e4d08a; }}
+            .applied-manual-input {{ margin: 8px 0; padding: 8px; border: 1px dashed #c7d5ee; border-radius: 8px; background: #f7fbff; }}
+            .applied-manual-input p {{ margin: 0 0 6px 0; font-size: 12px; color: #1f3a6d; }}
+            .raw-append-input {{ width: 100%; min-height: 120px; resize: vertical; border: 1px solid #c9d6f0; border-radius: 6px; padding: 8px; font-size: 12px; font-family: monospace; box-sizing: border-box; }}
+            .raw-append-btn {{ margin-top: 8px; border: 1px solid #0a58ca; color: #0a58ca; background: #fff; border-radius: 6px; padding: 6px 10px; cursor: pointer; }}
+            .relevance-score {{ position: absolute; top: 8px; right: 10px; font-size: 11px; color: #9aa0a6; }}
+            .feedback {{ display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }}
+            .relevant-wrap {{ font-size: 13px; color: #333; display: inline-flex; gap: 5px; align-items: center; }}
+            .viewed-wrap {{ font-size: 13px; color: #333; display: inline-flex; gap: 5px; align-items: center; }}
+            .applied-wrap {{ font-size: 13px; color: #333; display: inline-flex; gap: 5px; align-items: center; }}
+            .feedback-status {{ font-size: 12px; color: #555; }}
+            a {{ color: #0a58ca; word-break: break-all; }}
+            .hidden {{ display: none; }}
+            .empty {{ background: #fff; border: 1px dashed #ccc; border-radius: 10px; padding: 12px; margin: 0; }}
+        </style>
+    </head>
+    <body>
+        <h1>Company Positions</h1>
+        <p class="subtitle"><a href="/report.html">Back to full report</a> · {safe_company_label} · Total in DB: {len(company_items)}</p>
+        <div class="controls">
+            <button id="btn-relevant" class="mode-btn active" type="button">Relevant ({len(relevant_items)})</button>
+            <button id="btn-not-relevant" class="mode-btn" type="button">Not relevant ({len(not_relevant_items)})</button>
+            <button id="btn-applied" class="mode-btn" type="button">Applied ({len(applied_items)})</button>
+        </div>
+        <section id="panel-relevant" class="grid">{relevant_cards}</section>
+        <section id="panel-not-relevant" class="grid hidden">{not_relevant_cards}</section>
+        <section id="panel-applied" class="grid hidden">{applied_cards}</section>
+        <script>
+            const btnRelevant = document.getElementById('btn-relevant');
+            const btnNotRelevant = document.getElementById('btn-not-relevant');
+            const btnApplied = document.getElementById('btn-applied');
+            const panelRelevant = document.getElementById('panel-relevant');
+            const panelNotRelevant = document.getElementById('panel-not-relevant');
+            const panelApplied = document.getElementById('panel-applied');
+
+            function apiUrl(path) {{
+                if (window.location.protocol === 'file:') {{
+                    return `http://127.0.0.1:8765${{path}}`;
+                }}
+                return path;
+            }}
+
+            function ensureEmptyState(panel) {{
+                const hasCards = panel.querySelector('.card') !== null;
+                let emptyEl = panel.querySelector('.empty');
+                if (!hasCards && !emptyEl) {{
+                    emptyEl = document.createElement('p');
+                    emptyEl.className = 'empty';
+                    emptyEl.textContent = 'No records found.';
+                    panel.appendChild(emptyEl);
+                }}
+                if (hasCards && emptyEl) {{
+                    emptyEl.remove();
+                }}
+            }}
+
+            function refreshCounts() {{
+                btnRelevant.textContent = `Relevant (${{panelRelevant.querySelectorAll('.card').length}})`;
+                btnNotRelevant.textContent = `Not relevant (${{panelNotRelevant.querySelectorAll('.card').length}})`;
+                btnApplied.textContent = `Applied (${{panelApplied.querySelectorAll('.card').length}})`;
+                ensureEmptyState(panelRelevant);
+                ensureEmptyState(panelNotRelevant);
+                ensureEmptyState(panelApplied);
+            }}
+
+            function setMode(mode) {{
+                const isRelevant = mode === 'relevant';
+                const isNotRelevant = mode === 'not relevant';
+                const isApplied = mode === 'applied';
+                panelRelevant.classList.toggle('hidden', !isRelevant);
+                panelNotRelevant.classList.toggle('hidden', !isNotRelevant);
+                panelApplied.classList.toggle('hidden', !isApplied);
+                btnRelevant.classList.toggle('active', isRelevant);
+                btnNotRelevant.classList.toggle('active', isNotRelevant);
+                btnApplied.classList.toggle('active', isApplied);
+            }}
+
+            btnRelevant.addEventListener('click', () => setMode('relevant'));
+            btnNotRelevant.addEventListener('click', () => setMode('not relevant'));
+            btnApplied.addEventListener('click', () => setMode('applied'));
+
+            async function setRelevant(jobId, isRelevant, inputEl) {{
+                const signal = isRelevant ? 'relevant' : 'not relevant';
+                const card = inputEl.closest('.card');
+                const statusEl = card ? card.querySelector('.feedback-status') : null;
+                if (statusEl) statusEl.textContent = 'Saving...';
+                try {{
+                    const response = await fetch(apiUrl('/api/feedback'), {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{ job_id: jobId, signal }})
+                    }});
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {{
+                        throw new Error(data.error || 'Request failed');
+                    }}
+                    const appliedCheckbox = card ? card.querySelector('.applied-wrap input') : null;
+                    const viewedCheckbox = card ? card.querySelector('.viewed-wrap input') : null;
+                    if (signal === 'not relevant') {{
+                        if (appliedCheckbox) appliedCheckbox.checked = false;
+                        if (viewedCheckbox && !viewedCheckbox.checked) {{
+                            const viewedResponse = await fetch(apiUrl('/api/viewed'), {{
+                                method: 'POST',
+                                headers: {{ 'Content-Type': 'application/json' }},
+                                body: JSON.stringify({{ job_id: jobId, viewed: true }})
+                            }});
+                            const viewedData = await viewedResponse.json();
+                            if (!viewedResponse.ok || !viewedData.ok) {{
+                                throw new Error(viewedData.error || 'Failed to update viewed');
+                            }}
+                            viewedCheckbox.checked = true;
+                        }}
+                    }}
+                    if (card) {{
+                        if (appliedCheckbox && appliedCheckbox.checked) {{
+                            if (card.parentElement !== panelApplied) panelApplied.prepend(card);
+                        }} else {{
+                            const targetPanel = signal === 'relevant' ? panelRelevant : panelNotRelevant;
+                            if (card.parentElement !== targetPanel) targetPanel.prepend(card);
+                        }}
+                    }}
+                    if (statusEl) statusEl.textContent = `Saved: ${{signal}}`;
+                    refreshCounts();
+                }} catch (err) {{
+                    if (statusEl) statusEl.textContent = `Error: ${{err.message}}. Start: python -m spejder.cli serve-gui`;
+                    inputEl.checked = !isRelevant;
+                }}
+            }}
+
+            async function setViewed(jobId, viewed, inputEl) {{
+                const card = inputEl.closest('.card');
+                const statusEl = card ? card.querySelector('.feedback-status') : null;
+                if (statusEl) statusEl.textContent = 'Saving...';
+                try {{
+                    const response = await fetch(apiUrl('/api/viewed'), {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{ job_id: jobId, viewed }})
+                    }});
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {{
+                        throw new Error(data.error || 'Request failed');
+                    }}
+                    if (card) {{
+                        const relevantCheckbox = card.querySelector('.relevant-wrap input');
+                        const appliedCheckbox = card.querySelector('.applied-wrap input');
+                        if (!viewed) {{
+                            if (appliedCheckbox) appliedCheckbox.checked = false;
+                            const targetPanel = relevantCheckbox && relevantCheckbox.checked ? panelRelevant : panelNotRelevant;
+                            if (card.parentElement !== targetPanel) targetPanel.prepend(card);
+                        }}
+                    }}
+                    if (statusEl) statusEl.textContent = `Saved: ${{viewed ? 'viewed' : 'unviewed'}}`;
+                    refreshCounts();
+                }} catch (err) {{
+                    if (statusEl) statusEl.textContent = `Error: ${{err.message}}. Start: python -m spejder.cli serve-gui`;
+                    inputEl.checked = !viewed;
+                }}
+            }}
+
+            async function setApplied(jobId, applied, inputEl) {{
+                const card = inputEl.closest('.card');
+                const statusEl = card ? card.querySelector('.feedback-status') : null;
+                if (statusEl) statusEl.textContent = 'Saving...';
+                try {{
+                    const response = await fetch(apiUrl('/api/applied'), {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{ job_id: jobId, applied }})
+                    }});
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {{
+                        throw new Error(data.error || 'Request failed');
+                    }}
+                    if (card) {{
+                        const relevantCheckbox = card.querySelector('.relevant-wrap input');
+                        const viewedCheckbox = card.querySelector('.viewed-wrap input');
+                        if (applied) {{
+                            if (relevantCheckbox) relevantCheckbox.checked = true;
+                            if (viewedCheckbox) viewedCheckbox.checked = true;
+                            if (card.parentElement !== panelApplied) panelApplied.prepend(card);
+                        }} else {{
+                            const targetPanel = relevantCheckbox && relevantCheckbox.checked ? panelRelevant : panelNotRelevant;
+                            if (card.parentElement !== targetPanel) targetPanel.prepend(card);
+                        }}
+                    }}
+                    if (statusEl) statusEl.textContent = `Saved: ${{applied ? 'applied' : 'not applied'}}`;
+                    refreshCounts();
+                }} catch (err) {{
+                    if (statusEl) statusEl.textContent = `Error: ${{err.message}}. Start: python -m spejder.cli serve-gui`;
+                    inputEl.checked = !applied;
+                }}
+            }}
+
+            async function appendAppliedRawText(jobId, btnEl) {{
+                const card = btnEl.closest('.card');
+                const statusEl = card ? card.querySelector('.feedback-status') : null;
+                const inputEl = card ? card.querySelector('.raw-append-input') : null;
+                const manualStatusEl = card ? card.querySelector('.manual-status') : null;
+                const text = inputEl ? inputEl.value : '';
+                if (!text || !text.trim()) {{
+                    if (statusEl) statusEl.textContent = 'Enter description text first';
+                    return;
+                }}
+
+                btnEl.disabled = true;
+                if (statusEl) statusEl.textContent = 'Appending...';
+                try {{
+                    const response = await fetch(apiUrl('/api/applied/raw-text'), {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{ job_id: jobId, text }})
+                    }});
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {{
+                        throw new Error(data.error || 'Request failed');
+                    }}
+                    if (inputEl) inputEl.value = '';
+                    if (manualStatusEl) {{
+                        manualStatusEl.textContent = 'Manual full text: added';
+                        manualStatusEl.classList.remove('todo');
+                        manualStatusEl.classList.add('done');
+                    }}
+                    if (statusEl) statusEl.textContent = 'Saved: full text appended';
+                }} catch (err) {{
+                    if (statusEl) statusEl.textContent = `Error: ${{err.message}}`;
+                }} finally {{
+                    btnEl.disabled = false;
+                }}
+            }}
+
+            window.setRelevant = setRelevant;
+            window.setViewed = setViewed;
+            window.setApplied = setApplied;
+            window.appendAppliedRawText = appendAppliedRawText;
+            refreshCounts();
+        </script>
+    </body>
+</html>
+"""
+
+
 def _render_html_dashboard(
     relevant_items,
     not_relevant_items,
@@ -1259,92 +1668,19 @@ def _render_html_dashboard(
     report_max_positions: int = 7,
 ):
     os.makedirs(os.path.dirname(os.path.abspath(out_html)), exist_ok=True)
+    relevant_items = _sort_positions_unviewed_then_score(relevant_items)
+    not_relevant_items = _sort_positions_unviewed_then_score(not_relevant_items)
+    applied_items = _sort_applied_positions(applied_items)
+
     relevant_total_count = len(relevant_items)
     not_relevant_total_count = len(not_relevant_items)
     relevant_items = list(relevant_items)[: max(1, int(report_max_positions or 7))]
     not_relevant_items = list(not_relevant_items)[: max(1, int(report_max_positions or 7))]
-    applied_items = sorted(
-        list(applied_items),
-        key=lambda item: MANUAL_APPLIED_RAW_MARKER in str(item.get("raw_text", "")),
-    )
+    applied_items = list(applied_items)
 
-    def build_cards(items):
-        cards = []
-        for item in items:
-            job_id = int(item.get("id", 0) or 0)
-            source = html.escape(str(item.get("source", "Unknown")))
-            company = html.escape(str(item.get("company", "")))
-            role = html.escape(str(item.get("title", "")))
-            place = html.escape(str(item.get("place", "")))
-            work_type = html.escape(str(item.get("work_type", "Unknown")))
-            description = html.escape(str(item.get("description", "")))
-            skills_text = str(item.get("skills", ""))
-            skill_tags = []
-            for raw_skill in [s.strip() for s in skills_text.split(",") if s.strip()]:
-                skill_label = html.escape(raw_skill)
-                skill_key = html.escape(_normalize_skill_name(raw_skill), quote=True)
-                if not skill_key:
-                    continue
-                skill_tags.append(
-                    f'<button type="button" class="skill-tag skill-tag-btn" data-skill-key="{skill_key}" onclick="openSkillsForSkill(this.dataset.skillKey)">{skill_label}</button>'
-                )
-            skills_html = "".join(skill_tags)
-            relevance_score = float(item.get("relevance_score", 0) or 0)
-            link = str(item.get("position_link", ""))
-            safe_link = html.escape(link, quote=True)
-            is_easy_apply = _is_easy_apply_item(item)
-            easy_apply_badge = (
-                '<span class="easy-apply-badge" title="LinkedIn Easy Apply detected">Easy Apply</span>'
-                if is_easy_apply
-                else ""
-            )
-            card_class = "card easy-apply-card" if is_easy_apply else "card"
-            is_applied = int(item.get("applied", 0) or 0) == 1
-            has_manual_applied_text = MANUAL_APPLIED_RAW_MARKER in str(item.get("raw_text", ""))
-            manual_status = (
-                '<span class="manual-status done">Manual full text: added</span>'
-                if has_manual_applied_text
-                else '<span class="manual-status todo">Manual full text: not added</span>'
-            )
-            manual_controls = (
-                f"""
-                <div class=\"applied-manual-input\">
-                    <p><strong>Add full applied description to raw text</strong></p>
-                    <textarea class=\"raw-append-input\" placeholder=\"Paste full job description here...\"></textarea>
-                    <div><button type=\"button\" class=\"raw-append-btn\" onclick=\"appendAppliedRawText({job_id}, this)\">Append to raw text</button></div>
-                </div>
-                """.strip()
-                if is_applied and not has_manual_applied_text
-                else ""
-            )
-
-            cards.append(
-                f"""
-                <article class=\"{card_class}\" data-job-id=\"{job_id}\">
-                    <span class=\"relevance-score\" title=\"Relevance score\">{relevance_score:.2f}</span>
-                    <p><strong>Title:</strong> <a href=\"{safe_link}\" target=\"_blank\" rel=\"noopener noreferrer\">{role}</a> {easy_apply_badge}</p>
-                    <p><strong>Source:</strong> {source}</p>
-                    <p><strong>Company:</strong> {company}</p>
-                    <p><strong>Place:</strong> {place}</p>
-                    <p><strong>Type:</strong> {work_type}</p>
-                    <p><strong>Description:</strong> {description}</p>
-                    {manual_status if is_applied else ""}
-                    {manual_controls}
-                    <p><strong>Skills:</strong> <span class=\"skill-tags\">{skills_html or '<span class="skills-empty">No skills extracted</span>'}</span></p>
-                    <div class=\"feedback\">
-                        <label class=\"relevant-wrap\"><input type=\"checkbox\" {"checked" if str(item.get("category", "")).strip().lower() == "relevant" else ""} onchange=\"setRelevant({job_id}, this.checked, this)\"/> Relevant</label>
-                        <label class=\"viewed-wrap\"><input type=\"checkbox\" {"checked" if int(item.get("viewed", 0) or 0) == 1 else ""} onchange=\"setViewed({job_id}, this.checked, this)\"/> Viewed</label>
-                        <label class=\"applied-wrap\"><input type=\"checkbox\" {"checked" if int(item.get("applied", 0) or 0) == 1 else ""} onchange=\"setApplied({job_id}, this.checked, this)\"/> Applied</label>
-                        <span class=\"feedback-status\"></span>
-                    </div>
-                </article>
-                """.strip()
-            )
-        return "".join(cards)
-
-    relevant_cards = build_cards(relevant_items)
-    not_relevant_cards = build_cards(not_relevant_items)
-    applied_cards = build_cards(applied_items)
+    relevant_cards = _build_job_cards(relevant_items)
+    not_relevant_cards = _build_job_cards(not_relevant_items)
+    applied_cards = _build_job_cards(applied_items)
     skills_items = skills_items or []
 
     skills_rows = []
@@ -1413,6 +1749,8 @@ def _render_html_dashboard(
             .skill-tags {{ display: inline-flex; flex-wrap: wrap; gap: 6px; vertical-align: middle; }}
             .skill-tag {{ display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid #c9d6f0; background: #eef4ff; color: #1f3a6d; font-size: 12px; }}
             .skill-tag-btn {{ cursor: pointer; }}
+            .pseudo-link {{ border: 0; padding: 0; background: none; color: #0a58ca; cursor: pointer; font: inherit; text-decoration: underline; }}
+            .pseudo-link:hover {{ color: #084298; }}
             .skills-empty {{ color: #777; font-size: 12px; }}
             .manual-status {{ display: inline-block; font-size: 11px; font-weight: 700; margin: 4px 0 8px 0; padding: 2px 8px; border-radius: 999px; }}
             .manual-status.done {{ color: #114b1f; background: #e5f6e9; border: 1px solid #9ed3ab; }}
@@ -1529,6 +1867,13 @@ def _render_html_dashboard(
             function openSkillsForSkill(skillKey) {{
                 setMode('skills');
                 focusSkillRow(skillKey);
+            }}
+
+            function openCompanyPage(companyName) {{
+                if (!companyName) return;
+                const targetUrl = apiUrl(`/company.html?company=${{encodeURIComponent(companyName)}}`);
+                const popup = window.open(targetUrl, '_blank', 'noopener');
+                if (popup) popup.opener = null;
             }}
 
             btnRelevant.addEventListener('click', () => setMode('relevant'));
@@ -1776,6 +2121,7 @@ def _render_html_dashboard(
             window.setUserSkill = setUserSkill;
             window.setLearnSkill = setLearnSkill;
             window.openSkillsForSkill = openSkillsForSkill;
+            window.openCompanyPage = openCompanyPage;
             window.blockSkill = blockSkill;
             window.deleteSkill = deleteSkill;
             window.appendAppliedRawText = appendAppliedRawText;
@@ -2426,7 +2772,7 @@ def cmd_process_inbox(args):
     print(f"Scored {total} positions; relevant={relevant_count}")
 
     relevant_jobs = get_relevant_jobs(db_path, limit=args.limit)
-    llm = LocalLLM(model_path=model_path, verbose=bool(args.verbose)) if model_path else None
+    llm = LocalLLM(model_path=model_path, n_ctx=int(runtime_profile.get("n_ctx", 8192)), verbose=bool(args.verbose)) if model_path else None
 
     desc_updated, desc_skipped = _generate_missing_descriptions_for_ingest(
         db_path, llm=llm, allow_empty=False
@@ -2684,7 +3030,7 @@ def cmd_serve_gui(args):
             return title_translation_llm
         if not model_path:
             return None
-        title_translation_llm = LocalLLM(model_path=model_path, verbose=False)
+        title_translation_llm = LocalLLM(model_path=model_path, n_ctx=int(runtime_profile.get("n_ctx", 8192)), verbose=False)
         return title_translation_llm
 
     def _persist_runtime_profile() -> None:
@@ -2866,7 +3212,7 @@ def cmd_serve_gui(args):
                 return
 
             llm_for_sync = (
-                LocalLLM(model_path=model_path, verbose=cli_verbose) if model_path else None
+                LocalLLM(model_path=model_path, n_ctx=int(runtime_profile.get("n_ctx", 8192)), verbose=cli_verbose) if model_path else None
             )
             if docs:
                 print(f"Background sync started: files={len(docs)}")
@@ -3004,6 +3350,33 @@ def cmd_serve_gui(args):
             self.end_headers()
             self.wfile.write(raw)
 
+        def _write_html(self, status_code: int, content: str):
+            raw = content.encode("utf-8")
+            self.send_response(status_code)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+        def do_GET(self):
+            parsed = urlparse(self.path)
+            path = parsed.path.rstrip("/") or "/"
+            if path == "/company.html":
+                company_values = parse_qs(parsed.query or "").get("company", [])
+                company_name = str(company_values[0]).strip() if company_values else ""
+                if not company_name:
+                    self._write_html(
+                        400,
+                        """<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\" /><title>Company Positions</title></head><body><p>Missing company name.</p><p><a href=\"/report.html\">Back to full report</a></p></body></html>""",
+                    )
+                    return
+
+                company_items = get_jobs_by_company(db_path, company_name, limit=0)
+                self._write_html(200, _render_company_dashboard_html(company_name, company_items))
+                return
+
+            super().do_GET()
+
         def do_OPTIONS(self):
             self.send_response(204)
             self.send_header("Access-Control-Allow-Origin", "*")
@@ -3089,7 +3462,7 @@ def cmd_serve_gui(args):
 
                     clear_job_skills_for_job(db_path, job_id)
                     llm_for_manual = (
-                        LocalLLM(model_path=model_path, verbose=cli_verbose) if model_path else None
+                        LocalLLM(model_path=model_path, n_ctx=int(runtime_profile.get("n_ctx", 8192)), verbose=cli_verbose) if model_path else None
                     )
 
                     applied_rows = get_applied_jobs(db_path, limit=0)
@@ -3395,7 +3768,7 @@ def cmd_refresh_descriptions(args):
     ensure_db(db_path)
     _ensure_skill_pattern_seed_migration(db_path, profile_path)
 
-    llm = LocalLLM(model_path=model_path, verbose=not args.quiet_model) if model_path else None
+    llm = LocalLLM(model_path=model_path, n_ctx=int(runtime_profile.get("n_ctx", 8192)), verbose=not args.quiet_model) if model_path else None
     if not llm:
         print(
             "No --model provided, summaries will remain empty unless your logic sets fallback text."

@@ -19,7 +19,7 @@ class LocalLLM:
     def __init__(
         self,
         model_path: Optional[str] = None,
-        n_ctx: int = 2048,
+        n_ctx: int = 8192,
         verbose: bool = False,
     ):
         self.model_path = model_path

@@ -15,6 +15,11 @@
 - Detect LinkedIn `Easy Apply` from existing text, highlight those cards in the dashboard, and apply a relevance bonus.
 - Serve the dashboard with feedback endpoints for `Relevant`, `Viewed`, and `Applied` actions.
 - Learn additional profile keywords from labeled jobs and write them back to `profile.json`.
+- Translate non-English job titles to English using the local LLM for consistent display in the dashboard.
+- Allow pasting a full position description for applied jobs via the dashboard to trigger re-summarization and re-scoring with the LLM.
+- Block or delete skills from the dashboard; blocked skills are persisted in `profile.json` under `blocked_skills`.
+- Provide a per-company filtered view at `/company.html?name=<company>` linked from dashboard cards.
+- Delete processed inbox files automatically after successful ingestion.
 
 ## Requirements
 
@@ -68,6 +73,8 @@ Open `http://127.0.0.1:8765/report.html`.
 - The server rebuilds `report.html` after feedback changes.
 - When `serve-gui` starts, it also performs a background inbox sync, relevance scoring, and missing-description generation.
 - If the requested port is busy, the server automatically tries the next ports up to 20 times.
+- Clicking a company name opens a `/company.html` view filtered to that company's jobs.
+- Applied jobs have a "Paste full description" form that feeds the full text to the LLM, regenerating the summary, description, and skill tags.
 
 ## CLI commands
 
@@ -114,7 +121,7 @@ Parse inbox files, ingest to DB, score relevance, generate missing descriptions,
 python3 -m spejder.cli process-inbox \
   --profile ./profile.json \
   --model ./models/model.gguf \
-  --max-input-chars 4500
+  --max-input-chars 24000
 ```
 
 Options: `--inbox`, `--db`, `--profile`, `--model`, `--report-dir`, `--limit`, `--max-tokens`, `--max-input-chars`, `--prune-irrelevant`, `--verbose`.
@@ -156,7 +163,7 @@ python3 -m spejder.cli refresh-descriptions \
   --report-dir ./outbox
 ```
 
-Options: `--db`, `--source`, `--category`, `--link` (repeatable), `--job-id` (repeatable), `--limit`, `--overwrite`, `--allow-empty`, `--quiet-model`, `--report-dir`.
+Options: `--profile`, `--db`, `--model`, `--source`, `--category`, `--link` (repeatable), `--job-id` (repeatable), `--limit`, `--overwrite`, `--allow-empty`, `--quiet-model`, `--report-dir`.
 
 Notes:
 
@@ -175,7 +182,7 @@ python3 -m spejder.cli sync-user-skills \
   --model ./models/model.gguf
 ```
 
-Options: `--db`, `--model`, `--cv`, `--limit`, `--max-chars`, `--replace`, `--quiet-model`.
+Options: `--profile`, `--db`, `--model`, `--cv`, `--limit`, `--max-chars`, `--replace`, `--quiet-model`.
 
 Notes:
 
@@ -245,6 +252,8 @@ In `profile.json`:
 - `missing_skills_max_items`: max missing-skill suggestions written to profile.
 - `report_max_positions`: max number of positions shown in each report section (`Relevant` and `Not relevant`), default `7`.
 - `skill_learning_max_positions`, `skill_learning_min_occurrences`, `skill_learning_max_new_patterns`: controls for learning new DB skill patterns.
+- `max_input_chars`: maximum characters of job text passed to the LLM as input. Default `24000`. Raise this when pasting full position descriptions to get better summaries.
+- `n_ctx`: LLM context window size passed to `llama-cpp-python` at load time. Default `8192`. Should be at least as large as `max_input_chars / 4 + max_tokens` to avoid the "not optimal" warning from llama.cpp.
 
 ## Notes
 
