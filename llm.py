@@ -41,29 +41,6 @@ class LocalLLM:
         with _suppress_native_stdio():
             self.model = Llama(model_path=self.model_path, n_ctx=self.n_ctx, verbose=False)
 
-
-@contextmanager
-def _suppress_native_stdio():
-    saved_stdout = None
-    saved_stderr = None
-    devnull = None
-    try:
-        devnull = os.open(os.devnull, os.O_WRONLY)
-        saved_stdout = os.dup(1)
-        saved_stderr = os.dup(2)
-        os.dup2(devnull, 1)
-        os.dup2(devnull, 2)
-        yield
-    finally:
-        if saved_stdout is not None:
-            os.dup2(saved_stdout, 1)
-            os.close(saved_stdout)
-        if saved_stderr is not None:
-            os.dup2(saved_stderr, 2)
-            os.close(saved_stderr)
-        if devnull is not None:
-            os.close(devnull)
-
     def generate(
         self,
         prompt: str,
@@ -90,3 +67,26 @@ def _suppress_native_stdio():
     def classify(self, text: str, taxonomy_prompt: str, max_tokens: int = 128) -> str:
         prompt = taxonomy_prompt + "\n\nContent:\n" + text + "\n\nAnswer:"
         return self.generate(prompt, max_tokens=max_tokens)
+
+
+@contextmanager
+def _suppress_native_stdio():
+    saved_stdout = None
+    saved_stderr = None
+    devnull = None
+    try:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        saved_stdout = os.dup(1)
+        saved_stderr = os.dup(2)
+        os.dup2(devnull, 1)
+        os.dup2(devnull, 2)
+        yield
+    finally:
+        if saved_stdout is not None:
+            os.dup2(saved_stdout, 1)
+            os.close(saved_stdout)
+        if saved_stderr is not None:
+            os.dup2(saved_stderr, 2)
+            os.close(saved_stderr)
+        if devnull is not None:
+            os.close(devnull)

@@ -22,10 +22,11 @@ try:
     from .jobs import (
         DEFAULT_PROFILE,
         apply_relevance,
-        ensure_db,
         delete_skill_from_db,
+        ensure_db,
         get_applied_jobs,
         get_jobs_by_company,
+        get_jobs_count_by_category,
         get_job_skills,
         get_jobs_by_category,
         get_jobs_for_description_refresh,
@@ -34,6 +35,7 @@ try:
         ingest_docs_to_db,
         load_profile,
         migrate_profile_skill_patterns_to_db,
+        merge_cross_source_duplicates,
         set_job_applied,
         append_applied_job_raw_text,
         rescore_job_by_id,
@@ -57,10 +59,11 @@ except ImportError:
     from jobs import (
         DEFAULT_PROFILE,
         apply_relevance,
-        ensure_db,
         delete_skill_from_db,
+        ensure_db,
         get_applied_jobs,
         get_jobs_by_company,
+        get_jobs_count_by_category,
         get_job_skills,
         get_jobs_by_category,
         get_jobs_for_description_refresh,
@@ -69,6 +72,7 @@ except ImportError:
         ingest_docs_to_db,
         load_profile,
         migrate_profile_skill_patterns_to_db,
+        merge_cross_source_duplicates,
         set_job_applied,
         append_applied_job_raw_text,
         rescore_job_by_id,
@@ -97,6 +101,149 @@ SKILL_CUE_PATTERN = re.compile(
 )
 EASY_APPLY_PATTERN = re.compile(r"\beasy\s*apply\b", flags=re.IGNORECASE)
 MANUAL_APPLIED_RAW_MARKER = "[MANUAL_APPLIED_DESCRIPTION]"
+
+SKILL_CLEANUP_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "as",
+    "at",
+    "by",
+    "for",
+    "from",
+    "in",
+    "into",
+    "of",
+    "on",
+    "or",
+    "the",
+    "to",
+    "with",
+    "within",
+}
+
+SKILL_CLEANUP_GENERIC_SINGLE = {
+    "analyze",
+    "assessments",
+    "carrying",
+    "coordinating",
+    "customers",
+    "funding",
+    "goals",
+    "guidance",
+    "industries",
+    "international",
+    "internally",
+    "logistics",
+    "maintain",
+    "market",
+    "mission",
+    "monitored",
+    "operate",
+    "operating",
+    "orders",
+    "ownership",
+    "partnerships",
+    "positive",
+    "pricing",
+    "processes",
+    "product",
+    "projects",
+    "race",
+    "reporting",
+    "review",
+    "sales",
+    "safely",
+    "scans",
+    "secure",
+    "services",
+    "setting",
+    "software",
+    "solutions",
+    "structured",
+    "succeeding",
+    "systems",
+    "talents",
+    "technologies",
+    "therefore",
+    "together",
+    "tools",
+    "treat",
+}
+
+SKILL_CLEANUP_PREFIXES = {
+    "ability",
+    "building",
+    "calibration",
+    "can",
+    "challenge",
+    "coaching",
+    "deliver",
+    "delivering",
+    "degree",
+    "depends",
+    "determine",
+    "discussing",
+    "e.g",
+    "enable",
+    "establishing",
+    "experience",
+    "familiarity",
+    "governing",
+    "grow",
+    "growing",
+    "hands-on",
+    "has",
+    "have",
+    "help",
+    "implementing",
+    "improving",
+    "including",
+    "influence",
+    "integrate",
+    "into",
+    "invaluable",
+    "issue",
+    "knowledge",
+    "will",
+    "working",
+}
+
+SKILL_CLEANUP_GENERIC_PHRASES = {
+    "ability to work independently",
+    "building standalone applications",
+    "coaching developers onboarding",
+    "data driven approach",
+    "deliver high-quality solutions",
+    "depends on manual effort",
+    "determine root causes",
+    "discussing product strategy",
+    "global engineering",
+    "grow professionally",
+    "grow with us",
+    "has been",
+    "have access to support",
+    "help to ensure quality",
+    "implementing the finished solution",
+    "improving their environmental impact",
+    "in addition",
+    "in device software",
+    "in the future",
+    "in this newly shaped role",
+    "including blender",
+    "including indirect reports",
+    "into a seamless technical ecosystem",
+    "into designs to supporting implementation",
+    "into working",
+    "interact efficiently with our services",
+    "more specifically",
+    "not theory",
+    "set by radio communication solutions?",
+    "slows down",
+    "software architecture fundamentals",
+    "will design",
+    "will help shape",
+}
 
 
 def _is_linkedin_item(source: str, position_link: str) -> bool:
@@ -1115,6 +1262,162 @@ def _block_skill_in_profile(profile: dict, skill_name: str) -> dict[str, int]:
     return {"blocked_added": int(blocked_added), "removed": int(removed_info.get("removed", 0))}
 
 
+def _protected_skill_keys(profile: dict) -> set[str]:
+    protected = set()
+
+    for item in profile.get("known_skill_patterns", []) or []:
+        if not isinstance(item, dict):
+            continue
+        name = _normalize_skill_name(str(item.get("name", "")))
+        if name:
+            protected.add(name.lower())
+
+    for field in ("user_skills", "missing_skills_suggestions"):
+        for item in profile.get(field, []) or []:
+            name = _normalize_skill_name(str(item))
+            if name:
+                protected.add(name.lower())
+
+    return protected
+
+
+def _skill_cleanup_reason(name: str, source: str, protected_keys: set[str]) -> str:
+    skill = _normalize_skill_name(name)
+    key = skill.lower()
+    if not key:
+        return "empty"
+    if key in protected_keys:
+        return ""
+
+    source_key = (source or "").strip().lower()
+    if source_key.startswith("profile"):
+        return ""
+
+    if key in SKILL_CLEANUP_GENERIC_PHRASES:
+        return "generic phrase"
+    if any(char in key for char in "?[]{}"):
+        return "malformed text"
+    if re.search(r"\b(?:we|our|you|your|they|them|their)\b", key):
+        return "sentence fragment"
+
+    tokens = re.findall(r"[a-z0-9+#./-]+", key)
+    if not tokens:
+        return "empty"
+    if len(tokens) > 4:
+        return "too many words"
+    if any(token in SKILL_CLEANUP_STOPWORDS for token in tokens):
+        return "contains stopword"
+    if tokens[0] in SKILL_CLEANUP_PREFIXES:
+        return "sentence fragment"
+    if len(tokens) == 1 and tokens[0] in SKILL_CLEANUP_GENERIC_SINGLE:
+        return "generic term"
+
+    return ""
+
+
+def _collect_skill_cleanup_candidates(db_path: str, profile: dict) -> list[dict]:
+    protected_keys = _protected_skill_keys(profile)
+    blocked_keys = _blocked_skill_keys(profile)
+    rows = get_db_skill_patterns(db_path, enabled_only=False)
+    candidates = []
+    seen = set()
+
+    for row in rows:
+        name = _normalize_skill_name(str(row.get("name", "")))
+        key = name.lower()
+        if not key or key in seen or key in blocked_keys:
+            continue
+        seen.add(key)
+
+        reason = _skill_cleanup_reason(name, str(row.get("source", "")), protected_keys)
+        if not reason:
+            continue
+
+        candidates.append(
+            {
+                "name": name,
+                "reason": reason,
+                "source": str(row.get("source", "")),
+                "occurrences": int(row.get("occurrences", 0) or 0),
+                "weight": float(row.get("weight", 0.0) or 0.0),
+            }
+        )
+
+    candidates.sort(key=lambda item: (-item["occurrences"], -item["weight"], item["name"]))
+    return candidates
+
+
+def cmd_cleanup_skills(args):
+    profile_path = args.profile or DEFAULT_PROFILE_PATH
+    runtime_profile = _load_runtime_profile(profile_path)
+    db_path = args.db or runtime_profile.get("default_db") or "./jobs.db"
+
+    ensure_db(db_path)
+    _ensure_skill_pattern_seed_migration(db_path, profile_path)
+
+    candidates = _collect_skill_cleanup_candidates(db_path, runtime_profile)
+    if args.limit and int(args.limit) > 0:
+        candidates = candidates[: int(args.limit)]
+
+    if not candidates:
+        print("Skill cleanup: nothing to remove.")
+        return
+
+    print(f"Skill cleanup: found {len(candidates)} candidate skills")
+    for item in candidates[:20]:
+        print(
+            f"  - {item['name']} [{item['reason']}; source={item['source']}; "
+            f"occurrences={item['occurrences']}]"
+        )
+    if len(candidates) > 20:
+        print(f"  ... and {len(candidates) - 20} more")
+
+    if args.dry_run:
+        print("Skill cleanup: dry run only, no changes applied.")
+        return
+
+    blocked_added = 0
+    profile_removed = 0
+    db_skill_rows_deleted = 0
+    db_job_links_deleted = 0
+
+    for item in candidates:
+        skill_name = item["name"]
+        block_info = _block_skill_in_profile(runtime_profile, skill_name)
+        delete_info = delete_skill_from_db(db_path, skill_name)
+        blocked_added += int(block_info.get("blocked_added", 0))
+        profile_removed += int(block_info.get("removed", 0))
+        db_skill_rows_deleted += int(delete_info.get("skill_rows_deleted", 0))
+        db_job_links_deleted += int(delete_info.get("job_skill_links_deleted", 0))
+
+    _save_profile(profile_path, runtime_profile)
+
+    print(
+        "Skill cleanup complete: "
+        f"blocked={blocked_added}, "
+        f"profile_removed={profile_removed}, "
+        f"db_skill_rows_deleted={db_skill_rows_deleted}, "
+        f"db_job_links_deleted={db_job_links_deleted}, "
+        f"profile={profile_path}, db={db_path}"
+    )
+
+
+def cmd_dedupe_jobs(args):
+    profile_path = args.profile or DEFAULT_PROFILE_PATH
+    runtime_profile = _load_runtime_profile(profile_path)
+    db_path = args.db or runtime_profile.get("default_db") or "./jobs.db"
+
+    ensure_db(db_path)
+    result = merge_cross_source_duplicates(db_path)
+    print(
+        "Job dedupe complete: "
+        f"groups_merged={result.get('groups_merged', 0)}, "
+        f"rows_updated={result.get('rows_updated', 0)}, "
+        f"rows_deleted={result.get('rows_deleted', 0)}, "
+        f"db={db_path}"
+    )
+
+
 def _build_skills_tab_items(db_path: str, profile: dict) -> list[dict]:
     blocked_keys = _blocked_skill_keys(profile)
     user_keys = {
@@ -1666,14 +1969,18 @@ def _render_html_dashboard(
     viewed_total: int = 0,
     skills_items: Optional[list[dict]] = None,
     report_max_positions: int = 7,
+    relevant_total_count: Optional[int] = None,
+    not_relevant_total_count: Optional[int] = None,
 ):
     os.makedirs(os.path.dirname(os.path.abspath(out_html)), exist_ok=True)
     relevant_items = _sort_positions_unviewed_then_score(relevant_items)
     not_relevant_items = _sort_positions_unviewed_then_score(not_relevant_items)
     applied_items = _sort_applied_positions(applied_items)
 
-    relevant_total_count = len(relevant_items)
-    not_relevant_total_count = len(not_relevant_items)
+    if relevant_total_count is None:
+        relevant_total_count = len(relevant_items)
+    if not_relevant_total_count is None:
+        not_relevant_total_count = len(not_relevant_items)
     relevant_items = list(relevant_items)[: max(1, int(report_max_positions or 7))]
     not_relevant_items = list(not_relevant_items)[: max(1, int(report_max_positions or 7))]
     applied_items = list(applied_items)
@@ -2772,7 +3079,7 @@ def cmd_process_inbox(args):
     print(f"Scored {total} positions; relevant={relevant_count}")
 
     relevant_jobs = get_relevant_jobs(db_path, limit=args.limit)
-    llm = LocalLLM(model_path=model_path, n_ctx=int(runtime_profile.get("n_ctx", 8192)), verbose=bool(args.verbose)) if model_path else None
+    llm = LocalLLM(model_path=model_path, n_ctx=int(profile.get("n_ctx", 8192)), verbose=bool(args.verbose)) if model_path else None
 
     desc_updated, desc_skipped = _generate_missing_descriptions_for_ingest(
         db_path, llm=llm, allow_empty=False
@@ -3020,6 +3327,9 @@ def cmd_serve_gui(args):
     os.makedirs(report_dir, exist_ok=True)
     dashboard_path = os.path.join(report_dir, "report.html")
     dashboard_lock = threading.Lock()
+    rebuild_signal = threading.Event()
+    rebuild_pending_lock = threading.Lock()
+    rebuild_pending_reasons: list[str] = []
     page_context_cache: dict[str, str] = {}
     title_translation_cache: dict[str, str] = {}
     title_translation_llm: Optional[LocalLLM] = None
@@ -3066,6 +3376,7 @@ def cmd_serve_gui(args):
         default_category: str,
         default_viewed: int = 0,
         default_applied: int = 0,
+        translate_title: bool = True,
     ) -> dict:
         raw_text = row.get("raw_text") or ""
         summary = _summary_for_display(
@@ -3073,15 +3384,21 @@ def cmd_serve_gui(args):
             raw_text,
         )
         cached_skills = get_job_skills(db_path, int(row.get("id", 0) or 0))
+        title_raw = row.get("title", "")
+        if translate_title:
+            title_value = _translate_title_to_english(
+                title_raw,
+                llm=_get_title_translation_llm(),
+                title_translation_cache=title_translation_cache,
+            )
+        else:
+            title_value = str(title_raw or "")
+
         return {
             "id": row.get("id", 0),
             "source": row.get("source", "Unknown"),
             "company": row.get("company", ""),
-            "title": _translate_title_to_english(
-                row.get("title", ""),
-                llm=_get_title_translation_llm(),
-                title_translation_cache=title_translation_cache,
-            ),
+            "title": title_value,
             "place": row.get("place", ""),
             "work_type": row.get("work_type", "Unknown"),
             "description": _fallback_description_text(
@@ -3137,10 +3454,7 @@ def cmd_serve_gui(args):
         return updated
 
     def _rebuild_dashboard(reason: str = ""):
-        quiet_reason_prefixes = ("applied ", "viewed ")
-        should_log_rebuild = bool(reason) and not any(
-            reason.startswith(prefix) for prefix in quiet_reason_prefixes
-        )
+        should_log_rebuild = bool(reason)
 
         if should_log_rebuild:
             print(f"Dashboard rebuild: started ({reason})")
@@ -3148,10 +3462,26 @@ def cmd_serve_gui(args):
             try:
                 with dashboard_lock:
                     refreshed_report_data = {}
+                    report_limit = _report_max_positions(runtime_profile)
+                    category_totals: dict[str, int] = {}
                     for cat in ["relevant", "not relevant"]:
-                        rows = get_jobs_by_category(db_path, cat, limit=0, unviewed_only=True)
-                        if reason == "startup snapshot":
-                            print(f"Dashboard rebuild: collecting {cat} ({len(rows)} rows)")
+                        total_rows = get_jobs_count_by_category(
+                            db_path,
+                            cat,
+                            unviewed_only=True,
+                        )
+                        category_totals[cat] = int(total_rows)
+                        rows = get_jobs_by_category(
+                            db_path,
+                            cat,
+                            limit=report_limit,
+                            unviewed_only=True,
+                        )
+                        if should_log_rebuild:
+                            print(
+                                "Dashboard rebuild: collecting "
+                                f"{cat} (showing={len(rows)}, total_unviewed={total_rows})"
+                            )
                         refreshed_report_data[cat] = [
                             _build_dashboard_record(
                                 row,
@@ -3163,7 +3493,7 @@ def cmd_serve_gui(args):
                         ]
 
                     refreshed_applied_rows = get_applied_jobs(db_path, limit=0)
-                    if reason == "startup snapshot":
+                    if should_log_rebuild:
                         print(
                             f"Dashboard rebuild: collecting applied ({len(refreshed_applied_rows)} rows)"
                         )
@@ -3173,6 +3503,7 @@ def cmd_serve_gui(args):
                             default_category="relevant",
                             default_viewed=1,
                             default_applied=1,
+                            translate_title=False,
                         )
                         for row in refreshed_applied_rows
                     ]
@@ -3186,6 +3517,8 @@ def cmd_serve_gui(args):
                         viewed_total=get_viewed_jobs_count(db_path),
                         skills_items=_build_skills_tab_items(db_path, runtime_profile),
                         report_max_positions=_report_max_positions(runtime_profile),
+                        relevant_total_count=category_totals.get("relevant", 0),
+                        not_relevant_total_count=category_totals.get("not relevant", 0),
                     )
                 if should_log_rebuild and not reason.startswith("new record"):
                     print(f"Dashboard rebuild: done ({reason})")
@@ -3195,6 +3528,28 @@ def cmd_serve_gui(args):
                     print(f"Report regeneration failed ({reason or 'unknown'}): {exc}")
                 else:
                     time.sleep(0.2)
+
+    def _queue_dashboard_rebuild(reason: str = ""):
+        reason_text = str(reason or "").strip() or "queued update"
+        with rebuild_pending_lock:
+            rebuild_pending_reasons.append(reason_text)
+        rebuild_signal.set()
+
+    def _dashboard_rebuild_worker():
+        while True:
+            rebuild_signal.wait()
+            with rebuild_pending_lock:
+                reasons = list(rebuild_pending_reasons)
+                rebuild_pending_reasons.clear()
+                rebuild_signal.clear()
+
+            if not reasons:
+                continue
+
+            reason = reasons[-1]
+            if len(reasons) > 1:
+                reason = f"{reason} (+{len(reasons) - 1} queued)"
+            _rebuild_dashboard(reason=reason)
 
     def _sync_inbox_in_background():
         try:
@@ -3287,7 +3642,7 @@ def cmd_serve_gui(args):
             )
             print(f"Background sync: missing skills populated ({skills_updated} jobs updated)")
 
-            _rebuild_dashboard(reason="relevance re-scored")
+            _queue_dashboard_rebuild(reason="relevance re-scored")
 
             desc_updated, desc_skipped = _generate_missing_descriptions_for_ingest(
                 db_path,
@@ -3297,7 +3652,7 @@ def cmd_serve_gui(args):
                 progress_label="Background sync: descriptions",
             )
             if desc_updated > 0:
-                _rebuild_dashboard(reason=f"descriptions updated {desc_updated}")
+                _queue_dashboard_rebuild(reason=f"descriptions updated {desc_updated}")
 
             skill_learning = _learn_skill_patterns_from_positions(
                 db_path,
@@ -3307,7 +3662,7 @@ def cmd_serve_gui(args):
                 progress_label="Background sync: skill patterns",
             )
             if skill_learning.get("new_skill_patterns", 0) > 0:
-                _rebuild_dashboard(
+                _queue_dashboard_rebuild(
                     reason=f"skill patterns learned {skill_learning.get('new_skill_patterns', 0)}"
                 )
             print(
@@ -3420,18 +3775,25 @@ def cmd_serve_gui(args):
                         )
                         return
                     updated = set_job_feedback(db_path, job_id, signal)
-                    learning_info = update_profile_from_db_signals(db_path, profile_path)
+                    learning_info = {"queued": True}
+                    threading.Thread(
+                        target=lambda: update_profile_from_db_signals(db_path, profile_path),
+                        name="spejder-profile-learning-feedback",
+                        daemon=True,
+                    ).start()
                 elif path == "/api/applied":
                     applied_raw = payload.get("applied")
                     if not isinstance(applied_raw, bool):
                         self._write_json(400, {"ok": False, "error": "applied must be boolean"})
                         return
                     updated = set_job_applied(db_path, job_id, applied_raw)
-                    learning_info = (
-                        update_profile_from_db_signals(db_path, profile_path)
-                        if applied_raw
-                        else None
-                    )
+                    learning_info = {"queued": bool(applied_raw)} if applied_raw else None
+                    if applied_raw:
+                        threading.Thread(
+                            target=lambda: update_profile_from_db_signals(db_path, profile_path),
+                            name="spejder-profile-learning-applied",
+                            daemon=True,
+                        ).start()
                 elif path == "/api/viewed":
                     viewed_raw = payload.get("viewed")
                     if not isinstance(viewed_raw, bool):
@@ -3518,7 +3880,7 @@ def cmd_serve_gui(args):
                     rescore_job_by_id(db_path, runtime_profile, int(job_id))
                     learning_info = update_profile_from_db_signals(db_path, profile_path)
 
-                    _rebuild_dashboard(reason=f"applied manual text job {job_id}")
+                    _queue_dashboard_rebuild(reason=f"applied manual text job {job_id}")
                     self._write_json(
                         200,
                         {
@@ -3545,7 +3907,7 @@ def cmd_serve_gui(args):
                     if changed:
                         _persist_runtime_profile()
                         _reload_runtime_profile()
-                        _rebuild_dashboard(
+                        _queue_dashboard_rebuild(
                             reason=f"skill have {'on' if has_skill else 'off'} {skill}"
                         )
                     self._write_json(
@@ -3576,7 +3938,7 @@ def cmd_serve_gui(args):
                     if changed:
                         _persist_runtime_profile()
                         _reload_runtime_profile()
-                        _rebuild_dashboard(
+                        _queue_dashboard_rebuild(
                             reason=f"skill learn {'on' if learn else 'off'} {skill}"
                         )
                     self._write_json(
@@ -3600,7 +3962,7 @@ def cmd_serve_gui(args):
                     _reload_runtime_profile()
 
                     db_deleted = delete_skill_from_db(db_path, skill)
-                    _rebuild_dashboard(reason=f"skill deleted cleanup {skill}")
+                    _queue_dashboard_rebuild(reason=f"skill deleted cleanup {skill}")
                     self._write_json(
                         200,
                         {
@@ -3622,7 +3984,7 @@ def cmd_serve_gui(args):
                     _reload_runtime_profile()
 
                     db_deleted = delete_skill_from_db(db_path, skill)
-                    _rebuild_dashboard(reason=f"skill blocked cleanup {skill}")
+                    _queue_dashboard_rebuild(reason=f"skill blocked cleanup {skill}")
                     self._write_json(
                         200,
                         {
@@ -3645,7 +4007,7 @@ def cmd_serve_gui(args):
                 else:
                     rebuild_reason = f"viewed {'on' if viewed_raw else 'off'} job {job_id}"
 
-                _rebuild_dashboard(reason=rebuild_reason)
+                _queue_dashboard_rebuild(reason=rebuild_reason)
 
                 if path == "/api/feedback":
                     self._write_json(
@@ -3716,7 +4078,12 @@ def cmd_serve_gui(args):
 
     print("Serve GUI: starting startup tasks in background")
     threading.Thread(
-        target=lambda: _rebuild_dashboard(reason="startup snapshot"),
+        target=_dashboard_rebuild_worker,
+        name="spejder-dashboard-rebuild-worker",
+        daemon=True,
+    ).start()
+    threading.Thread(
+        target=lambda: _queue_dashboard_rebuild(reason="startup snapshot"),
         name="spejder-startup-dashboard",
         daemon=True,
     ).start()
@@ -4047,6 +4414,18 @@ def main(argv=None):
     psk.add_argument("--replace", action="store_true")
     psk.add_argument("--quiet-model", action="store_true")
     psk.set_defaults(func=cmd_sync_user_skills)
+
+    pcs = sub.add_parser("cleanup-skills")
+    pcs.add_argument("--profile", default=DEFAULT_PROFILE_PATH)
+    pcs.add_argument("--db", default=None)
+    pcs.add_argument("--limit", type=int, default=0)
+    pcs.add_argument("--dry-run", action="store_true")
+    pcs.set_defaults(func=cmd_cleanup_skills)
+
+    pdj = sub.add_parser("dedupe-jobs")
+    pdj.add_argument("--profile", default=DEFAULT_PROFILE_PATH)
+    pdj.add_argument("--db", default=None)
+    pdj.set_defaults(func=cmd_dedupe_jobs)
 
     args = p.parse_args(argv)
     if not hasattr(args, "func"):

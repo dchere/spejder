@@ -2,12 +2,14 @@ import json
 import os
 import re
 import sqlite3
+import base64
 from collections import Counter
 from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Optional
+from html import unescape
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 from urllib.request import Request, urlopen
 
 from bs4 import BeautifulSoup
@@ -276,6 +278,166 @@ TITLE_GARBAGE_MARKERS = [
 
 def _normalize_title_key(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", (value or "").lower())
+
+
+COMPANY_NOISE_TOKENS = {
+    "danmark",
+    "denmark",
+    "aps",
+    "a",
+    "s",
+    "as",
+    "ab",
+    "oy",
+    "ltd",
+    "llc",
+    "inc",
+    "group",
+    "holding",
+}
+
+
+def _normalize_company_key(value: str) -> str:
+    tokens = re.findall(r"[a-z0-9]+", (value or "").lower())
+    kept = [token for token in tokens if token and token not in COMPANY_NOISE_TOKENS]
+    if not kept:
+        kept = tokens
+    return "".join(kept)
+
+
+def _cross_source_dedupe_key(source: str, company: str, title: str) -> str:
+    src = (source or "").strip().lower()
+    if src not in {"linkedin", "jobindex"}:
+        return ""
+    company_key = _normalize_company_key(company)
+    title_key = _normalize_title_key(sanitize_job_title(title))
+    if not company_key or not title_key:
+        return ""
+    return f"{company_key}|{title_key}"
+
+
+def _canonical_source_rank(source: str) -> int:
+    src = (source or "").strip().lower()
+    if src == "jobindex":
+        return 2
+    if src == "linkedin":
+        return 1
+    return 0
+
+
+def merge_cross_source_duplicates(db_path: str) -> dict[str, int]:
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, source, company, title, place, work_type, position_link, raw_text, viewed, applied
+            FROM jobs
+            """
+        )
+        rows = cur.fetchall()
+        by_key: dict[str, list[dict]] = {}
+        for row in rows:
+            rid = int(row[0] or 0)
+            src = str(row[1] or "").strip() or _provider_from_link(str(row[6] or ""))
+            key = _cross_source_dedupe_key(src, str(row[2] or ""), str(row[3] or ""))
+            if not key:
+                continue
+            by_key.setdefault(key, []).append(
+                {
+                    "id": rid,
+                    "source": src,
+                    "company": str(row[2] or ""),
+                    "title": str(row[3] or ""),
+                    "place": str(row[4] or ""),
+                    "work_type": str(row[5] or ""),
+                    "position_link": str(row[6] or ""),
+                    "raw_text": str(row[7] or ""),
+                    "viewed": int(row[8] or 0),
+                    "applied": int(row[9] or 0),
+                }
+            )
+
+        groups_merged = 0
+        rows_deleted = 0
+        rows_updated = 0
+
+        for items in by_key.values():
+            if len(items) < 2:
+                continue
+
+            ranked = sorted(
+                items,
+                key=lambda item: (
+                    _canonical_source_rank(item.get("source", "")),
+                    int(item.get("applied", 0)),
+                    -int(item.get("id", 0)),
+                ),
+                reverse=True,
+            )
+            keep = ranked[0]
+            merged_company = keep.get("company", "")
+            merged_title = keep.get("title", "")
+            merged_place = keep.get("place", "")
+            merged_work_type = keep.get("work_type", "")
+            merged_raw = keep.get("raw_text", "")
+            merged_viewed = int(keep.get("viewed", 0))
+            merged_applied = int(keep.get("applied", 0))
+
+            for item in ranked[1:]:
+                if not merged_company and item.get("company"):
+                    merged_company = item.get("company", "")
+                if not merged_title and item.get("title"):
+                    merged_title = item.get("title", "")
+                if (not merged_place or merged_place.lower() == "unknown") and item.get(
+                    "place"
+                ):
+                    merged_place = item.get("place", "")
+                if (
+                    not merged_work_type
+                    or merged_work_type.lower() == "unknown"
+                    or merged_work_type.lower() == ""
+                ) and item.get("work_type"):
+                    merged_work_type = item.get("work_type", "")
+                if len(item.get("raw_text", "")) > len(merged_raw):
+                    merged_raw = item.get("raw_text", "")
+                merged_viewed = max(merged_viewed, int(item.get("viewed", 0)))
+                merged_applied = max(merged_applied, int(item.get("applied", 0)))
+
+            cur.execute(
+                """
+                UPDATE jobs
+                SET company=?, title=?, place=?, work_type=?, raw_text=?, viewed=?, applied=?, updated_at=?
+                WHERE id=?
+                """,
+                (
+                    merged_company,
+                    sanitize_job_title(merged_title),
+                    merged_place,
+                    merged_work_type or "Unknown",
+                    merged_raw,
+                    merged_viewed,
+                    merged_applied,
+                    datetime.now(timezone.utc).isoformat(),
+                    int(keep.get("id", 0)),
+                ),
+            )
+            rows_updated += int(cur.rowcount or 0)
+
+            for item in ranked[1:]:
+                cur.execute("DELETE FROM jobs WHERE id=?", (int(item.get("id", 0)),))
+                rows_deleted += int(cur.rowcount or 0)
+
+            groups_merged += 1
+
+        conn.commit()
+        return {
+            "groups_merged": groups_merged,
+            "rows_deleted": rows_deleted,
+            "rows_updated": rows_updated,
+        }
+    finally:
+        conn.close()
 
 
 def sanitize_job_title(title: str) -> str:
@@ -1301,6 +1463,8 @@ def _is_job_link(link: str) -> bool:
     low = link.lower()
     if "linkedin.com/comm/jobs/view/" in low or "linkedin.com/jobs/view/" in low:
         return True
+    if "thehub.io/jobs/" in low and re.search(r"thehub\.io/jobs/[0-9a-f]{12,}", low):
+        return True
     if re.search(
         r"(?:careers\.google\.com|google\.com)/.+/jobs/results/\d+",
         low,
@@ -1318,11 +1482,52 @@ def _is_job_link(link: str) -> bool:
         return True
     if "jobs.teradyne.com" in low and "/job/" in low:
         return True
+    if "careers.nordea.com" in low and "/job/" in low:
+        return True
+    if "careers.novonordisk.com" in low and "/job/" in low:
+        return True
+    if (
+        ".fa.ocs.oraclecloud.com" in low
+        and "/candidateexperience/" in low
+        and re.search(r"/job/\d+", low)
+    ):
+        return True
     if "careers.nttdata-solutions.com" in low and "/job/" in low:
         return True
     if "careers.getinge.com" in low and "/job/" in low:
         return True
     return False
+
+
+def _decode_mandrill_track_link(link: str) -> str:
+    low = (link or "").lower()
+    if "mandrillapp.com/track/click/" not in low:
+        return link
+
+    parsed = urlparse(link)
+    q = parse_qs(parsed.query)
+    token = (q.get("p", [""])[0] or "").strip()
+    if not token:
+        return link
+
+    try:
+        padded = token + ("=" * (-len(token) % 4))
+        decoded = base64.urlsafe_b64decode(padded.encode("utf-8")).decode(
+            "utf-8", errors="ignore"
+        )
+        outer = json.loads(decoded)
+        payload = outer.get("p", "")
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        if not isinstance(payload, dict):
+            return link
+        raw_url = str(payload.get("url", "") or "").strip()
+        if not raw_url:
+            return link
+        clean = unescape(unquote(raw_url)).replace("\\/", "/")
+        return clean or link
+    except Exception:
+        return link
 
 
 def _extract_jobindex_id(link: str) -> str:
@@ -1351,13 +1556,21 @@ def _extract_jobindex_id(link: str) -> str:
 
 
 def _normalize_position_link(link: str) -> str:
+    link = _decode_mandrill_track_link(link)
     link = link.strip()
+    if not link:
+        return ""
+
     parsed = urlparse(link)
     low = link.lower()
 
     m = re.search(r"linkedin\.com/(?:comm/)?jobs/view/(\d+)", low)
     if m:
         return f"https://www.linkedin.com/jobs/view/{m.group(1)}"
+
+    m = re.search(r"thehub\.io/jobs/([0-9a-f]{12,})", low)
+    if m:
+        return f"https://thehub.io/jobs/{m.group(1)}"
 
     if re.search(
         r"(?:careers\.google\.com|google\.com)/.+/jobs/results/\d+",
@@ -1380,6 +1593,23 @@ def _normalize_position_link(link: str) -> str:
     if "jobs.teradyne.com" in low and "/job/" in low and parsed.path:
         return f"https://jobs.teradyne.com{parsed.path}".rstrip("/")
 
+    if "careers.nordea.com" in low and "/job/" in low and parsed.path:
+        return f"https://careers.nordea.com{parsed.path}".rstrip("/")
+
+    if "careers.novonordisk.com" in low and "/job/" in low and parsed.path:
+        return f"https://careers.novonordisk.com{parsed.path}".rstrip("/")
+
+    if (
+        ".fa.ocs.oraclecloud.com" in (parsed.netloc or "").lower()
+        and "/candidateexperience/" in (parsed.path or "").lower()
+        and re.search(r"/job/\d+/?$", (parsed.path or "").lower())
+    ):
+        return (
+            f"https://{parsed.netloc}{parsed.path}"
+            if parsed.netloc and parsed.path
+            else link
+        ).rstrip("/")
+
     base = (
         f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
         if parsed.scheme and parsed.netloc
@@ -1392,10 +1622,18 @@ def _provider_from_link(link: str) -> str:
     low = (link or "").lower()
     if "linkedin.com" in low:
         return "LinkedIn"
+    if "thehub.io" in low:
+        return "The Hub"
     if "careers.google.com" in low or "google.com/about/careers/applications/jobs/results/" in low:
         return "Google Careers"
     if "jobindex.dk" in low:
         return "Jobindex"
+    if "careers.nordea.com" in low:
+        return "Nordea"
+    if "careers.novonordisk.com" in low:
+        return "Novo Nordisk"
+    if ".fa.ocs.oraclecloud.com" in low and "/candidateexperience/" in low:
+        return "Oracle CX"
     if "careers.demant.com" in low:
         return "Demant"
     if "jobs.danfoss.com" in low:
@@ -2040,11 +2278,84 @@ def upsert_job(db_path: str, job: dict) -> bool:
     try:
         cur = conn.cursor()
         position_link = job.get("position_link", "")
+        source = job.get("source") or _provider_from_link(position_link)
+        company = job.get("company", "")
         title = sanitize_job_title(job.get("title", ""))
+        place = job.get("place", "")
+        work_type = job.get("work_type", "Unknown")
+        raw_text = job.get("raw_text", "")
         cur.execute(
             "SELECT 1 FROM jobs WHERE position_link=? LIMIT 1", (position_link,)
         )
         is_new_record = cur.fetchone() is None
+
+        if is_new_record:
+            dedupe_key = _cross_source_dedupe_key(source, company, title)
+            if dedupe_key:
+                cur.execute(
+                    """
+                    SELECT id, source, company, title, place, work_type, raw_text, viewed, applied, position_link
+                    FROM jobs
+                    """
+                )
+                for row in cur.fetchall():
+                    existing_id = int(row[0] or 0)
+                    existing_source = str(row[1] or "").strip() or _provider_from_link(
+                        str(row[9] or "")
+                    )
+                    existing_key = _cross_source_dedupe_key(
+                        existing_source,
+                        str(row[2] or ""),
+                        str(row[3] or ""),
+                    )
+                    if existing_key != dedupe_key:
+                        continue
+
+                    merged_company = str(row[2] or "") or company
+                    merged_title = sanitize_job_title(str(row[3] or "") or title)
+                    merged_place = str(row[4] or "")
+                    merged_work_type = str(row[5] or "")
+                    merged_raw = str(row[6] or "")
+                    merged_viewed = int(row[7] or 0)
+                    merged_applied = int(row[8] or 0)
+
+                    if not merged_company and company:
+                        merged_company = company
+                    if not merged_title and title:
+                        merged_title = title
+                    if (not merged_place or merged_place.lower() == "unknown") and place:
+                        merged_place = place
+                    if (
+                        not merged_work_type
+                        or merged_work_type.lower() == "unknown"
+                    ) and work_type:
+                        merged_work_type = work_type
+                    if len(raw_text) > len(merged_raw):
+                        merged_raw = raw_text
+
+                    cur.execute(
+                        """
+                        UPDATE jobs
+                        SET source=?, company=?, title=?, place=?, work_type=?, raw_text=?,
+                            viewed=?, applied=?, updated_at=?
+                        WHERE id=?
+                        """,
+                        (
+                            source or existing_source,
+                            merged_company,
+                            sanitize_job_title(merged_title),
+                            merged_place,
+                            merged_work_type or "Unknown",
+                            merged_raw,
+                            merged_viewed,
+                            merged_applied,
+                            now,
+                            existing_id,
+                        ),
+                    )
+                    conn.commit()
+                    return False
+
         if is_new_record:
             cur.execute(
                 """
@@ -2052,13 +2363,13 @@ def upsert_job(db_path: str, job: dict) -> bool:
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    job.get("source") or _provider_from_link(position_link),
-                    job.get("company", ""),
+                    source,
+                    company,
                     title,
-                    job.get("place", ""),
-                    job.get("work_type", "Unknown"),
+                    place,
+                    work_type,
                     position_link,
-                    job.get("raw_text", ""),
+                    raw_text,
                     now,
                     now,
                 ),
@@ -2314,6 +2625,73 @@ def get_jobs_by_category(
         if limit and limit > 0:
             q += " LIMIT ?"
             params.append(int(limit))
+        cur.execute(q, params)
+        rows = cur.fetchall()
+        return [
+            {
+                "id": r[0],
+                "source": (r[1] or _provider_from_link(r[6] or ""))
+                if len(r) > 1
+                else "Unknown",
+                "company": r[2] or "",
+                "title": r[3] or "",
+                "place": r[4] or "",
+                "work_type": r[5] or "Unknown",
+                "position_link": r[6] or "",
+                "raw_text": r[7] or "",
+                "relevance_score": float(r[8] or 0),
+                "relevance_reason": r[9] or "",
+                "summary": r[10] or "",
+                "viewed": int(r[11] or 0),
+                "applied": int(r[12] or 0),
+                "description": r[13] or "",
+                "category": category,
+            }
+            for r in rows
+        ]
+    finally:
+        conn.close()
+
+
+def get_jobs_count_by_category(
+    db_path: str, category: str, unviewed_only: bool = False
+) -> int:
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        q = "SELECT COUNT(*) FROM jobs WHERE category=?"
+        params: list = [category]
+        if unviewed_only:
+            q += " AND viewed=0"
+        cur.execute(q, params)
+        row = cur.fetchone()
+        return int((row[0] if row else 0) or 0)
+    finally:
+        conn.close()
+
+
+def get_jobs_by_category_paged(
+    db_path: str,
+    category: str,
+    limit: int,
+    offset: int = 0,
+    unviewed_only: bool = False,
+) -> list[dict]:
+    if int(limit or 0) <= 0:
+        return []
+
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        q = (
+            "SELECT id, source, company, title, place, work_type, position_link, raw_text, relevance_score, relevance_reason, summary, viewed, applied, description "
+            "FROM jobs WHERE category=?"
+        )
+        params: list = [category]
+        if unviewed_only:
+            q += " AND viewed=0"
+        q += " ORDER BY relevance_score DESC, updated_at DESC LIMIT ? OFFSET ?"
+        params.extend([int(limit), max(0, int(offset or 0))])
         cur.execute(q, params)
         rows = cur.fetchall()
         return [

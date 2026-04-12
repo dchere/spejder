@@ -11,6 +11,7 @@
 - Extract up to 10 skills per position and display them as tags in the dashboard.
 - Persist known skill patterns in DB (`skill_patterns` table) and update them from applied/relevant positions.
 - Learn missing skills from applied jobs and write suggestions to `profile.json`.
+- Clean obviously invalid extracted skills from the SQLite skill catalog and block them in `profile.json`.
 - Render `outbox/report.html` with three views: unviewed relevant jobs, unviewed not relevant jobs, and applied jobs.
 - Detect LinkedIn `Easy Apply` from existing text, highlight those cards in the dashboard, and apply a relevance bonus.
 - Serve the dashboard with feedback endpoints for `Relevant`, `Viewed`, and `Applied` actions.
@@ -70,7 +71,7 @@ Open `http://127.0.0.1:8765/report.html`.
 - `Relevant` and `Not relevant` tabs show only unviewed jobs.
 - Marking a job as `Viewed` removes it from those tabs.
 - Marking a job as `Applied` moves it into the `Applied` tab and also marks it as relevant and viewed.
-- The server rebuilds `report.html` after feedback changes.
+- Feedback writes are applied to DB immediately; `report.html` regeneration is queued and runs in background.
 - When `serve-gui` starts, it also performs a background inbox sync, relevance scoring, and missing-description generation.
 - If the requested port is busy, the server automatically tries the next ports up to 20 times.
 - Clicking a company name opens a `/company.html` view filtered to that company's jobs.
@@ -188,6 +189,40 @@ Notes:
 
 - If `--replace` is omitted, extracted skills are merged into existing `user_skills`.
 - Works with either a single CV text file or a folder of CV-related text files.
+
+### `cleanup-skills`
+
+Block and delete skill entries that look like sentence fragments, role titles, or generic noise rather than real skills.
+
+```bash
+python3 -m spejder.cli cleanup-skills \
+  --profile ./profile.json \
+  --db ./jobs.db
+```
+
+Options: `--profile`, `--db`, `--limit`, `--dry-run`.
+
+Notes:
+
+- The command protects profile seed skills and explicit user skills.
+- Removed skills are added to `blocked_skills` so they stay hidden and are not reintroduced into the dashboard.
+
+### `dedupe-jobs`
+
+Run cross-source job deduplication explicitly instead of doing it during startup.
+
+```bash
+python3 -m spejder.cli dedupe-jobs \
+  --profile ./profile.json \
+  --db ./jobs.db
+```
+
+Options: `--profile`, `--db`.
+
+Notes:
+
+- This merges matching LinkedIn and Jobindex entries into a single record.
+- `serve-gui` and other startup paths no longer run this full-table dedupe automatically.
 
 ### `init-profile`
 
