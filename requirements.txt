@@ -2,3 +2,9 @@ beautifulsoup4
 tqdm
 rich
 llama-cpp-python
+transformers
+sentencepiece
+torch
+sacremoses
+fasttext-wheel
+numpy<2

@@ -43,11 +43,17 @@ FALLBACK_DEFAULT_PROFILE = {
     "default_db": "./jobs.db",
     "default_report_dir": "./outbox",
     "default_model": "",
+    "translation_model_path": "",
+    "language_checker_engine": "fasttext",
+    "language_checker_model_path": "",
+    "language_checker_threshold": 0.8,
+    "language_checker_min_letters": 4,
     "max_input_chars": 24000,
     "n_ctx": 8192,
     "server_host": "127.0.0.1",
     "server_port": 8765,
-    "report_max_positions": 7,
+    "report_max_relevant_positions": 7,
+    "report_max_not_relevant_positions": 42,
     "skill_learning_max_positions": 180,
     "skill_learning_min_occurrences": 3,
     "skill_learning_max_new_patterns": 20,
@@ -116,12 +122,29 @@ def _load_default_profile() -> dict:
     profile["n_ctx"] = _safe_int(
         profile.get("n_ctx"), FALLBACK_DEFAULT_PROFILE["n_ctx"]
     )
+    profile["language_checker_threshold"] = _safe_float(
+        profile.get("language_checker_threshold"),
+        FALLBACK_DEFAULT_PROFILE["language_checker_threshold"],
+    )
+    profile["language_checker_min_letters"] = _safe_int(
+        profile.get("language_checker_min_letters"),
+        FALLBACK_DEFAULT_PROFILE["language_checker_min_letters"],
+    )
     profile["server_port"] = _safe_int(
         profile.get("server_port"), FALLBACK_DEFAULT_PROFILE["server_port"]
     )
-    profile["report_max_positions"] = _safe_int(
+    # Backward compatibility: honor legacy single report limit when present.
+    legacy_report_max = _safe_int(
         profile.get("report_max_positions"),
-        FALLBACK_DEFAULT_PROFILE["report_max_positions"],
+        FALLBACK_DEFAULT_PROFILE["report_max_relevant_positions"],
+    )
+    profile["report_max_relevant_positions"] = _safe_int(
+        profile.get("report_max_relevant_positions"),
+        legacy_report_max,
+    )
+    profile["report_max_not_relevant_positions"] = _safe_int(
+        profile.get("report_max_not_relevant_positions"),
+        legacy_report_max,
     )
     profile["skill_learning_max_positions"] = _safe_int(
         profile.get("skill_learning_max_positions"),
@@ -164,6 +187,9 @@ def _load_default_profile() -> dict:
         "default_db",
         "default_report_dir",
         "default_model",
+        "translation_model_path",
+        "language_checker_engine",
+        "language_checker_model_path",
         "server_host",
     ]
     for field in default_path_fields:
@@ -703,6 +729,7 @@ def ensure_db(db_path: str):
                         source TEXT,
                         company TEXT,
                         title TEXT,
+                        title_english TEXT,
                         place TEXT,
                         work_type TEXT,
                         position_link TEXT UNIQUE NOT NULL,
@@ -723,11 +750,12 @@ def ensure_db(db_path: str):
                 cur.execute(
                     """
                     INSERT OR IGNORE INTO jobs_new
-                        (source, company, title, place, work_type, position_link, raw_text, description, viewed, applied, relevance_score, relevant, category, relevance_reason, summary, created_at, updated_at)
+                        (source, company, title, title_english, place, work_type, position_link, raw_text, description, viewed, applied, relevance_score, relevant, category, relevance_reason, summary, created_at, updated_at)
                     SELECT
                         '',
                         company,
                         title,
+                        '',
                         '',
                         'Unknown',
                         CASE
@@ -765,6 +793,8 @@ def ensure_db(db_path: str):
                 cur.execute("ALTER TABLE jobs ADD COLUMN source TEXT")
             if "description" not in cols:
                 cur.execute("ALTER TABLE jobs ADD COLUMN description TEXT")
+            if "title_english" not in cols:
+                cur.execute("ALTER TABLE jobs ADD COLUMN title_english TEXT")
 
             cur.execute("PRAGMA table_info(jobs)")
             cols = {row[1] for row in cur.fetchall()}
@@ -776,6 +806,7 @@ def ensure_db(db_path: str):
                         source TEXT,
                         company TEXT,
                         title TEXT,
+                        title_english TEXT,
                         place TEXT,
                         work_type TEXT,
                         position_link TEXT UNIQUE NOT NULL,
@@ -796,12 +827,13 @@ def ensure_db(db_path: str):
                 cur.execute(
                     """
                     INSERT OR IGNORE INTO jobs_new
-                        (id, source, company, title, place, work_type, position_link, raw_text, description, viewed, applied, relevance_score, relevant, category, relevance_reason, summary, created_at, updated_at)
+                        (id, source, company, title, title_english, place, work_type, position_link, raw_text, description, viewed, applied, relevance_score, relevant, category, relevance_reason, summary, created_at, updated_at)
                     SELECT
                         id,
                         source,
                         company,
                         title,
+                        COALESCE(title_english, ''),
                         place,
                         work_type,
                         position_link,
@@ -829,6 +861,7 @@ def ensure_db(db_path: str):
                 source TEXT,
                 company TEXT,
                 title TEXT,
+                title_english TEXT,
                 place TEXT,
                 work_type TEXT,
                 position_link TEXT UNIQUE NOT NULL,
@@ -931,13 +964,13 @@ def ensure_db(db_path: str):
         cur.execute("UPDATE jobs SET source='' WHERE source IS NULL")
         cur.execute("UPDATE jobs SET description='' WHERE description IS NULL")
 
-        cur.execute("SELECT id, title FROM jobs")
-        for rid, title in cur.fetchall():
+        cur.execute("SELECT id, title, title_english FROM jobs")
+        for rid, title, title_english in cur.fetchall():
             cleaned_title = sanitize_job_title(title or "")
             if cleaned_title and cleaned_title != (title or ""):
                 cur.execute(
-                    "UPDATE jobs SET title=?, updated_at=? WHERE id=?",
-                    (cleaned_title, datetime.now(timezone.utc).isoformat(), rid),
+                    "UPDATE jobs SET title=?, title_english=?, updated_at=? WHERE id=?",
+                    (cleaned_title, "" if (title_english or "") else title_english, datetime.now(timezone.utc).isoformat(), rid),
                 )
 
         cur.execute("SELECT id, position_link FROM jobs")
@@ -1116,6 +1149,19 @@ def load_profile(profile_path: Optional[str]) -> dict:
     profile = DEFAULT_PROFILE.copy()
     profile.update(data)
 
+    legacy_in_data = data.get("report_max_positions") if isinstance(data, dict) else None
+    if isinstance(data, dict) and "report_max_relevant_positions" not in data and legacy_in_data is not None:
+        profile["report_max_relevant_positions"] = _safe_int(
+            legacy_in_data,
+            DEFAULT_PROFILE.get("report_max_relevant_positions", 7),
+        )
+    if isinstance(data, dict) and "report_max_not_relevant_positions" not in data and legacy_in_data is not None:
+        profile["report_max_not_relevant_positions"] = _safe_int(
+            legacy_in_data,
+            DEFAULT_PROFILE.get("report_max_not_relevant_positions", 42),
+        )
+    profile.pop("report_max_positions", None)
+
     base_include = profile.get("include_keywords", []) or []
     base_exclude = profile.get("exclude_keywords", []) or []
     learned_include = profile.get("learned_include_keywords", []) or []
@@ -1145,10 +1191,24 @@ def update_profile_from_db_signals(
     db_path: str, profile_path: str, max_keywords: int = 20
 ) -> dict[str, int]:
     profile = DEFAULT_PROFILE.copy()
+    existing = {}
     if profile_path and os.path.exists(profile_path):
         with open(profile_path, encoding="utf-8") as f:
             existing = json.load(f)
         profile.update(existing)
+
+    legacy_existing = existing.get("report_max_positions") if isinstance(existing, dict) else None
+    if isinstance(existing, dict) and "report_max_relevant_positions" not in existing and legacy_existing is not None:
+        profile["report_max_relevant_positions"] = _safe_int(
+            legacy_existing,
+            DEFAULT_PROFILE.get("report_max_relevant_positions", 7),
+        )
+    if isinstance(existing, dict) and "report_max_not_relevant_positions" not in existing and legacy_existing is not None:
+        profile["report_max_not_relevant_positions"] = _safe_int(
+            legacy_existing,
+            DEFAULT_PROFILE.get("report_max_not_relevant_positions", 42),
+        )
+    profile.pop("report_max_positions", None)
 
     learned_include, learned_exclude, labeled_count = (
         _suggest_keywords_from_labeled_jobs(db_path, max_keywords=max_keywords)
@@ -1439,6 +1499,28 @@ def extract_company_title(text: str, title_hint: str = "") -> tuple[str, str]:
             company = m_alert.group("company").strip(" \"'“”|:-")[:180]
 
     if not company:
+        # "New job opportunities in Danske Bank" / "jobs posted to Acme Corp"
+        m_in = re.search(
+            r"\b(?:opportunities?|jobs?|openings?)\s+(?:in|at|to)\s+([A-Z][^\n.!?]{2,60}?)(?:\s*$|\s+today|\s+now|\s+posted)",
+            title,
+            flags=re.IGNORECASE,
+        )
+        if m_in:
+            company = m_in.group(1).strip(" \"'|:-")[:180]
+
+    if not company:
+        # Subject like "New jobs posted from jobs.tetrapak.com" — extract domain brand
+        m_domain = re.search(
+            r"\bfrom\s+(?:jobs\.|careers\.|career\.)([a-z0-9][a-z0-9\-]*)\b",
+            title,
+            flags=re.IGNORECASE,
+        )
+        if m_domain:
+            brand = m_domain.group(1).replace("-", " ").title()
+            if len(brand) >= 2:
+                company = brand
+
+    if not company:
         for ln in lines[:20]:
             if re.search(
                 r"\b(company|employer|organization)\b", ln, flags=re.IGNORECASE
@@ -1487,7 +1569,7 @@ def _is_job_link(link: str) -> bool:
     if "careers.novonordisk.com" in low and "/job/" in low:
         return True
     if (
-        ".fa.ocs.oraclecloud.com" in low
+        re.search(r"\.fa\.ocs\.oraclecloud\.(?:com|eu)", low)
         and "/candidateexperience/" in low
         and re.search(r"/job/\d+", low)
     ):
@@ -1495,6 +1577,8 @@ def _is_job_link(link: str) -> bool:
     if "careers.nttdata-solutions.com" in low and "/job/" in low:
         return True
     if "careers.getinge.com" in low and "/job/" in low:
+        return True
+    if "jobs.tetrapak.com" in low and re.search(r"/job/[^/]+/\d+", low):
         return True
     return False
 
@@ -1600,15 +1684,19 @@ def _normalize_position_link(link: str) -> str:
         return f"https://careers.novonordisk.com{parsed.path}".rstrip("/")
 
     if (
-        ".fa.ocs.oraclecloud.com" in (parsed.netloc or "").lower()
+        re.search(r"\.fa\.ocs\.oraclecloud\.(?:com|eu)", (parsed.netloc or "").lower())
         and "/candidateexperience/" in (parsed.path or "").lower()
         and re.search(r"/job/\d+/?$", (parsed.path or "").lower())
     ):
+        netloc_clean = re.sub(r":(443|80)$", "", parsed.netloc or "")
         return (
-            f"https://{parsed.netloc}{parsed.path}"
-            if parsed.netloc and parsed.path
+            f"https://{netloc_clean}{parsed.path}"
+            if netloc_clean and parsed.path
             else link
         ).rstrip("/")
+
+    if "jobs.tetrapak.com" in low and re.search(r"/job/[^/]+/\d+", low) and parsed.path:
+        return f"http://jobs.tetrapak.com{parsed.path}".rstrip("/")
 
     base = (
         f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
@@ -1632,7 +1720,7 @@ def _provider_from_link(link: str) -> str:
         return "Nordea"
     if "careers.novonordisk.com" in low:
         return "Novo Nordisk"
-    if ".fa.ocs.oraclecloud.com" in low and "/candidateexperience/" in low:
+    if re.search(r"\.fa\.ocs\.oraclecloud\.(?:com|eu)", low) and "/candidateexperience/" in low:
         return "Oracle CX"
     if "careers.demant.com" in low:
         return "Demant"
@@ -1644,6 +1732,8 @@ def _provider_from_link(link: str) -> str:
         return "NTT DATA Business Solutions"
     if "careers.getinge.com" in low:
         return "Getinge"
+    if "jobs.tetrapak.com" in low:
+        return "Tetra Pak"
 
     parsed = urlparse(link)
     host = (parsed.netloc or "").strip().lower()
@@ -2294,14 +2384,14 @@ def upsert_job(db_path: str, job: dict) -> bool:
             if dedupe_key:
                 cur.execute(
                     """
-                    SELECT id, source, company, title, place, work_type, raw_text, viewed, applied, position_link
+                    SELECT id, source, company, title, title_english, place, work_type, raw_text, viewed, applied, position_link
                     FROM jobs
                     """
                 )
                 for row in cur.fetchall():
                     existing_id = int(row[0] or 0)
                     existing_source = str(row[1] or "").strip() or _provider_from_link(
-                        str(row[9] or "")
+                        str(row[10] or "")
                     )
                     existing_key = _cross_source_dedupe_key(
                         existing_source,
@@ -2313,11 +2403,11 @@ def upsert_job(db_path: str, job: dict) -> bool:
 
                     merged_company = str(row[2] or "") or company
                     merged_title = sanitize_job_title(str(row[3] or "") or title)
-                    merged_place = str(row[4] or "")
-                    merged_work_type = str(row[5] or "")
-                    merged_raw = str(row[6] or "")
-                    merged_viewed = int(row[7] or 0)
-                    merged_applied = int(row[8] or 0)
+                    merged_place = str(row[5] or "")
+                    merged_work_type = str(row[6] or "")
+                    merged_raw = str(row[7] or "")
+                    merged_viewed = int(row[8] or 0)
+                    merged_applied = int(row[9] or 0)
 
                     if not merged_company and company:
                         merged_company = company
@@ -2336,7 +2426,7 @@ def upsert_job(db_path: str, job: dict) -> bool:
                     cur.execute(
                         """
                         UPDATE jobs
-                        SET source=?, company=?, title=?, place=?, work_type=?, raw_text=?,
+                        SET source=?, company=?, title=?, title_english=?, place=?, work_type=?, raw_text=?,
                             viewed=?, applied=?, updated_at=?
                         WHERE id=?
                         """,
@@ -2344,6 +2434,7 @@ def upsert_job(db_path: str, job: dict) -> bool:
                             source or existing_source,
                             merged_company,
                             sanitize_job_title(merged_title),
+                            "",
                             merged_place,
                             merged_work_type or "Unknown",
                             merged_raw,
@@ -2585,7 +2676,7 @@ def get_relevant_jobs(db_path: str, limit: int = 0) -> list[dict]:
     conn = _connect(db_path)
     try:
         cur = conn.cursor()
-        q = "SELECT id, company, title, place, work_type, position_link, raw_text, relevance_score FROM jobs WHERE relevant=1 ORDER BY relevance_score DESC, updated_at DESC"
+        q = "SELECT id, company, title, title_english, place, work_type, position_link, raw_text, relevance_score FROM jobs WHERE relevant=1 ORDER BY relevance_score DESC, updated_at DESC"
         if limit and limit > 0:
             q += f" LIMIT {int(limit)}"
         cur.execute(q)
@@ -2593,14 +2684,15 @@ def get_relevant_jobs(db_path: str, limit: int = 0) -> list[dict]:
         return [
             {
                 "id": r[0],
-                "source": _provider_from_link(r[5] or ""),
+                "source": _provider_from_link(r[6] or ""),
                 "company": r[1] or "",
                 "title": r[2] or "",
-                "place": r[3] or "",
-                "work_type": r[4] or "Unknown",
-                "position_link": r[5] or "",
-                "raw_text": r[6] or "",
-                "relevance_score": float(r[7] or 0),
+                "title_english": r[3] or "",
+                "place": r[4] or "",
+                "work_type": r[5] or "Unknown",
+                "position_link": r[6] or "",
+                "raw_text": r[7] or "",
+                "relevance_score": float(r[8] or 0),
             }
             for r in rows
         ]
@@ -2615,7 +2707,7 @@ def get_jobs_by_category(
     try:
         cur = conn.cursor()
         q = (
-            "SELECT id, source, company, title, place, work_type, position_link, raw_text, relevance_score, relevance_reason, summary, viewed, applied, description "
+            "SELECT id, source, company, title, title_english, place, work_type, position_link, raw_text, relevance_score, relevance_reason, summary, viewed, applied, description "
             "FROM jobs WHERE category=?"
         )
         params = [category]
@@ -2630,21 +2722,22 @@ def get_jobs_by_category(
         return [
             {
                 "id": r[0],
-                "source": (r[1] or _provider_from_link(r[6] or ""))
+                "source": (r[1] or _provider_from_link(r[7] or ""))
                 if len(r) > 1
                 else "Unknown",
                 "company": r[2] or "",
                 "title": r[3] or "",
-                "place": r[4] or "",
-                "work_type": r[5] or "Unknown",
-                "position_link": r[6] or "",
-                "raw_text": r[7] or "",
-                "relevance_score": float(r[8] or 0),
-                "relevance_reason": r[9] or "",
-                "summary": r[10] or "",
-                "viewed": int(r[11] or 0),
-                "applied": int(r[12] or 0),
-                "description": r[13] or "",
+                "title_english": r[4] or "",
+                "place": r[5] or "",
+                "work_type": r[6] or "Unknown",
+                "position_link": r[7] or "",
+                "raw_text": r[8] or "",
+                "relevance_score": float(r[9] or 0),
+                "relevance_reason": r[10] or "",
+                "summary": r[11] or "",
+                "viewed": int(r[12] or 0),
+                "applied": int(r[13] or 0),
+                "description": r[14] or "",
                 "category": category,
             }
             for r in rows
@@ -2684,7 +2777,7 @@ def get_jobs_by_category_paged(
     try:
         cur = conn.cursor()
         q = (
-            "SELECT id, source, company, title, place, work_type, position_link, raw_text, relevance_score, relevance_reason, summary, viewed, applied, description "
+            "SELECT id, source, company, title, title_english, place, work_type, position_link, raw_text, relevance_score, relevance_reason, summary, viewed, applied, description "
             "FROM jobs WHERE category=?"
         )
         params: list = [category]
@@ -2697,21 +2790,22 @@ def get_jobs_by_category_paged(
         return [
             {
                 "id": r[0],
-                "source": (r[1] or _provider_from_link(r[6] or ""))
+                "source": (r[1] or _provider_from_link(r[7] or ""))
                 if len(r) > 1
                 else "Unknown",
                 "company": r[2] or "",
                 "title": r[3] or "",
-                "place": r[4] or "",
-                "work_type": r[5] or "Unknown",
-                "position_link": r[6] or "",
-                "raw_text": r[7] or "",
-                "relevance_score": float(r[8] or 0),
-                "relevance_reason": r[9] or "",
-                "summary": r[10] or "",
-                "viewed": int(r[11] or 0),
-                "applied": int(r[12] or 0),
-                "description": r[13] or "",
+                "title_english": r[4] or "",
+                "place": r[5] or "",
+                "work_type": r[6] or "Unknown",
+                "position_link": r[7] or "",
+                "raw_text": r[8] or "",
+                "relevance_score": float(r[9] or 0),
+                "relevance_reason": r[10] or "",
+                "summary": r[11] or "",
+                "viewed": int(r[12] or 0),
+                "applied": int(r[13] or 0),
+                "description": r[14] or "",
                 "category": category,
             }
             for r in rows
@@ -2729,7 +2823,7 @@ def get_jobs_by_company(db_path: str, company: str, limit: int = 0) -> list[dict
     try:
         cur = conn.cursor()
         q = (
-            "SELECT id, source, company, title, place, work_type, position_link, raw_text, relevance_score, relevance_reason, summary, viewed, applied, description, category "
+            "SELECT id, source, company, title, title_english, place, work_type, position_link, raw_text, relevance_score, relevance_reason, summary, viewed, applied, description, category "
             "FROM jobs WHERE LOWER(TRIM(COALESCE(company, '')))=LOWER(TRIM(?)) "
             "ORDER BY applied DESC, relevance_score DESC, updated_at DESC"
         )
@@ -2742,22 +2836,23 @@ def get_jobs_by_company(db_path: str, company: str, limit: int = 0) -> list[dict
         return [
             {
                 "id": r[0],
-                "source": (r[1] or _provider_from_link(r[6] or ""))
+                "source": (r[1] or _provider_from_link(r[7] or ""))
                 if len(r) > 1
                 else "Unknown",
                 "company": r[2] or "",
                 "title": r[3] or "",
-                "place": r[4] or "",
-                "work_type": r[5] or "Unknown",
-                "position_link": r[6] or "",
-                "raw_text": r[7] or "",
-                "relevance_score": float(r[8] or 0),
-                "relevance_reason": r[9] or "",
-                "summary": r[10] or "",
-                "viewed": int(r[11] or 0),
-                "applied": int(r[12] or 0),
-                "description": r[13] or "",
-                "category": r[14] or "not relevant",
+                "title_english": r[4] or "",
+                "place": r[5] or "",
+                "work_type": r[6] or "Unknown",
+                "position_link": r[7] or "",
+                "raw_text": r[8] or "",
+                "relevance_score": float(r[9] or 0),
+                "relevance_reason": r[10] or "",
+                "summary": r[11] or "",
+                "viewed": int(r[12] or 0),
+                "applied": int(r[13] or 0),
+                "description": r[14] or "",
+                "category": r[15] or "not relevant",
             }
             for r in rows
         ]
@@ -2770,7 +2865,7 @@ def get_applied_jobs(db_path: str, limit: int = 0) -> list[dict]:
     try:
         cur = conn.cursor()
         q = (
-            "SELECT id, source, company, title, place, work_type, position_link, raw_text, relevance_score, relevance_reason, summary, viewed, applied, description, category "
+            "SELECT id, source, company, title, title_english, place, work_type, position_link, raw_text, relevance_score, relevance_reason, summary, viewed, applied, description, category "
             "FROM jobs WHERE applied=1 ORDER BY updated_at DESC"
         )
         params: list = []
@@ -2782,22 +2877,23 @@ def get_applied_jobs(db_path: str, limit: int = 0) -> list[dict]:
         return [
             {
                 "id": r[0],
-                "source": (r[1] or _provider_from_link(r[6] or ""))
+                "source": (r[1] or _provider_from_link(r[7] or ""))
                 if len(r) > 1
                 else "Unknown",
                 "company": r[2] or "",
                 "title": r[3] or "",
-                "place": r[4] or "",
-                "work_type": r[5] or "Unknown",
-                "position_link": r[6] or "",
-                "raw_text": r[7] or "",
-                "relevance_score": float(r[8] or 0),
-                "relevance_reason": r[9] or "",
-                "summary": r[10] or "",
-                "viewed": int(r[11] or 0),
-                "applied": int(r[12] or 0),
-                "description": r[13] or "",
-                "category": r[14] or "relevant",
+                "title_english": r[4] or "",
+                "place": r[5] or "",
+                "work_type": r[6] or "Unknown",
+                "position_link": r[7] or "",
+                "raw_text": r[8] or "",
+                "relevance_score": float(r[9] or 0),
+                "relevance_reason": r[10] or "",
+                "summary": r[11] or "",
+                "viewed": int(r[12] or 0),
+                "applied": int(r[13] or 0),
+                "description": r[14] or "",
+                "category": r[15] or "relevant",
             }
             for r in rows
         ]
@@ -2830,7 +2926,7 @@ def get_jobs_for_description_refresh(
     try:
         cur = conn.cursor()
         q = (
-            "SELECT id, source, company, title, place, work_type, position_link, raw_text, category, description, summary "
+            "SELECT id, source, company, title, title_english, place, work_type, position_link, raw_text, category, description, summary "
             "FROM jobs WHERE 1=1"
         )
         params: list = []
@@ -2877,18 +2973,19 @@ def get_jobs_for_description_refresh(
         return [
             {
                 "id": r[0],
-                "source": (r[1] or _provider_from_link(r[6] or ""))
+                "source": (r[1] or _provider_from_link(r[7] or ""))
                 if len(r) > 1
                 else "Unknown",
                 "company": r[2] or "",
                 "title": r[3] or "",
-                "place": r[4] or "",
-                "work_type": r[5] or "Unknown",
-                "position_link": r[6] or "",
-                "raw_text": r[7] or "",
-                "category": r[8] or "",
-                "description": r[9] or "",
-                "summary": r[10] or "",
+                "title_english": r[4] or "",
+                "place": r[5] or "",
+                "work_type": r[6] or "Unknown",
+                "position_link": r[7] or "",
+                "raw_text": r[8] or "",
+                "category": r[9] or "",
+                "description": r[10] or "",
+                "summary": r[11] or "",
             }
             for r in rows
         ]
@@ -2916,6 +3013,19 @@ def set_job_description(db_path: str, job_id: int, description: str):
         cur.execute(
             "UPDATE jobs SET description=?, updated_at=? WHERE id=?",
             (description, datetime.now(timezone.utc).isoformat(), job_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def set_job_title_english(db_path: str, job_id: int, title_english: str):
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE jobs SET title_english=?, updated_at=? WHERE id=?",
+            (title_english, datetime.now(timezone.utc).isoformat(), job_id),
         )
         conn.commit()
     finally:
@@ -3169,6 +3279,7 @@ def set_job_applied(db_path: str, job_id: int, applied: bool) -> bool:
 def ingest_docs_to_db(
     db_path: str,
     docs: list[dict],
+    entry_transform: Optional[Callable[[dict], dict]] = None,
     on_new_record: Optional[Callable[[], None]] = None,
     on_progress: Optional[Callable[[int, int, int], None]] = None,
 ) -> dict[str, object]:
@@ -3185,6 +3296,8 @@ def ingest_docs_to_db(
         for entry in entries:
             if not entry.get("position_link"):
                 continue
+            if entry_transform is not None:
+                entry = entry_transform(dict(entry))
             file_found += 1
             is_new_record = upsert_job(db_path, entry)
             if is_new_record and on_new_record:

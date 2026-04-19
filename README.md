@@ -285,7 +285,8 @@ In `profile.json`:
 - `skill_missing_penalty`: penalty per missing required skill.
 - `easy_apply_bonus`: extra score added for LinkedIn jobs when `Easy Apply` is detected in existing text.
 - `missing_skills_max_items`: max missing-skill suggestions written to profile.
-- `report_max_positions`: max number of positions shown in each report section (`Relevant` and `Not relevant`), default `7`.
+- `report_max_relevant_positions`: max number of positions shown in `Relevant`, default `7`.
+- `report_max_not_relevant_positions`: max number of positions shown in `Not relevant`, default `42`.
 - `skill_learning_max_positions`, `skill_learning_min_occurrences`, `skill_learning_max_new_patterns`: controls for learning new DB skill patterns.
 - `max_input_chars`: maximum characters of job text passed to the LLM as input. Default `24000`. Raise this when pasting full position descriptions to get better summaries.
 - `n_ctx`: LLM context window size passed to `llama-cpp-python` at load time. Default `8192`. Should be at least as large as `max_input_chars / 4 + max_tokens` to avoid the "not optimal" warning from llama.cpp.

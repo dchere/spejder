@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 import webbrowser
+import warnings
 from collections import Counter
 from contextlib import nullcontext, suppress
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -16,6 +17,25 @@ from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
 from bs4 import BeautifulSoup
+
+warnings.filterwarnings(
+    "ignore",
+    message=r"urllib3 v2 only supports OpenSSL 1\.1\.1\+.*",
+    category=Warning,
+)
+
+try:
+    import fasttext
+except ImportError:
+    fasttext = None
+
+try:
+    import torch
+    from transformers import MarianMTModel, MarianTokenizer
+except ImportError:
+    torch = None
+    MarianMTModel = None
+    MarianTokenizer = None
 
 try:
     from . import parser as email_parser
@@ -43,6 +63,7 @@ try:
         set_job_feedback,
         set_job_skills,
         set_job_summary,
+        set_job_title_english,
         set_job_viewed,
         clear_job_skills_for_job,
         clear_job_skills_for_unviewed_jobs,
@@ -80,6 +101,7 @@ except ImportError:
         set_job_feedback,
         set_job_skills,
         set_job_summary,
+        set_job_title_english,
         set_job_viewed,
         clear_job_skills_for_job,
         clear_job_skills_for_unviewed_jobs,
@@ -101,6 +123,51 @@ SKILL_CUE_PATTERN = re.compile(
 )
 EASY_APPLY_PATTERN = re.compile(r"\beasy\s*apply\b", flags=re.IGNORECASE)
 MANUAL_APPLIED_RAW_MARKER = "[MANUAL_APPLIED_DESCRIPTION]"
+
+LANGUAGE_CHECKER_DETECTORS: dict[str, object] = {}
+TRANSLATION_MODELS: dict[str, tuple[object, object, str]] = {}
+TEXT_TRANSLATION_CACHE: dict[str, str] = {}
+LLM_REQUIRED_COMMANDS = {
+    "summarize-file",
+    "summarize-folder",
+    "process-inbox",
+    "serve-gui",
+    "refresh-descriptions",
+    "sync-user-skills",
+}
+LANGUAGE_CHECKER_REQUIRED_COMMANDS = {
+    "summarize-file",
+    "summarize-folder",
+    "process-inbox",
+    "serve-gui",
+    "refresh-descriptions",
+    "sync-user-skills",
+    "cleanup-skills",
+    "dedupe-jobs",
+}
+TRANSLATION_REQUIRED_COMMANDS = set(LANGUAGE_CHECKER_REQUIRED_COMMANDS)
+LANGUAGE_CHECKER_SELF_TESTS = [
+    (
+        "english",
+        "This is an English backend job description with data responsibilities.",
+        False,
+    ),
+    (
+        "danish",
+        "Dette er en dansk jobbeskrivelse med ansvar for udvikling og samarbejde.",
+        True,
+    ),
+    (
+        "german",
+        "Das ist eine deutsche Stellenbeschreibung mit Verantwortung für Entwicklung.",
+        False,
+    ),
+]
+TRANSLATION_SELF_TEST = (
+    "Dette er en dansk jobtitel for udvikling og dataanalyse",
+    True,
+)
+LLM_SELF_TEST_PROMPT = "Reply with exactly one word: ready"
 
 SKILL_CLEANUP_STOPWORDS = {
     "a",
@@ -344,13 +411,24 @@ def _delete_processed_inbox_files(ingest_stats: dict, inbox_root: str = "") -> d
     }
 
 
-def _report_max_positions(runtime_profile: Optional[dict]) -> int:
-    raw = (runtime_profile or {}).get("report_max_positions", 7)
+def _report_limit_value(raw, default: int) -> int:
     try:
         value = int(raw)
     except Exception:
-        return 7
-    return value if value > 0 else 7
+        return int(default)
+    return value if value > 0 else int(default)
+
+
+def _report_max_relevant_positions(runtime_profile: Optional[dict]) -> int:
+    profile = runtime_profile or {}
+    legacy = _report_limit_value(profile.get("report_max_positions", 7), 7)
+    return _report_limit_value(profile.get("report_max_relevant_positions", legacy), legacy)
+
+
+def _report_max_not_relevant_positions(runtime_profile: Optional[dict]) -> int:
+    profile = runtime_profile or {}
+    legacy = _report_limit_value(profile.get("report_max_positions", 7), 7)
+    return _report_limit_value(profile.get("report_max_not_relevant_positions", legacy), legacy)
 
 
 def _normalize_skill_name(skill: str) -> str:
@@ -877,6 +955,7 @@ def _learn_skill_patterns_from_positions(
             row,
             page_context_cache=page_context_cache,
             llm=llm,
+            runtime_profile=runtime_profile,
             title_translation_cache=title_translation_cache,
         )
         skills_text = _get_or_extract_job_skills(
@@ -1081,11 +1160,15 @@ def cmd_sync_user_skills(args):
 
     print(f"Sync user skills: CV text loaded (chars={len(cv_text)})")
 
+    cv_text = _translate_text_to_english_if_needed(
+        cv_text,
+        runtime_profile=runtime_profile,
+    )
+
     llm = LocalLLM(model_path=model_path, n_ctx=int(runtime_profile.get("n_ctx", 8192)), verbose=not args.quiet_model) if model_path else None
-    if llm:
-        print("Sync user skills: extracting with model")
-    else:
-        print("Sync user skills: extracting with fallback rules (no model)")
+    if not llm:
+        raise SystemExit("Model init: model is required for sync-user-skills")
+    print("Sync user skills: extracting with model")
     extracted = _extract_user_skills_from_cv(
         cv_text,
         db_path=db_path,
@@ -1128,9 +1211,7 @@ def cmd_sync_user_skills(args):
         merged = dedup
 
     profile_data["user_skills"] = merged
-    os.makedirs(os.path.dirname(os.path.abspath(profile_path)), exist_ok=True)
-    with open(profile_path, "w", encoding="utf-8") as f:
-        json.dump(profile_data, f, ensure_ascii=False, indent=2)
+    _save_profile(profile_path, profile_data)
 
     print(
         f"User skills synced from CV: extracted={len(extracted)}, "
@@ -1150,6 +1231,30 @@ def _load_runtime_profile(profile_path: str):
 
 
 def _save_profile(profile_path: str, profile: dict) -> None:
+    legacy_value = profile.get("report_max_positions") if isinstance(profile, dict) else None
+    if "report_max_relevant_positions" not in profile:
+        profile["report_max_relevant_positions"] = _report_limit_value(
+            legacy_value if legacy_value is not None else 7,
+            7,
+        )
+    else:
+        profile["report_max_relevant_positions"] = _report_limit_value(
+            profile.get("report_max_relevant_positions"),
+            7,
+        )
+
+    if "report_max_not_relevant_positions" not in profile:
+        profile["report_max_not_relevant_positions"] = _report_limit_value(
+            legacy_value if legacy_value is not None else 42,
+            42,
+        )
+    else:
+        profile["report_max_not_relevant_positions"] = _report_limit_value(
+            profile.get("report_max_not_relevant_positions"),
+            42,
+        )
+    profile.pop("report_max_positions", None)
+
     os.makedirs(os.path.dirname(os.path.abspath(profile_path)), exist_ok=True)
     with open(profile_path, "w", encoding="utf-8") as f:
         json.dump(profile, f, ensure_ascii=False, indent=2)
@@ -1489,6 +1594,7 @@ def _render_html_from_items(items, out_html: str, title: str):
         source = html.escape(str(item.get("source", "Unknown")))
         company = html.escape(str(item.get("company", "")))
         role = html.escape(str(item.get("title", "")))
+        title_english_html = _render_title_english_line(item)
         place = html.escape(str(item.get("place", "")))
         work_type = html.escape(str(item.get("work_type", "Unknown")))
         description = html.escape(str(item.get("description", "")))
@@ -1509,6 +1615,7 @@ def _render_html_from_items(items, out_html: str, title: str):
             f"""
             <article class=\"{card_class}\">
                             <p><strong>Title:</strong> <a href=\"{safe_link}\" target=\"_blank\" rel=\"noopener noreferrer\">{role}</a> {easy_apply_badge}</p>
+                            {title_english_html}
                             <p><strong>Source:</strong> {source}</p>
                             <p><strong>Company:</strong> {company}</p>
                             <p><strong>Place:</strong> {place}</p>
@@ -1575,6 +1682,7 @@ def _build_job_cards(
         else:
             company_html = company
         role = html.escape(str(item.get("title", "")))
+        title_english_html = _render_title_english_line(item)
         place = html.escape(str(item.get("place", "")))
         work_type = html.escape(str(item.get("work_type", "Unknown")))
         description = html.escape(str(item.get("description", "")))
@@ -1626,6 +1734,7 @@ def _build_job_cards(
             <article class="{card_class}" data-job-id="{job_id}">
                 <span class="relevance-score" title="Relevance score">{relevance_score:.2f}</span>
                 <p><strong>Title:</strong> <a href="{safe_link}" target="_blank" rel="noopener noreferrer">{role}</a> {easy_apply_badge}</p>
+                {title_english_html}
                 <p><strong>Source:</strong> {source}</p>
                 <p><strong>Company:</strong> {company_html}</p>
                 <p><strong>Place:</strong> {place}</p>
@@ -1772,6 +1881,15 @@ def _render_company_dashboard_html(company_name: str, company_items: list[dict])
                 if (hasCards && emptyEl) {{
                     emptyEl.remove();
                 }}
+            }}
+
+            function bumpPanelTotal(panel, delta) {{
+                let btn = null;
+                if (panel === panelRelevant) btn = btnRelevant;
+                if (panel === panelNotRelevant) btn = btnNotRelevant;
+                if (!btn) return;
+                const current = Number.parseInt(btn.dataset.total || '0', 10) || 0;
+                btn.dataset.total = String(Math.max(0, current + delta));
             }}
 
             function refreshCounts() {{
@@ -1968,7 +2086,8 @@ def _render_html_dashboard(
     title: str,
     viewed_total: int = 0,
     skills_items: Optional[list[dict]] = None,
-    report_max_positions: int = 7,
+    report_max_relevant_positions: int = 7,
+    report_max_not_relevant_positions: int = 7,
     relevant_total_count: Optional[int] = None,
     not_relevant_total_count: Optional[int] = None,
 ):
@@ -1981,8 +2100,8 @@ def _render_html_dashboard(
         relevant_total_count = len(relevant_items)
     if not_relevant_total_count is None:
         not_relevant_total_count = len(not_relevant_items)
-    relevant_items = list(relevant_items)[: max(1, int(report_max_positions or 7))]
-    not_relevant_items = list(not_relevant_items)[: max(1, int(report_max_positions or 7))]
+    relevant_items = list(relevant_items)[: max(1, int(report_max_relevant_positions or 7))]
+    not_relevant_items = list(not_relevant_items)[: max(1, int(report_max_not_relevant_positions or 7))]
     applied_items = list(applied_items)
 
     relevant_cards = _build_job_cards(relevant_items)
@@ -2126,6 +2245,15 @@ def _render_html_dashboard(
                 if (hasCards && emptyEl) {{
                     emptyEl.remove();
                 }}
+            }}
+
+            function bumpPanelTotal(panel, delta) {{
+                let btn = null;
+                if (panel === panelRelevant) btn = btnRelevant;
+                if (panel === panelNotRelevant) btn = btnNotRelevant;
+                if (!btn) return;
+                const current = Number.parseInt(btn.dataset.total || '0', 10) || 0;
+                btn.dataset.total = String(Math.max(0, current + delta));
             }}
 
             function refreshCounts() {{
@@ -2311,6 +2439,7 @@ def _render_html_dashboard(
                     if (card && !isViewed && card.parentElement !== targetPanel) {{
                         targetPanel.prepend(card);
                     }} else if (card && isViewed) {{
+                        bumpPanelTotal(card.parentElement, -1);
                         card.remove();
                     }}
                     refreshCounts();
@@ -2335,14 +2464,19 @@ def _render_html_dashboard(
                         throw new Error(data.error || 'Request failed');
                     }}
                     if (viewed) {{
+                        if (card) bumpPanelTotal(card.parentElement, -1);
                         if (card && card.parentElement !== panelApplied) card.remove();
-                        refreshCounts();
-                    }} else if (statusEl) {{
+                    }} else {{
                         const appliedCheckbox = card ? card.querySelector('.applied-wrap input') : null;
                         if (appliedCheckbox) appliedCheckbox.checked = false;
-                        if (card && card.parentElement === panelApplied) card.remove();
-                        statusEl.textContent = 'Saved: unviewed';
+                        const relevantCheckbox = card ? card.querySelector('.relevant-wrap input') : null;
+                        const targetPanel = relevantCheckbox && relevantCheckbox.checked ? panelRelevant : panelNotRelevant;
+                        bumpPanelTotal(targetPanel, 1);
+                        if (card && card.parentElement !== targetPanel) targetPanel.prepend(card);
+                        if (statusEl) statusEl.textContent = 'Saved: unviewed';
                     }}
+                    if (viewed && statusEl) statusEl.textContent = 'Saved: viewed';
+                    refreshCounts();
                 }} catch (err) {{
                     if (statusEl) statusEl.textContent = `Error: ${{err.message}}. Start: python -m spejder.cli serve-gui`;
                     inputEl.checked = !viewed;
@@ -2369,6 +2503,7 @@ def _render_html_dashboard(
                         if (applied) {{
                             if (relevantCheckbox) relevantCheckbox.checked = true;
                             if (viewedCheckbox) viewedCheckbox.checked = true;
+                            bumpPanelTotal(card.parentElement, -1);
                             if (card.parentElement !== panelApplied) panelApplied.prepend(card);
                         }} else if (card.parentElement === panelApplied) {{
                             card.remove();
@@ -2462,10 +2597,16 @@ def cmd_summarize_file(args):
     if not os.path.exists(args.path):
         print("File not found:", args.path)
         return
+    runtime_profile = _load_runtime_profile(args.profile or DEFAULT_PROFILE_PATH)
     doc = email_parser.parse_html_file(args.path)
     llm = LocalLLM(model_path=args.model, verbose=bool(args.verbose_model))
     try:
-        summary = llm.summarize(doc.get("text", ""), max_tokens=args.max_tokens)
+        source_text = doc.get("text", "")
+        normalized_text = _translate_text_to_english_if_needed(
+            source_text,
+            runtime_profile=runtime_profile,
+        )
+        summary = llm.summarize(normalized_text, max_tokens=args.max_tokens)
         print("--- Summary ---")
         print(summary)
     except Exception as exc:
@@ -2478,6 +2619,7 @@ def cmd_summarize_folder(args):
         print("No documents found in folder:", args.folder)
         return
 
+    runtime_profile = _load_runtime_profile(args.profile or DEFAULT_PROFILE_PATH)
     llm = LocalLLM(model_path=args.model, verbose=bool(args.verbose_model))
     if args.out:
         os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
@@ -2490,7 +2632,12 @@ def cmd_summarize_folder(args):
         for doc in docs[:max_docs]:
             path = doc.get("path")
             try:
-                summary = llm.summarize(doc.get("text", ""), max_tokens=args.max_tokens)
+                source_text = doc.get("text", "")
+                normalized_text = _translate_text_to_english_if_needed(
+                    source_text,
+                    runtime_profile=runtime_profile,
+                )
+                summary = llm.summarize(normalized_text, max_tokens=args.max_tokens)
                 record = {
                     "path": path,
                     "summary": summary,
@@ -2510,7 +2657,11 @@ def cmd_summarize_folder(args):
 
 
 def _extract_position_page_text(
-    position_link: str, max_chars: int = 3000, timeout_sec: int = 8
+    position_link: str,
+    runtime_profile: Optional[dict] = None,
+    translation_cache: Optional[dict[str, str]] = None,
+    max_chars: int = 3000,
+    timeout_sec: int = 8,
 ) -> str:
     link = (position_link or "").strip()
     if not link.startswith(("http://", "https://")):
@@ -2555,11 +2706,19 @@ def _extract_position_page_text(
         text = f"{linkedin_apply_marker} {text}".strip()
     if not text:
         return ""
-    return text[:max_chars]
+    text = text[:max_chars]
+    return _translate_text_to_english_if_needed(
+        text,
+        runtime_profile=runtime_profile,
+        translation_cache=translation_cache,
+    )
 
 
 def _get_position_page_context(
-    position_link: str, page_context_cache: Optional[dict] = None
+    position_link: str,
+    runtime_profile: Optional[dict] = None,
+    page_context_cache: Optional[dict] = None,
+    translation_cache: Optional[dict[str, str]] = None,
 ) -> str:
     link = (position_link or "").strip()
     if not link:
@@ -2567,7 +2726,11 @@ def _get_position_page_context(
     if page_context_cache is not None and link in page_context_cache:
         return page_context_cache.get(link, "") or ""
 
-    page_context = _extract_position_page_text(link)
+    page_context = _extract_position_page_text(
+        link,
+        runtime_profile=runtime_profile,
+        translation_cache=translation_cache,
+    )
     if page_context_cache is not None:
         page_context_cache[link] = page_context
     return page_context
@@ -2600,6 +2763,465 @@ def _normalize_title_compare_key(text: str) -> str:
     return compact
 
 
+def _language_checker_engine(runtime_profile: Optional[dict]) -> str:
+    profile = runtime_profile or {}
+    value = str(profile.get("language_checker_engine", "fasttext") or "fasttext")
+    return value.strip().lower() or "fasttext"
+
+
+def _language_checker_model_path(runtime_profile: Optional[dict]) -> str:
+    profile = runtime_profile or {}
+    value = str(profile.get("language_checker_model_path", "") or "")
+    return os.path.abspath(os.path.expanduser(value.strip())) if value.strip() else ""
+
+
+def _translation_model_path(runtime_profile: Optional[dict]) -> str:
+    profile = runtime_profile or {}
+    value = str(
+        profile.get("translation_model_path", profile.get("title_translation_model_path", ""))
+        or ""
+    )
+    return os.path.abspath(os.path.expanduser(value.strip())) if value.strip() else ""
+
+
+def _llm_model_path(
+    runtime_profile: Optional[dict], override_model_path: str = ""
+) -> str:
+    candidate = str(override_model_path or "").strip()
+    if not candidate:
+        profile = runtime_profile or {}
+        candidate = str(profile.get("default_model", "") or "").strip()
+    return os.path.abspath(os.path.expanduser(candidate)) if candidate else ""
+
+
+def _language_checker_threshold(runtime_profile: Optional[dict]) -> float:
+    profile = runtime_profile or {}
+    try:
+        value = float(profile.get("language_checker_threshold", 0.8) or 0.8)
+    except Exception:
+        value = 0.8
+    return max(0.0, min(1.0, value))
+
+
+def _language_checker_min_letters(runtime_profile: Optional[dict]) -> int:
+    profile = runtime_profile or {}
+    try:
+        value = int(profile.get("language_checker_min_letters", 4) or 4)
+    except Exception:
+        value = 4
+    return max(1, value)
+
+
+def _language_checker_letter_count(text: str) -> int:
+    if not text:
+        return 0
+    return len(re.findall(r"[^\W\d_]", text, flags=re.UNICODE))
+
+
+def _language_checker_cache_key(runtime_profile: Optional[dict]) -> str:
+    return f"{_language_checker_engine(runtime_profile)}:{_language_checker_model_path(runtime_profile)}"
+
+
+def _language_checker_model_looks_valid(model_path: str) -> bool:
+    if not model_path or not os.path.isfile(model_path):
+        return False
+    ext = os.path.splitext(model_path)[1].lower()
+    if ext not in {".bin", ".ftz"}:
+        return False
+    try:
+        return os.path.getsize(model_path) >= 100_000
+    except OSError:
+        return False
+
+
+def _translation_model_looks_valid(model_path: str) -> bool:
+    if not model_path or not os.path.isdir(model_path):
+        return False
+    required_files = ["config.json", "source.spm", "target.spm"]
+    if not all(os.path.isfile(os.path.join(model_path, name)) for name in required_files):
+        return False
+    return any(
+        os.path.isfile(os.path.join(model_path, name))
+        for name in ["pytorch_model.bin", "model.safetensors"]
+    )
+
+
+def _llm_model_looks_valid(model_path: str) -> bool:
+    if not model_path or not os.path.isfile(model_path):
+        return False
+    if not model_path.lower().endswith(".gguf"):
+        return False
+    try:
+        return os.path.getsize(model_path) >= 200_000_000
+    except OSError:
+        return False
+
+
+def _get_language_checker_detector(runtime_profile: Optional[dict]) -> Optional[object]:
+    engine = _language_checker_engine(runtime_profile)
+    model_path = _language_checker_model_path(runtime_profile)
+    if engine != "fasttext" or fasttext is None or not model_path:
+        return None
+
+    cache_key = _language_checker_cache_key(runtime_profile)
+    detector = LANGUAGE_CHECKER_DETECTORS.get(cache_key)
+    if detector is None:
+        detector = fasttext.load_model(model_path)
+        LANGUAGE_CHECKER_DETECTORS[cache_key] = detector
+    return detector
+
+
+def _print_language_checker_step(message: str) -> None:
+    print(f"Language checker init: {message}")
+
+
+def _fail_language_checker_init(message: str) -> None:
+    _print_language_checker_step(message)
+    raise SystemExit(1)
+
+
+def _initialize_language_checker_or_exit(profile_path: str) -> None:
+    _print_language_checker_step(f"loading profile from {profile_path}")
+    if not profile_path or not os.path.isfile(profile_path):
+        _fail_language_checker_init("profile file is missing")
+
+    runtime_profile = _load_runtime_profile(profile_path)
+    engine = _language_checker_engine(runtime_profile)
+    _print_language_checker_step(f"engine configured: {engine}")
+    if engine != "fasttext":
+        _fail_language_checker_init("unsupported engine configured; expected fasttext")
+    if fasttext is None:
+        _fail_language_checker_init("fasttext runtime is not installed")
+
+    model_path = _language_checker_model_path(runtime_profile)
+    if not model_path:
+        _fail_language_checker_init("language_checker_model_path is not configured in profile")
+    _print_language_checker_step(f"model path configured: {model_path}")
+
+    if not os.path.exists(model_path):
+        _fail_language_checker_init("configured model path does not exist")
+    if not os.path.isfile(model_path):
+        _fail_language_checker_init("configured model path is not a file")
+    _print_language_checker_step("model file found")
+
+    if not _language_checker_model_looks_valid(model_path):
+        _fail_language_checker_init("model file failed basic validation")
+    _print_language_checker_step(
+        f"model file looks valid (size={os.path.getsize(model_path)} bytes)"
+    )
+
+    try:
+        _get_language_checker_detector(runtime_profile)
+    except Exception as exc:
+        _fail_language_checker_init(f"model initialization failed: {exc}")
+    _print_language_checker_step("model initialized")
+
+    for label, sample_text, expected in LANGUAGE_CHECKER_SELF_TESTS:
+        try:
+            actual = _is_danish_text(sample_text, runtime_profile)
+        except Exception as exc:
+            _fail_language_checker_init(f"self-test {label} crashed: {exc}")
+        _print_language_checker_step(
+            f"self-test {label}: expected={expected} actual={actual}"
+        )
+        if actual != expected:
+            _fail_language_checker_init(f"self-test {label} failed")
+
+    _print_language_checker_step("self-test passed")
+
+
+def _print_translation_step(message: str) -> None:
+    print(f"Translation init: {message}")
+
+
+def _fail_translation_init(message: str) -> None:
+    _print_translation_step(message)
+    raise SystemExit(1)
+
+
+def _initialize_translation_or_exit(profile_path: str) -> None:
+    _print_translation_step(f"loading profile from {profile_path}")
+    if not profile_path or not os.path.isfile(profile_path):
+        _fail_translation_init("profile file is missing")
+
+    runtime_profile = _load_runtime_profile(profile_path)
+    model_path = _translation_model_path(runtime_profile)
+    if not model_path:
+        _fail_translation_init("translation_model_path is not configured in profile")
+    _print_translation_step(f"model path configured: {model_path}")
+
+    if not os.path.exists(model_path):
+        _fail_translation_init("configured model path does not exist")
+    if not os.path.isdir(model_path):
+        _fail_translation_init("configured model path is not a directory")
+    _print_translation_step("model directory found")
+
+    if not _translation_model_looks_valid(model_path):
+        _fail_translation_init("model directory failed basic validation")
+    _print_translation_step("model directory looks valid")
+
+    if MarianTokenizer is None or MarianMTModel is None or torch is None:
+        _fail_translation_init("translation runtime dependencies are not installed")
+
+    try:
+        _get_translation_runtime(runtime_profile)
+    except Exception as exc:
+        _fail_translation_init(f"model initialization failed: {exc}")
+    _print_translation_step("model initialized")
+
+    sample_text, expected_is_danish = TRANSLATION_SELF_TEST
+    detected_before = _is_danish_text(sample_text, runtime_profile)
+    _print_translation_step(
+        f"pre-translation language self-test: expected={expected_is_danish} actual={detected_before}"
+    )
+    if detected_before != expected_is_danish:
+        _fail_translation_init("pre-translation language self-test failed")
+
+    try:
+        translated = _translate_title_to_english(
+            sample_text,
+            runtime_profile=runtime_profile,
+            title_translation_cache={},
+        )
+    except Exception as exc:
+        _fail_translation_init(f"translation self-test crashed: {exc}")
+
+    translated_clean = _normalize_title_text(translated)
+    if not translated_clean:
+        _fail_translation_init("translation self-test returned empty text")
+    _print_translation_step(f"translation self-test output: {translated_clean}")
+
+    detected_after = _is_danish_text(translated_clean, runtime_profile)
+    _print_translation_step(
+        f"post-translation language self-test: expected=False actual={detected_after}"
+    )
+    if detected_after:
+        _fail_translation_init("translated text still looks Danish")
+    if _normalize_title_compare_key(sample_text) == _normalize_title_compare_key(translated_clean):
+        _fail_translation_init("translation self-test did not change the source text")
+
+    _print_translation_step("self-test passed")
+
+
+def _print_llm_step(message: str) -> None:
+    print(f"Model init: {message}")
+
+
+def _fail_llm_init(message: str) -> None:
+    _print_llm_step(message)
+    raise SystemExit(1)
+
+
+def _initialize_llm_or_exit(profile_path: str, override_model_path: str = "") -> None:
+    _print_llm_step(f"loading profile from {profile_path}")
+    if not profile_path or not os.path.isfile(profile_path):
+        _fail_llm_init("profile file is missing")
+
+    runtime_profile = _load_runtime_profile(profile_path)
+    model_path = _llm_model_path(runtime_profile, override_model_path=override_model_path)
+    if not model_path:
+        _fail_llm_init("default_model is not configured")
+    _print_llm_step(f"model path configured: {model_path}")
+
+    if not os.path.exists(model_path):
+        _fail_llm_init("configured model path does not exist")
+    if not os.path.isfile(model_path):
+        _fail_llm_init("configured model path is not a file")
+    _print_llm_step("model file found")
+
+    if not _llm_model_looks_valid(model_path):
+        _fail_llm_init("model file failed basic validation")
+    _print_llm_step(f"model file looks valid (size={os.path.getsize(model_path)} bytes)")
+
+    try:
+        llm = LocalLLM(
+            model_path=model_path,
+            n_ctx=int(runtime_profile.get("n_ctx", 8192)),
+            verbose=False,
+        )
+        llm.load()
+    except Exception as exc:
+        _fail_llm_init(f"model initialization failed: {exc}")
+    _print_llm_step("model initialized")
+
+    try:
+        output = llm.generate(LLM_SELF_TEST_PROMPT, max_tokens=8)
+    except Exception as exc:
+        _fail_llm_init(f"self-test generation failed: {exc}")
+
+    cleaned = " ".join((output or "").split()).strip()
+    if not cleaned:
+        _fail_llm_init("self-test returned empty output")
+    _print_llm_step(f"self-test output: {cleaned}")
+    _print_llm_step("self-test passed")
+
+
+def _is_danish_text(text: str, runtime_profile: Optional[dict] = None) -> bool:
+    sample = " ".join((text or "").split()).strip()
+    if not sample:
+        return False
+    if _language_checker_letter_count(sample) < _language_checker_min_letters(runtime_profile):
+        return False
+
+    detector = _get_language_checker_detector(runtime_profile)
+    if detector is None:
+        return False
+
+    try:
+        labels, probabilities = detector.predict(sample.replace("\n", " "), k=1)
+    except Exception:
+        return False
+
+    if not labels or not probabilities:
+        return False
+
+    top_label = str(labels[0] or "").strip().lower()
+    top_probability = float(probabilities[0] or 0.0)
+    return top_label == "__label__da" and top_probability >= _language_checker_threshold(
+        runtime_profile
+    )
+
+
+def _normalize_title_text(text: str) -> str:
+    return " ".join((text or "").split()).strip()
+
+
+def _normalize_translation_text(text: str) -> str:
+    return (text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+
+
+def _split_translation_chunks(text: str, max_chars: int = 500) -> list[str]:
+    normalized = _normalize_translation_text(text)
+    if not normalized:
+        return []
+
+    paragraphs = [part.strip() for part in re.split(r"\n\s*\n+", normalized) if part.strip()]
+    chunks: list[str] = []
+    for paragraph in paragraphs or [normalized]:
+        if len(paragraph) <= max_chars:
+            chunks.append(paragraph)
+            continue
+
+        sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", paragraph) if s.strip()]
+        buffer = ""
+        for sentence in sentences or [paragraph]:
+            if len(sentence) > max_chars:
+                words = sentence.split()
+                word_buffer = ""
+                for word in words:
+                    candidate = f"{word_buffer} {word}".strip()
+                    if word_buffer and len(candidate) > max_chars:
+                        chunks.append(word_buffer)
+                        word_buffer = word
+                    else:
+                        word_buffer = candidate
+                if word_buffer:
+                    if buffer:
+                        chunks.append(buffer)
+                        buffer = ""
+                    chunks.append(word_buffer)
+                continue
+
+            candidate = f"{buffer} {sentence}".strip() if buffer else sentence
+            if buffer and len(candidate) > max_chars:
+                chunks.append(buffer)
+                buffer = sentence
+            else:
+                buffer = candidate
+        if buffer:
+            chunks.append(buffer)
+    return chunks
+
+
+def _get_translation_runtime(
+    runtime_profile: Optional[dict],
+) -> Optional[tuple[object, object, str]]:
+    model_path = _translation_model_path(runtime_profile)
+    if (
+        not model_path
+        or not _translation_model_looks_valid(model_path)
+        or MarianTokenizer is None
+        or MarianMTModel is None
+        or torch is None
+    ):
+        return None
+
+    runtime = TRANSLATION_MODELS.get(model_path)
+    if runtime is not None:
+        return runtime
+
+    tokenizer = MarianTokenizer.from_pretrained(model_path)
+    model = MarianMTModel.from_pretrained(model_path)
+    device = "cpu"
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        try:
+            model = model.to("mps")
+            device = "mps"
+        except Exception:
+            model = model.to("cpu")
+    else:
+        model = model.to("cpu")
+    model.eval()
+    runtime = (tokenizer, model, device)
+    TRANSLATION_MODELS[model_path] = runtime
+    return runtime
+
+
+def _translate_text_chunks_to_english(
+    chunks: list[str], runtime_profile: Optional[dict] = None
+) -> list[str]:
+    runtime = _get_translation_runtime(runtime_profile)
+    if runtime is None:
+        raise RuntimeError("translation model is not available")
+    tokenizer, model, device = runtime
+    translated_chunks: list[str] = []
+    for chunk in chunks:
+        if not chunk.strip():
+            continue
+        try:
+            encoded = tokenizer(chunk, return_tensors="pt", truncation=True)
+            encoded = {
+                key: value.to(device) if hasattr(value, "to") else value
+                for key, value in encoded.items()
+            }
+            generated = model.generate(**encoded, max_new_tokens=512, num_beams=4)
+            translated = tokenizer.batch_decode(generated, skip_special_tokens=True)[0]
+        except Exception as exc:
+            raise RuntimeError(f"text translation execution failed: {exc}") from exc
+        translated = _normalize_translation_text(translated)
+        if not translated:
+            raise RuntimeError("text translation returned empty text")
+        translated_chunks.append(translated)
+    return translated_chunks
+
+
+def _translate_text_to_english_if_needed(
+    text: str,
+    runtime_profile: Optional[dict] = None,
+    translation_cache: Optional[dict[str, str]] = None,
+) -> str:
+    source_text = _normalize_translation_text(text)
+    if not source_text:
+        return ""
+
+    cache_key = source_text
+    cache = translation_cache if translation_cache is not None else TEXT_TRANSLATION_CACHE
+    if cache_key in cache:
+        return cache[cache_key]
+
+    if not _is_danish_text(source_text, runtime_profile=runtime_profile):
+        cache[cache_key] = source_text
+        return source_text
+
+    chunks = _split_translation_chunks(source_text)
+    translated_chunks = _translate_text_chunks_to_english(chunks, runtime_profile=runtime_profile)
+    translated_text = "\n\n".join(translated_chunks).strip()
+    if not translated_text:
+        raise RuntimeError("text translation returned empty output")
+    cache[cache_key] = translated_text
+    return translated_text
+
+
 def _clean_translated_title_output(text: str) -> str:
     cleaned = " ".join((text or "").replace("```", " ").split()).strip()
     if not cleaned:
@@ -2621,6 +3243,20 @@ def _clean_translated_title_output(text: str) -> str:
         cleaned = cleaned.rsplit("(", 1)[0].rstrip(" -|:;,/")
 
     return cleaned.strip(" \"'`[]()").rstrip(" -|:;,/")[:180]
+
+
+def _finalize_title_english(candidate: str, original: str) -> str:
+    original_clean = _normalize_title_text(original)
+    candidate_clean = _normalize_title_text(candidate)
+    if not original_clean:
+        return candidate_clean
+    if not candidate_clean:
+        return original_clean
+    if _normalize_title_compare_key(candidate_clean) == _normalize_title_compare_key(original_clean):
+        return original_clean
+    if not _is_plausible_translated_title(candidate_clean, original_clean):
+        return original_clean
+    return candidate_clean
 
 
 def _is_plausible_translated_title(candidate: str, original: str) -> bool:
@@ -2648,6 +3284,13 @@ def _is_plausible_translated_title(candidate: str, original: str) -> bool:
     words = re.findall(r"[a-zA-Z0-9+#.&/-]+", text)
     if len(words) > 14:
         return False
+    if len(words) >= 6:
+        counts = Counter(word.lower() for word in words)
+        most_common = counts.most_common(1)[0][1] if counts else 0
+        if most_common >= max(4, len(words) // 2):
+            return False
+        if len(counts) <= 2:
+            return False
     if text.count(".") >= 2:
         return False
     return True
@@ -2656,9 +3299,10 @@ def _is_plausible_translated_title(candidate: str, original: str) -> bool:
 def _translate_title_to_english(
     title: str,
     llm: LocalLLM = None,
+    runtime_profile: Optional[dict] = None,
     title_translation_cache: Optional[dict] = None,
 ) -> str:
-    title_clean = " ".join((title or "").split()).strip()
+    title_clean = _normalize_title_text(title)
     if not title_clean:
         return ""
 
@@ -2667,31 +3311,114 @@ def _translate_title_to_english(
         return str(title_translation_cache.get(cache_key, title_clean) or title_clean)
 
     result = title_clean
-    if llm:
-        prompt = (
-            "Translate this job title to English. "
-            "If it is already English, return it unchanged. "
-            "Return only the translated title text, no extra words.\n\n"
-            f"Title: {title_clean}\n\n"
-            "English title:"
-        )
+    if _is_danish_text(title_clean, runtime_profile=runtime_profile):
+        runtime = _get_translation_runtime(runtime_profile)
+        if runtime is None:
+            raise RuntimeError("title translation model is not available")
+        tokenizer, model, device = runtime
         try:
-            out = llm.generate(prompt, max_tokens=64)
-            english = _clean_translated_title_output(out)
-            if english and _is_plausible_translated_title(english, title_clean):
-                same = _normalize_title_compare_key(english) == _normalize_title_compare_key(
-                    title_clean
-                )
-                if same:
-                    result = title_clean
-                else:
-                    result = f"{title_clean} ({english})"
-        except Exception:
-            result = title_clean
+            encoded = tokenizer(title_clean, return_tensors="pt", truncation=True)
+            encoded = {
+                key: value.to(device) if hasattr(value, "to") else value
+                for key, value in encoded.items()
+            }
+            generated = model.generate(**encoded, max_new_tokens=64, num_beams=4)
+            english = tokenizer.batch_decode(generated, skip_special_tokens=True)[0]
+            english = _clean_translated_title_output(english)
+        except Exception as exc:
+            raise RuntimeError(f"title translation execution failed: {exc}") from exc
+
+        if not english:
+            raise RuntimeError("title translation returned empty text")
+        if not _is_plausible_translated_title(english, title_clean):
+            raise RuntimeError(f"title translation returned implausible text: {english}")
+        result = english
 
     if title_translation_cache is not None:
         title_translation_cache[cache_key] = result
     return result
+
+
+def _get_title_english_for_row(
+    db_path: str,
+    row: dict,
+    runtime_profile: Optional[dict] = None,
+    title_translation_cache: Optional[dict] = None,
+) -> str:
+    title_clean = _normalize_title_text(row.get("title", ""))
+    if not title_clean:
+        row["title_english"] = ""
+        return ""
+
+    row_id = int(row.get("id", 0) or 0)
+    stored = _normalize_title_text(row.get("title_english", ""))
+    if stored:
+        stored_final = _finalize_title_english(stored, title_clean)
+        # Reuse only plausible cached English titles; otherwise recompute.
+        if _normalize_title_compare_key(stored_final) != _normalize_title_compare_key(title_clean):
+            row["title_english"] = stored_final
+            if row_id > 0 and stored_final != stored:
+                set_job_title_english(db_path, row_id, stored_final)
+            return stored_final
+        row["title_english"] = ""
+        if row_id > 0:
+            set_job_title_english(db_path, row_id, "")
+
+    try:
+        title_english = _translate_title_to_english(
+            title_clean,
+            runtime_profile=runtime_profile,
+            title_translation_cache=title_translation_cache,
+        )
+    except Exception:
+        # Keep processing robust for malformed noisy titles.
+        try:
+            title_english = _translate_text_to_english_if_needed(
+                title_clean,
+                runtime_profile=runtime_profile,
+            )
+        except Exception:
+            title_english = title_clean
+
+    title_english = _finalize_title_english(title_english, title_clean)
+    persisted_title_english = title_english
+    if _normalize_title_compare_key(persisted_title_english) == _normalize_title_compare_key(
+        title_clean
+    ):
+        # Keep DB cache empty when no meaningful English translation exists.
+        persisted_title_english = ""
+    row["title_english"] = persisted_title_english or title_english
+
+    if row_id > 0:
+        set_job_title_english(db_path, row_id, persisted_title_english)
+    return row["title_english"]
+
+
+def _build_title_fields(
+    db_path: str,
+    row: dict,
+    runtime_profile: Optional[dict] = None,
+    title_translation_cache: Optional[dict] = None,
+) -> dict:
+    return {
+        "title": str(row.get("title", "") or ""),
+        "title_english": _get_title_english_for_row(
+            db_path,
+            row,
+            runtime_profile=runtime_profile,
+            title_translation_cache=title_translation_cache,
+        ),
+    }
+
+
+def _render_title_english_line(item: dict) -> str:
+    title = _normalize_title_text(str(item.get("title", "") or ""))
+    title_english = _normalize_title_text(str(item.get("title_english", "") or ""))
+    if not title or not title_english:
+        return ""
+    if _normalize_title_compare_key(title) == _normalize_title_compare_key(title_english):
+        return ""
+    return f'<p><strong>In English:</strong> {html.escape(title_english)}</p>'
 
 
 def _prepend_title_to_raw_text(
@@ -2763,21 +3490,33 @@ def _enrich_raw_text_with_position_page(
     row: dict,
     page_context_cache: Optional[dict] = None,
     llm: LocalLLM = None,
+    runtime_profile: Optional[dict] = None,
     title_translation_cache: Optional[dict] = None,
 ) -> str:
     raw = (row.get("raw_text") or "").strip()
-    title_for_prompt = _translate_title_to_english(
-        row.get("title", ""),
-        llm=llm,
+    title_for_prompt = _get_title_english_for_row(
+        db_path,
+        row,
+        runtime_profile=runtime_profile,
         title_translation_cache=title_translation_cache,
     )
     raw = _prepend_title_to_raw_text(title_for_prompt, raw)
-    raw = _prepend_summary_to_raw_text(row.get("summary", ""), raw)
+    raw = _prepend_summary_to_raw_text(
+        _translate_text_to_english_if_needed(
+            row.get("summary", "") or "",
+            runtime_profile=runtime_profile,
+        ),
+        raw,
+    )
     link = (row.get("position_link") or "").strip()
     if not link:
         return raw
 
-    page_context = _get_position_page_context(link, page_context_cache=page_context_cache)
+    page_context = _get_position_page_context(
+        link,
+        runtime_profile=runtime_profile,
+        page_context_cache=page_context_cache,
+    )
     merged = _append_page_context_to_raw_text(raw, link, page_context)
     if merged:
         row["raw_text"] = merged
@@ -2789,6 +3528,7 @@ def _build_description_summary(
     raw_text: str,
     llm: LocalLLM = None,
     position_link: str = "",
+    runtime_profile: Optional[dict] = None,
     page_context_cache: Optional[dict] = None,
 ) -> str:
     cleaned = " ".join((raw_text or "").split())
@@ -2822,7 +3562,9 @@ def _build_description_summary(
 
     if llm:
         page_context = _get_position_page_context(
-            position_link, page_context_cache=page_context_cache
+            position_link,
+            runtime_profile=runtime_profile,
+            page_context_cache=page_context_cache,
         )
         if not cleaned and not page_context:
             return ""
@@ -2945,6 +3687,7 @@ def _is_low_quality_description(
 def _generate_missing_descriptions_for_ingest(
     db_path: str,
     llm: LocalLLM = None,
+    runtime_profile: Optional[dict] = None,
     allow_empty: bool = False,
     progress: bool = False,
     progress_label: str = "Description generation",
@@ -2997,6 +3740,7 @@ def _generate_missing_descriptions_for_ingest(
             row,
             page_context_cache=page_context_cache,
             llm=llm,
+            runtime_profile=runtime_profile,
             title_translation_cache=title_translation_cache,
         )
         if not raw:
@@ -3007,6 +3751,7 @@ def _generate_missing_descriptions_for_ingest(
             raw,
             llm=llm,
             position_link=row.get("position_link", ""),
+            runtime_profile=runtime_profile,
             page_context_cache=page_context_cache,
         )
         if (
@@ -3015,7 +3760,12 @@ def _generate_missing_descriptions_for_ingest(
             or _is_low_quality_description(
                 description,
                 raw_text=raw,
-                title=row.get("title", ""),
+                title=_get_title_english_for_row(
+                    db_path,
+                    row,
+                    runtime_profile=runtime_profile,
+                    title_translation_cache=title_translation_cache,
+                ),
             )
         ):
             description = _fallback_description_text("", source_raw or raw)
@@ -3055,7 +3805,41 @@ def cmd_process_inbox(args):
 
     ensure_db(db_path)
     _ensure_skill_pattern_seed_migration(db_path, profile_path)
-    ingest_stats = ingest_docs_to_db(db_path, docs)
+    text_translation_cache: dict[str, str] = {}
+
+    def _translate_job_entry_for_storage(entry: dict) -> dict:
+        entry = dict(entry)
+        entry["raw_text"] = _translate_text_to_english_if_needed(
+            str(entry.get("raw_text", "") or ""),
+            runtime_profile=profile,
+            translation_cache=text_translation_cache,
+        )
+        title_value = str(entry.get("title", "") or "")
+        try:
+            title_english = _translate_title_to_english(
+                title_value,
+                runtime_profile=profile,
+                title_translation_cache=title_translation_cache,
+            )
+        except Exception:
+            try:
+                title_english = _translate_text_to_english_if_needed(
+                    title_value,
+                    runtime_profile=profile,
+                    translation_cache=text_translation_cache,
+                )
+            except Exception:
+                title_english = title_value
+        final_title_english = _finalize_title_english(title_english, title_value)
+        if _normalize_title_compare_key(final_title_english) == _normalize_title_compare_key(
+            title_value
+        ):
+            final_title_english = ""
+        entry["title_english"] = final_title_english
+        return entry
+
+    title_translation_cache: dict[str, str] = {}
+    ingest_stats = ingest_docs_to_db(db_path, docs, entry_transform=_translate_job_entry_for_storage)
     print(
         "Ingestion done: "
         f"processed={ingest_stats.get('processed', 0)}, "
@@ -3080,9 +3864,11 @@ def cmd_process_inbox(args):
 
     relevant_jobs = get_relevant_jobs(db_path, limit=args.limit)
     llm = LocalLLM(model_path=model_path, n_ctx=int(profile.get("n_ctx", 8192)), verbose=bool(args.verbose)) if model_path else None
+    if not llm:
+        raise SystemExit("Model init: model is required for process-inbox")
 
     desc_updated, desc_skipped = _generate_missing_descriptions_for_ingest(
-        db_path, llm=llm, allow_empty=False
+        db_path, llm=llm, runtime_profile=profile, allow_empty=False
     )
     print(f"Descriptions generated during ingest: updated={desc_updated}, skipped={desc_skipped}")
 
@@ -3111,7 +3897,7 @@ def cmd_process_inbox(args):
 
     for job in relevant_jobs:
         company = job.get("company", "")
-        title = job.get("title", "")
+        title = job.get("title_english", "") or job.get("title", "")
         link = job.get("position_link", "")
         text = job.get("raw_text", "")
 
@@ -3121,21 +3907,17 @@ def cmd_process_inbox(args):
             compact[:max_input_chars] if max_input_chars and max_input_chars > 0 else compact
         )
 
-        if llm:
-            prompt = (
-                "Summarize this job posting in 4 bullets: role focus, key requirements, "
-                "location/remote info, and why it may fit the candidate.\n\n"
-                f"Company: {company}\nTitle: {title}\nLink: {link}\n\n"
-                f"Content:\n{text_for_llm}\n\nSummary:"
-            )
-            try:
-                summary = llm.generate(prompt, max_tokens=args.max_tokens)
-            except Exception as exc:
-                print(f"Summary generation failed for job_id={job.get('id', 0)}: {exc}")
-                summary = ""
-        else:
-            snippet = " ".join(text.split())[:260]
-            summary = f"{title} at {company}. Link: {link}. Snippet: {snippet}"
+        prompt = (
+            "Summarize this job posting in 4 bullets: role focus, key requirements, "
+            "location/remote info, and why it may fit the candidate.\n\n"
+            f"Company: {company}\nTitle: {title}\nLink: {link}\n\n"
+            f"Content:\n{text_for_llm}\n\nSummary:"
+        )
+        try:
+            summary = llm.generate(prompt, max_tokens=args.max_tokens)
+        except Exception as exc:
+            print(f"Summary generation failed for job_id={job.get('id', 0)}: {exc}")
+            summary = ""
 
         if _is_invalid_summary_text(summary):
             summary = ""
@@ -3177,6 +3959,7 @@ def cmd_process_inbox(args):
                 row,
                 page_context_cache=page_context_cache,
                 llm=llm,
+                runtime_profile=profile,
                 title_translation_cache=title_translation_cache,
             )
             skills = _get_or_extract_job_skills(
@@ -3194,6 +3977,7 @@ def cmd_process_inbox(args):
                     raw_text,
                     llm=llm,
                     position_link=row.get("position_link", ""),
+                    runtime_profile=profile,
                     page_context_cache=page_context_cache,
                 )
                 if (
@@ -3202,7 +3986,12 @@ def cmd_process_inbox(args):
                     and not _is_low_quality_description(
                         generated,
                         raw_text=raw_text,
-                        title=row.get("title", ""),
+                        title=_get_title_english_for_row(
+                            db_path,
+                            row,
+                            runtime_profile=profile,
+                            title_translation_cache=title_translation_cache,
+                        ),
                     )
                 ):
                     description = generated
@@ -3216,9 +4005,10 @@ def cmd_process_inbox(args):
                     "id": row.get("id", 0),
                     "source": row.get("source", "Unknown"),
                     "company": row.get("company", ""),
-                    "title": _translate_title_to_english(
-                        row.get("title", ""),
-                        llm=llm,
+                    **_build_title_fields(
+                        db_path,
+                        row,
+                        runtime_profile=profile,
                         title_translation_cache=title_translation_cache,
                     ),
                     "place": row.get("place", ""),
@@ -3250,6 +4040,7 @@ def cmd_process_inbox(args):
             row,
             page_context_cache=page_context_cache,
             llm=llm,
+            runtime_profile=profile,
             title_translation_cache=title_translation_cache,
         )
         skills = _get_or_extract_job_skills(
@@ -3267,9 +4058,10 @@ def cmd_process_inbox(args):
                 "id": row.get("id", 0),
                 "source": row.get("source", "Unknown"),
                 "company": row.get("company", ""),
-                "title": _translate_title_to_english(
-                    row.get("title", ""),
-                    llm=llm,
+                **_build_title_fields(
+                    db_path,
+                    row,
+                    runtime_profile=profile,
                     title_translation_cache=title_translation_cache,
                 ),
                 "place": row.get("place", ""),
@@ -3296,7 +4088,8 @@ def cmd_process_inbox(args):
         "Positions Report",
         viewed_total=get_viewed_jobs_count(db_path),
         skills_items=_build_skills_tab_items(db_path, profile),
-        report_max_positions=_report_max_positions(profile),
+        report_max_relevant_positions=_report_max_relevant_positions(profile),
+        report_max_not_relevant_positions=_report_max_not_relevant_positions(profile),
     )
     print(f"Report written: {dashboard_path}")
 
@@ -3384,21 +4177,25 @@ def cmd_serve_gui(args):
             raw_text,
         )
         cached_skills = get_job_skills(db_path, int(row.get("id", 0) or 0))
-        title_raw = row.get("title", "")
-        if translate_title:
-            title_value = _translate_title_to_english(
-                title_raw,
-                llm=_get_title_translation_llm(),
+        title_fields = (
+            _build_title_fields(
+                db_path,
+                row,
+                runtime_profile=runtime_profile,
                 title_translation_cache=title_translation_cache,
             )
-        else:
-            title_value = str(title_raw or "")
+            if translate_title
+            else {
+                "title": str(row.get("title", "") or ""),
+                "title_english": str(row.get("title_english", "") or ""),
+            }
+        )
 
         return {
             "id": row.get("id", 0),
             "source": row.get("source", "Unknown"),
             "company": row.get("company", ""),
-            "title": title_value,
+            **title_fields,
             "place": row.get("place", ""),
             "work_type": row.get("work_type", "Unknown"),
             "description": _fallback_description_text(
@@ -3435,6 +4232,7 @@ def cmd_serve_gui(args):
                 row,
                 page_context_cache=page_context_cache,
                 llm=llm,
+                runtime_profile=runtime_profile,
                 title_translation_cache=title_translation_cache,
             )
             skills = _get_or_extract_job_skills(
@@ -3462,7 +4260,8 @@ def cmd_serve_gui(args):
             try:
                 with dashboard_lock:
                     refreshed_report_data = {}
-                    report_limit = _report_max_positions(runtime_profile)
+                    relevant_limit = _report_max_relevant_positions(runtime_profile)
+                    not_relevant_limit = _report_max_not_relevant_positions(runtime_profile)
                     category_totals: dict[str, int] = {}
                     for cat in ["relevant", "not relevant"]:
                         total_rows = get_jobs_count_by_category(
@@ -3471,6 +4270,7 @@ def cmd_serve_gui(args):
                             unviewed_only=True,
                         )
                         category_totals[cat] = int(total_rows)
+                        report_limit = relevant_limit if cat == "relevant" else not_relevant_limit
                         rows = get_jobs_by_category(
                             db_path,
                             cat,
@@ -3516,7 +4316,8 @@ def cmd_serve_gui(args):
                         "Positions Report",
                         viewed_total=get_viewed_jobs_count(db_path),
                         skills_items=_build_skills_tab_items(db_path, runtime_profile),
-                        report_max_positions=_report_max_positions(runtime_profile),
+                        report_max_relevant_positions=_report_max_relevant_positions(runtime_profile),
+                        report_max_not_relevant_positions=_report_max_not_relevant_positions(runtime_profile),
                         relevant_total_count=category_totals.get("relevant", 0),
                         not_relevant_total_count=category_totals.get("not relevant", 0),
                     )
@@ -3590,10 +4391,45 @@ def cmd_serve_gui(args):
                     )
                     last_inserted_logged = inserted_new
 
+            text_translation_cache: dict[str, str] = {}
+            title_translation_cache: dict[str, str] = {}
+
+            def _translate_job_entry_for_storage(entry: dict) -> dict:
+                entry = dict(entry)
+                entry["raw_text"] = _translate_text_to_english_if_needed(
+                    str(entry.get("raw_text", "") or ""),
+                    runtime_profile=runtime_profile,
+                    translation_cache=text_translation_cache,
+                )
+                title_value = str(entry.get("title", "") or "")
+                try:
+                    title_english = _translate_title_to_english(
+                        title_value,
+                        runtime_profile=runtime_profile,
+                        title_translation_cache=title_translation_cache,
+                    )
+                except Exception:
+                    try:
+                        title_english = _translate_text_to_english_if_needed(
+                            title_value,
+                            runtime_profile=runtime_profile,
+                            translation_cache=text_translation_cache,
+                        )
+                    except Exception:
+                        title_english = title_value
+                final_title_english = _finalize_title_english(title_english, title_value)
+                if _normalize_title_compare_key(final_title_english) == _normalize_title_compare_key(
+                    title_value
+                ):
+                    final_title_english = ""
+                entry["title_english"] = final_title_english
+                return entry
+
             if docs:
                 ingest_stats = ingest_docs_to_db(
                     db_path,
                     docs,
+                    entry_transform=_translate_job_entry_for_storage,
                     on_new_record=_on_new_record,
                     on_progress=_on_progress,
                 )
@@ -3606,6 +4442,7 @@ def cmd_serve_gui(args):
                 }
 
             _print_ingest_file_stats(ingest_stats)
+            _queue_dashboard_rebuild(reason=f"ingest processed={ingest_stats['processed']}")
             delete_stats = _delete_processed_inbox_files(ingest_stats, inbox_root=inbox_path)
             print(
                 "Background sync inbox cleanup: "
@@ -3647,6 +4484,7 @@ def cmd_serve_gui(args):
             desc_updated, desc_skipped = _generate_missing_descriptions_for_ingest(
                 db_path,
                 llm=llm_for_sync,
+                runtime_profile=runtime_profile,
                 allow_empty=False,
                 progress=True,
                 progress_label="Background sync: descriptions",
@@ -3806,6 +4644,11 @@ def cmd_serve_gui(args):
                         self._write_json(400, {"ok": False, "error": "text is required"})
                         return
 
+                    text = _translate_text_to_english_if_needed(
+                        text,
+                        runtime_profile=runtime_profile,
+                    )
+
                     updated = append_applied_job_raw_text(
                         db_path,
                         job_id,
@@ -3842,6 +4685,7 @@ def cmd_serve_gui(args):
                             target_row,
                             page_context_cache=page_context_cache,
                             llm=llm_for_manual,
+                            runtime_profile=runtime_profile,
                             title_translation_cache=title_translation_cache,
                         )
 
@@ -3849,6 +4693,7 @@ def cmd_serve_gui(args):
                             enriched_raw,
                             llm=llm_for_manual,
                             position_link=target_row.get("position_link", ""),
+                            runtime_profile=runtime_profile,
                             page_context_cache=page_context_cache,
                         )
                         if (
@@ -3857,7 +4702,12 @@ def cmd_serve_gui(args):
                             or _is_low_quality_description(
                                 description,
                                 raw_text=enriched_raw,
-                                title=target_row.get("title", ""),
+                                title=_get_title_english_for_row(
+                                    db_path,
+                                    target_row,
+                                    runtime_profile=runtime_profile,
+                                    title_translation_cache=title_translation_cache,
+                                ),
                             )
                         ):
                             description = _fallback_description_text(
@@ -4137,9 +4987,7 @@ def cmd_refresh_descriptions(args):
 
     llm = LocalLLM(model_path=model_path, n_ctx=int(runtime_profile.get("n_ctx", 8192)), verbose=not args.quiet_model) if model_path else None
     if not llm:
-        print(
-            "No --model provided, summaries will remain empty unless your logic sets fallback text."
-        )
+        raise SystemExit("Model init: model is required for refresh-descriptions")
 
     rows = get_jobs_for_description_refresh(
         db_path,
@@ -4166,6 +5014,7 @@ def cmd_refresh_descriptions(args):
             row,
             page_context_cache=page_context_cache,
             llm=llm,
+            runtime_profile=runtime_profile,
             title_translation_cache=title_translation_cache,
         )
         if not raw:
@@ -4175,6 +5024,7 @@ def cmd_refresh_descriptions(args):
             raw,
             llm=llm,
             position_link=row.get("position_link", ""),
+            runtime_profile=runtime_profile,
             page_context_cache=page_context_cache,
         )
         if (
@@ -4183,7 +5033,12 @@ def cmd_refresh_descriptions(args):
             or _is_low_quality_description(
                 description,
                 raw_text=raw,
-                title=row.get("title", ""),
+                title=_get_title_english_for_row(
+                    db_path,
+                    row,
+                    runtime_profile=runtime_profile,
+                    title_translation_cache=title_translation_cache,
+                ),
             )
         ):
             description = _fallback_description_text("", source_raw or raw)
@@ -4223,6 +5078,7 @@ def cmd_refresh_descriptions(args):
                     row,
                     page_context_cache=page_context_cache,
                     llm=llm,
+                    runtime_profile=runtime_profile,
                     title_translation_cache=title_translation_cache,
                 )
                 skills = _get_or_extract_job_skills(
@@ -4240,9 +5096,10 @@ def cmd_refresh_descriptions(args):
                         "id": row.get("id", 0),
                         "source": row.get("source", "Unknown"),
                         "company": row.get("company", ""),
-                        "title": _translate_title_to_english(
-                            row.get("title", ""),
-                            llm=llm,
+                        **_build_title_fields(
+                            db_path,
+                            row,
+                            runtime_profile=runtime_profile,
                             title_translation_cache=title_translation_cache,
                         ),
                         "place": row.get("place", ""),
@@ -4275,6 +5132,7 @@ def cmd_refresh_descriptions(args):
                 row,
                 page_context_cache=page_context_cache,
                 llm=llm,
+                runtime_profile=runtime_profile,
                 title_translation_cache=title_translation_cache,
             )
             skills = _get_or_extract_job_skills(
@@ -4292,9 +5150,10 @@ def cmd_refresh_descriptions(args):
                     "id": row.get("id", 0),
                     "source": row.get("source", "Unknown"),
                     "company": row.get("company", ""),
-                    "title": _translate_title_to_english(
-                        row.get("title", ""),
-                        llm=llm,
+                    **_build_title_fields(
+                        db_path,
+                        row,
+                        runtime_profile=runtime_profile,
                         title_translation_cache=title_translation_cache,
                     ),
                     "place": row.get("place", ""),
@@ -4326,7 +5185,8 @@ def cmd_refresh_descriptions(args):
             "Positions Report",
             viewed_total=get_viewed_jobs_count(db_path),
             skills_items=_build_skills_tab_items(db_path, runtime_profile),
-            report_max_positions=_report_max_positions(runtime_profile),
+            report_max_relevant_positions=_report_max_relevant_positions(runtime_profile),
+            report_max_not_relevant_positions=_report_max_not_relevant_positions(runtime_profile),
         )
         print(f"Report written: {dashboard_path}")
 
@@ -4340,6 +5200,7 @@ def main(argv=None):
     pr.set_defaults(func=cmd_report_links)
 
     psm = sub.add_parser("summarize-file")
+    psm.add_argument("--profile", default=DEFAULT_PROFILE_PATH)
     psm.add_argument("--path", required=True)
     psm.add_argument("--model", required=True)
     psm.add_argument("--max-tokens", type=int, default=200)
@@ -4347,6 +5208,7 @@ def main(argv=None):
     psm.set_defaults(func=cmd_summarize_file)
 
     psf = sub.add_parser("summarize-folder")
+    psf.add_argument("--profile", default=DEFAULT_PROFILE_PATH)
     psf.add_argument("--folder", required=True)
     psf.add_argument("--model", required=True)
     psf.add_argument("--max-tokens", type=int, default=200)
@@ -4431,6 +5293,16 @@ def main(argv=None):
     if not hasattr(args, "func"):
         p.print_help()
         sys.exit(1)
+    if getattr(args, "cmd", "") in LANGUAGE_CHECKER_REQUIRED_COMMANDS:
+        _initialize_language_checker_or_exit(args.profile or DEFAULT_PROFILE_PATH)
+    if getattr(args, "cmd", "") in TRANSLATION_REQUIRED_COMMANDS:
+        _initialize_translation_or_exit(args.profile or DEFAULT_PROFILE_PATH)
+    if getattr(args, "cmd", "") in LLM_REQUIRED_COMMANDS:
+        override_model_path = str(getattr(args, "model", "") or "")
+        _initialize_llm_or_exit(
+            args.profile or DEFAULT_PROFILE_PATH,
+            override_model_path=override_model_path,
+        )
     args.func(args)
 
 
