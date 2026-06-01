@@ -1,3 +1,5 @@
+"""HTML Parser."""
+# pylint: disable=too-many-locals,missing-class-docstring,missing-function-docstring,unused-import,no-name-in-module,trailing-whitespace,unused-variable,broad-exception-caught,line-too-long,unused-argument,invalid-name,pointless-string-statement,wrong-import-position
 import os
 import re
 from email import policy

@@ -8,3 +8,7 @@ torch
 sacremoses
 fasttext-wheel
 numpy<2
+jinja2
+fastapi[all]
+pydantic
+urllib3<2

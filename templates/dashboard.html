@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>{{title}}</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 24px; background: #f7f7f7; color: #111; }
+            h1 { margin-bottom: 8px; }
+            .controls { display: flex; gap: 8px; margin-bottom: 12px; }
+            .mode-btn { border: 1px solid #bbb; background: #fff; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+            .mode-btn.active { border-color: #0a58ca; font-weight: 700; }
+            .grid { display: grid; gap: 12px; }
+            .card { background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 12px; position: relative; }
+            .easy-apply-card { border-color: #d7a127; box-shadow: inset 0 0 0 1px #f6d36b; }
+            .easy-apply-badge { display: inline-block; margin-left: 6px; padding: 2px 8px; border-radius: 999px; border: 1px solid #d7a127; background: #fff6d9; color: #7a5a00; font-size: 11px; font-weight: 700; vertical-align: middle; }
+            .card p { margin: 6px 0; }
+            .skill-tags { display: inline-flex; flex-wrap: wrap; gap: 6px; vertical-align: middle; }
+            .skill-tag { display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid #c9d6f0; background: #eef4ff; color: #1f3a6d; font-size: 12px; }
+            .skill-tag-btn { cursor: pointer; }
+            .pseudo-link { border: 0; padding: 0; background: none; color: #0a58ca; cursor: pointer; font: inherit; text-decoration: underline; }
+            .pseudo-link:hover { color: #084298; }
+            .skills-empty { color: #777; font-size: 12px; }
+            .manual-status { display: inline-block; font-size: 11px; font-weight: 700; margin: 4px 0 8px 0; padding: 2px 8px; border-radius: 999px; }
+            .manual-status.done { color: #114b1f; background: #e5f6e9; border: 1px solid #9ed3ab; }
+            .manual-status.todo { color: #6b5a00; background: #fff8db; border: 1px solid #e4d08a; }
+            .applied-manual-input { margin: 8px 0; padding: 8px; border: 1px dashed #c7d5ee; border-radius: 8px; background: #f7fbff; }
+            .applied-manual-input p { margin: 0 0 6px 0; font-size: 12px; color: #1f3a6d; }
+            .raw-append-input { width: 100%; min-height: 120px; resize: vertical; border: 1px solid #c9d6f0; border-radius: 6px; padding: 8px; font-size: 12px; font-family: monospace; box-sizing: border-box; }
+            .raw-append-btn { margin-top: 8px; border: 1px solid #0a58ca; color: #0a58ca; background: #fff; border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+            .relevance-score { position: absolute; top: 8px; right: 10px; font-size: 11px; color: #9aa0a6; }
+            .feedback { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+            .relevant-wrap { font-size: 13px; color: #333; display: inline-flex; gap: 5px; align-items: center; }
+            .viewed-wrap { font-size: 13px; color: #333; display: inline-flex; gap: 5px; align-items: center; }
+            .applied-wrap { font-size: 13px; color: #333; display: inline-flex; gap: 5px; align-items: center; }
+            .feedback-status { font-size: 12px; color: #555; }
+            a { color: #0a58ca; word-break: break-all; }
+            .hidden { display: none; }
+            .empty { background: #fff; border: 1px dashed #ccc; border-radius: 10px; padding: 12px; margin: 0; }
+            .skills-wrap { background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 12px; overflow-x: auto; }
+            .skills-table { width: 100%; border-collapse: collapse; min-width: 760px; }
+            .skills-table th, .skills-table td { border-bottom: 1px solid #eee; text-align: left; padding: 8px; font-size: 13px; }
+            .skills-table th { background: #fafafa; font-weight: 700; }
+            .skills-table tbody tr.skill-row-focus { outline: 2px solid #0a58ca; outline-offset: -2px; background: #eef4ff; transition: background-color 0.8s ease; }
+            .delete-skill-btn { border: 1px solid #cc8c8c; color: #7b1111; background: #fff; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
+            .block-skill-btn { border: 1px solid #d2a24a; color: #7a5200; background: #fff7e8; border-radius: 6px; padding: 4px 8px; cursor: pointer; margin-right: 6px; }
+        </style>
+    </head>
+    <body>
+        <h1>{{title}}</h1>
+        <div class="controls">
+            <button id="btn-relevant" class="mode-btn active" type="button" data-total="{{ relevant_total_count }}">Relevant ({{ len_relevant_items }}/{{ relevant_total_count }})</button>
+            <button id="btn-not-relevant" class="mode-btn" type="button" data-total="{{ not_relevant_total_count }}">Not relevant ({{ len_not_relevant_items }}/{{ not_relevant_total_count }})</button>
+            <button id="btn-applied" class="mode-btn" type="button">Applied ({{ len_applied_items }})</button>
+            <button id="btn-skills" class="mode-btn" type="button">Skills ({{ len_skills_items }})</button>
+        </div>
+        <section id="panel-relevant" class="grid">{{ relevant_cards }}</section>
+        <section id="panel-not-relevant" class="grid hidden">{{ not_relevant_cards }}</section>
+        <section id="panel-applied" class="grid hidden">{{ applied_cards }}</section>
+        <section id="panel-skills" class="skills-wrap hidden">{{ skills_table_html }}</section>
+
+        <script>
+            const btnRelevant = document.getElementById('btn-relevant');
+            const btnNotRelevant = document.getElementById('btn-not-relevant');
+            const btnApplied = document.getElementById('btn-applied');
+            const btnSkills = document.getElementById('btn-skills');
+            const panelRelevant = document.getElementById('panel-relevant');
+            const panelNotRelevant = document.getElementById('panel-not-relevant');
+            const panelApplied = document.getElementById('panel-applied');
+            const panelSkills = document.getElementById('panel-skills');
+
+            function apiUrl(path) {
+                if (window.location.protocol === 'file:') {
+                    return `http://127.0.0.1:8765${path}`;
+                }
+                return path;
+            }
+
+            function ensureEmptyState(panel) {
+                const hasCards = panel.querySelector('.card') !== null;
+                let emptyEl = panel.querySelector('.empty');
+                if (!hasCards && !emptyEl) {
+                    emptyEl = document.createElement('p');
+                    emptyEl.className = 'empty';
+                    emptyEl.textContent = 'No records found.';
+                    panel.appendChild(emptyEl);
+                }
+                if (hasCards && emptyEl) {
+                    emptyEl.remove();
+                }
+            }
+
+            function bumpPanelTotal(panel, delta) {
+                let btn = null;
+                if (panel === panelRelevant) btn = btnRelevant;
+                if (panel === panelNotRelevant) btn = btnNotRelevant;
+                if (!btn) return;
+                const current = Number.parseInt(btn.dataset.total || '0', 10) || 0;
+                btn.dataset.total = String(Math.max(0, current + delta));
+            }
+
+            function refreshCounts() {
+                const relevantCount = panelRelevant.querySelectorAll('.card').length;
+                const notRelevantCount = panelNotRelevant.querySelectorAll('.card').length;
+                const appliedCount = panelApplied.querySelectorAll('.card').length;
+                const skillsCount = panelSkills.querySelectorAll('tbody tr').length;
+                const relevantTotal = Number.parseInt(btnRelevant.dataset.total || String(relevantCount), 10) || relevantCount;
+                const notRelevantTotal = Number.parseInt(btnNotRelevant.dataset.total || String(notRelevantCount), 10) || notRelevantCount;
+                btnRelevant.textContent = `Relevant (${relevantCount}/${relevantTotal})`;
+                btnNotRelevant.textContent = `Not relevant (${notRelevantCount}/${notRelevantTotal})`;
+                btnApplied.textContent = `Applied (${appliedCount})`;
+                btnSkills.textContent = `Skills (${skillsCount})`;
+                ensureEmptyState(panelRelevant);
+                ensureEmptyState(panelNotRelevant);
+                ensureEmptyState(panelApplied);
+            }
+
+            function setMode(mode) {
+                const isRelevant = mode === 'relevant';
+                const isNotRelevant = mode === 'not relevant';
+                const isApplied = mode === 'applied';
+                const isSkills = mode === 'skills';
+                panelRelevant.classList.toggle('hidden', !isRelevant);
+                panelNotRelevant.classList.toggle('hidden', !isNotRelevant);
+                panelApplied.classList.toggle('hidden', !isApplied);
+                panelSkills.classList.toggle('hidden', !isSkills);
+                btnRelevant.classList.toggle('active', isRelevant);
+                btnNotRelevant.classList.toggle('active', isNotRelevant);
+                btnApplied.classList.toggle('active', isApplied);
+                btnSkills.classList.toggle('active', isSkills);
+            }
+
+            function focusSkillRow(skillKey) {
+                if (!skillKey) return;
+                const row = panelSkills.querySelector(`tr[data-skill-key="${CSS.escape(skillKey)}"]`);
+                if (!row) return;
+                panelSkills.querySelectorAll('tbody tr.skill-row-focus').forEach((item) => item.classList.remove('skill-row-focus'));
+                row.classList.add('skill-row-focus');
+                row.setAttribute('tabindex', '-1');
+                row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                window.setTimeout(() => row.focus({ preventScroll: true }), 120);
+                window.setTimeout(() => row.classList.remove('skill-row-focus'), 2200);
+            }
+
+            function openSkillsForSkill(skillKey) {
+                setMode('skills');
+                focusSkillRow(skillKey);
+            }
+
+            function openCompanyPage(companyName) {
+                if (!companyName) return;
+                const targetUrl = apiUrl(`/company.html?company=${encodeURIComponent(companyName)}`);
+                const popup = window.open(targetUrl, '_blank', 'noopener');
+                if (popup) popup.opener = null;
+            }
+
+            btnRelevant.addEventListener('click', () => setMode('relevant'));
+            btnNotRelevant.addEventListener('click', () => setMode('not relevant'));
+            btnApplied.addEventListener('click', () => setMode('applied'));
+            btnSkills.addEventListener('click', () => setMode('skills'));
+
+            async function setUserSkill(skillKey, hasSkill, inputEl) {
+                inputEl.disabled = true;
+                try {
+                    const response = await fetch(apiUrl('/api/skill/user'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ skill: skillKey, has_skill: hasSkill })
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || 'Request failed');
+                    }
+                } catch (err) {
+                    inputEl.checked = !hasSkill;
+                    alert(`Failed to update skill: ${err.message}`);
+                } finally {
+                    inputEl.disabled = false;
+                }
+            }
+
+            async function setLearnSkill(skillKey, learn, inputEl) {
+                inputEl.disabled = true;
+                try {
+                    const response = await fetch(apiUrl('/api/skill/learn'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ skill: skillKey, learn })
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || 'Request failed');
+                    }
+                } catch (err) {
+                    inputEl.checked = !learn;
+                    alert(`Failed to update skill: ${err.message}`);
+                } finally {
+                    inputEl.disabled = false;
+                }
+            }
+
+            async function deleteSkill(skillKey, btnEl) {
+                if (!confirm(`Delete skill '${skillKey}' from profile and DB?`)) return;
+                btnEl.disabled = true;
+                try {
+                    const response = await fetch(apiUrl('/api/skill/delete'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ skill: skillKey })
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || 'Request failed');
+                    }
+                    const row = btnEl.closest('tr');
+                    if (row) row.remove();
+                    refreshCounts();
+                } catch (err) {
+                    alert(`Failed to delete skill: ${err.message}`);
+                    btnEl.disabled = false;
+                }
+            }
+
+            async function blockSkill(skillKey, btnEl) {
+                if (!confirm(`Block skill '${skillKey}' and hide it from all positions and the skills tab?`)) return;
+                btnEl.disabled = true;
+                try {
+                    const response = await fetch(apiUrl('/api/skill/block'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ skill: skillKey })
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || 'Request failed');
+                    }
+                    const row = btnEl.closest('tr');
+                    if (row) row.remove();
+                    refreshCounts();
+                } catch (err) {
+                    alert(`Failed to block skill: ${err.message}`);
+                    btnEl.disabled = false;
+                }
+            }
+
+            async function setRelevant(jobId, isRelevant, inputEl) {
+                const signal = isRelevant ? 'relevant' : 'not relevant';
+                const card = inputEl.closest('.card');
+                const statusEl = card ? card.querySelector('.feedback-status') : null;
+                if (statusEl) statusEl.textContent = 'Saving...';
+                try {
+                    const response = await fetch(apiUrl('/api/feedback'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ job_id: jobId, signal })
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || 'Request failed');
+                    }
+                    if (statusEl) statusEl.textContent = `Saved: ${signal}`;
+                    if (signal === 'not relevant') {
+                        const appliedCheckbox = card ? card.querySelector('.applied-wrap input') : null;
+                        if (appliedCheckbox) appliedCheckbox.checked = false;
+                    }
+                    const viewedCheckbox = card ? card.querySelector('.viewed-wrap input') : null;
+                    let isViewed = viewedCheckbox ? viewedCheckbox.checked : false;
+                    if (signal === 'not relevant' && viewedCheckbox && !isViewed) {
+                        const viewedResponse = await fetch(apiUrl('/api/viewed'), {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ job_id: jobId, viewed: true })
+                        });
+                        const viewedData = await viewedResponse.json();
+                        if (!viewedResponse.ok || !viewedData.ok) {
+                            throw new Error(viewedData.error || 'Failed to update viewed');
+                        }
+                        viewedCheckbox.checked = true;
+                        isViewed = true;
+                    }
+                    const targetPanel = signal === 'relevant' ? panelRelevant : panelNotRelevant;
+                    if (card && !isViewed && card.parentElement !== targetPanel) {
+                        targetPanel.prepend(card);
+                    } else if (card && isViewed) {
+                        bumpPanelTotal(card.parentElement, -1);
+                        card.remove();
+                    }
+                    refreshCounts();
+                } catch (err) {
+                    if (statusEl) statusEl.textContent = `Error: ${err.message}. Start: python -m spejder.cli serve-gui`;
+                    inputEl.checked = !isRelevant;
+                }
+            }
+
+            async function setViewed(jobId, viewed, inputEl) {
+                const card = inputEl.closest('.card');
+                const statusEl = card ? card.querySelector('.feedback-status') : null;
+                if (statusEl) statusEl.textContent = 'Saving...';
+                try {
+                    const response = await fetch(apiUrl('/api/viewed'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ job_id: jobId, viewed })
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || 'Request failed');
+                    }
+                    if (viewed) {
+                        if (card) bumpPanelTotal(card.parentElement, -1);
+                        if (card && card.parentElement !== panelApplied) card.remove();
+                    } else {
+                        const appliedCheckbox = card ? card.querySelector('.applied-wrap input') : null;
+                        if (appliedCheckbox) appliedCheckbox.checked = false;
+                        const relevantCheckbox = card ? card.querySelector('.relevant-wrap input') : null;
+                        const targetPanel = relevantCheckbox && relevantCheckbox.checked ? panelRelevant : panelNotRelevant;
+                        bumpPanelTotal(targetPanel, 1);
+                        if (card && card.parentElement !== targetPanel) targetPanel.prepend(card);
+                        if (statusEl) statusEl.textContent = 'Saved: unviewed';
+                    }
+                    if (viewed && statusEl) statusEl.textContent = 'Saved: viewed';
+                    refreshCounts();
+                } catch (err) {
+                    if (statusEl) statusEl.textContent = `Error: ${err.message}. Start: python -m spejder.cli serve-gui`;
+                    inputEl.checked = !viewed;
+                }
+            }
+
+            async function setApplied(jobId, applied, inputEl) {
+                const card = inputEl.closest('.card');
+                const statusEl = card ? card.querySelector('.feedback-status') : null;
+                if (statusEl) statusEl.textContent = 'Saving...';
+                try {
+                    const response = await fetch(apiUrl('/api/applied'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ job_id: jobId, applied })
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || 'Request failed');
+                    }
+                    if (card) {
+                        const relevantCheckbox = card.querySelector('.relevant-wrap input');
+                        const viewedCheckbox = card.querySelector('.viewed-wrap input');
+                        if (applied) {
+                            if (relevantCheckbox) relevantCheckbox.checked = true;
+                            if (viewedCheckbox) viewedCheckbox.checked = true;
+                            bumpPanelTotal(card.parentElement, -1);
+                            if (card.parentElement !== panelApplied) panelApplied.prepend(card);
+                        } else if (card.parentElement === panelApplied) {
+                            card.remove();
+                        }
+                    }
+                    if (statusEl) statusEl.textContent = `Saved: ${applied ? 'applied' : 'not applied'}`;
+                    refreshCounts();
+                } catch (err) {
+                    if (statusEl) statusEl.textContent = `Error: ${err.message}. Start: python -m spejder.cli serve-gui`;
+                    inputEl.checked = !applied;
+                }
+            }
+
+            async function appendAppliedRawText(jobId, btnEl) {
+                const card = btnEl.closest('.card');
+                const statusEl = card ? card.querySelector('.feedback-status') : null;
+                const inputEl = card ? card.querySelector('.raw-append-input') : null;
+                const manualStatusEl = card ? card.querySelector('.manual-status') : null;
+                const text = inputEl ? inputEl.value : '';
+                if (!text || !text.trim()) {
+                    if (statusEl) statusEl.textContent = 'Enter description text first';
+                    return;
+                }
+
+                btnEl.disabled = true;
+                if (statusEl) statusEl.textContent = 'Appending...';
+                try {
+                    const response = await fetch(apiUrl('/api/applied/raw-text'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ job_id: jobId, text })
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || 'Request failed');
+                    }
+                    if (inputEl) inputEl.value = '';
+                    if (manualStatusEl) {
+                        manualStatusEl.textContent = 'Manual full text: added';
+                        manualStatusEl.classList.remove('todo');
+                        manualStatusEl.classList.add('done');
+                    }
+                    if (card && card.parentElement === panelApplied) {
+                        panelApplied.appendChild(card);
+                    }
+                    if (statusEl) statusEl.textContent = 'Saved: full text appended';
+                } catch (err) {
+                    if (statusEl) statusEl.textContent = `Error: ${err.message}`;
+                } finally {
+                    btnEl.disabled = false;
+                }
+            }
+
+            window.setRelevant = setRelevant;
+            window.setViewed = setViewed;
+            window.setApplied = setApplied;
+            window.setUserSkill = setUserSkill;
+            window.setLearnSkill = setLearnSkill;
+            window.openSkillsForSkill = openSkillsForSkill;
+            window.openCompanyPage = openCompanyPage;
+            window.blockSkill = blockSkill;
+            window.deleteSkill = deleteSkill;
+            window.appendAppliedRawText = appendAppliedRawText;
+            refreshCounts();
+        </script>
+    </body>
+</html>
