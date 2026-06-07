@@ -85,7 +85,7 @@ def _extract_user_skills_from_cv(
     return _cleanup(fallback, int(limit))
 
 
-def sync_user_skills(profile: str = None, db: str = None, model: str = "", cv: str = "./CV", limit: int = 80, max_chars: int = 40000, replace: bool = False, quiet_model: bool = False):
+def sync_user_skills(profile: str = None, db: str = None, model: str = "", cv: str = "./CV", limit: int = 80, max_chars: int = 40000, replace: bool = False, quiet_model: bool = False, llm: LocalLLM = None):
     profile_path = profile or DEFAULT_PROFILE_PATH
     runtime_profile = load_runtime_profile(profile_path)
     db_path = db or runtime_profile.default_db or "./jobs.db"
@@ -109,7 +109,8 @@ def sync_user_skills(profile: str = None, db: str = None, model: str = "", cv: s
         runtime_profile=runtime_profile,
     )
 
-    llm = LocalLLM(model_path=model_path, n_ctx=int(runtime_profile.n_ctx), verbose=not quiet_model) if model_path else None
+    if llm is None:
+        llm = LocalLLM(model_path=model_path, n_ctx=int(runtime_profile.n_ctx), verbose=not quiet_model) if model_path else None
     if not llm:
         raise SystemExit("Model init: model is required for sync-user-skills")
     print("Sync user skills: extracting with model")

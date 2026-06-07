@@ -18,6 +18,7 @@ from spejder.db import *
 from spejder.jobs import *
 from spejder.managers.dashboard_manager import _render_html_from_items
 from spejder.config import AppConfig
+from spejder.parsers import email_parser
 # from spejder.server import run_server
 def _report_limit_value(raw, default: int) -> int:
     try:

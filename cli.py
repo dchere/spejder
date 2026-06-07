@@ -1,21 +1,59 @@
 """CLI for Spejder"""
-# pylint: disable=too-many-locals,too-many-statements,missing-function-docstring,line-too-long,wrong-import-order,no-name-in-module,unused-import
 import argparse
 import sys
-import os
 
-from spejder.workflows import (
-    report_links, summarize_file, summarize_folder, serve_gui,
-    init_profile, render_html, refresh_descriptions,
-    dedupe_jobs, process_inbox, _initialize_llm_or_exit
+from spejder.core import USER_PROFILE_PATH, fail_init, resolve_user_path
+from spejder.extractors.skill_extractor import cleanup_skills, sync_user_skills
+from spejder.managers.language_manager import (
+    initialize_language_checker_or_exit,
+    initialize_translation_or_exit,
 )
-from spejder.core import DEFAULT_PROFILE_PATH
-from spejder.extractors.skill_extractor import sync_user_skills, cleanup_skills
-from spejder.managers.language_manager import initialize_language_checker_or_exit, initialize_translation_or_exit
+from spejder.workflows import (
+    dedupe_jobs,
+    init_profile,
+    initialize_llm_or_exit,
+    process_inbox,
+    refresh_descriptions,
+    render_html,
+    report_links,
+    serve_gui,
+    summarize_file,
+    summarize_folder,
+)
 
-LANGUAGE_CHECKER_REQUIRED_COMMANDS = ['process_inbox', 'dedupe_jobs', 'summarize_file', 'summarize_folder', 'refresh_descriptions']
-TRANSLATION_REQUIRED_COMMANDS = ['process_inbox', 'dedupe_jobs', 'summarize_file', 'summarize_folder', 'refresh_descriptions']
-LLM_REQUIRED_COMMANDS = ['process_inbox', 'dedupe_jobs', 'summarize_file', 'summarize_folder', 'refresh_descriptions']
+_FULL_INIT = frozenset({"language_checker", "translation", "llm"})
+COMMAND_INIT = {
+    "process_inbox": _FULL_INIT,
+    "summarize_file": _FULL_INIT,
+    "summarize_folder": _FULL_INIT,
+    "refresh_descriptions": _FULL_INIT,
+    "sync_user_skills": _FULL_INIT,
+}
+
+_RELATIVE_ARG_NAMES = (
+    "profile", "path", "db", "cv", "inbox", "report_dir", "input", "out", "folder",
+)
+
+
+def _profile_path_from_args(cmd_name: str, args) -> str:
+    if getattr(args, "profile", None):
+        return args.profile
+    if cmd_name == "init_profile" and getattr(args, "path", None):
+        return args.path
+    return resolve_user_path(USER_PROFILE_PATH)
+
+
+def _resolve_args_paths(args) -> None:
+    for name in _RELATIVE_ARG_NAMES:
+        value = getattr(args, name, None)
+        if value:
+            setattr(args, name, resolve_user_path(value))
+
+
+def _validate_profile_arg(args) -> None:
+    if hasattr(args, "profile") and args.profile is not None and not str(args.profile).strip():
+        fail_init("profile path must not be empty")
+
 
 def cmd_report_links(args):
     report_links(folder=args.folder)
@@ -42,7 +80,17 @@ def cmd_refresh_descriptions(args):
     refresh_descriptions(profile=args.profile, db=args.db, model=args.model, source=args.source, category=args.category, link=args.link, job_id=args.job_id, limit=args.limit, overwrite=args.overwrite, allow_empty=args.allow_empty, quiet_model=args.quiet_model, report_dir=args.report_dir)
 
 def cmd_sync_user_skills(args):
-    sync_user_skills(profile=args.profile, db=args.db, model=args.model, cv=args.cv, limit=args.limit, max_chars=args.max_chars, replace=args.replace, quiet_model=args.quiet_model)
+    sync_user_skills(
+        profile=args.profile,
+        db=args.db,
+        model=args.model,
+        cv=args.cv,
+        limit=args.limit,
+        max_chars=args.max_chars,
+        replace=args.replace,
+        quiet_model=args.quiet_model,
+        llm=getattr(args, "_llm", None),
+    )
 
 def cmd_cleanup_skills(args):
     cleanup_skills(profile=args.profile, db=args.db, limit=args.limit, dry_run=args.dry_run)
@@ -59,7 +107,7 @@ def main(argv=None):
     pr.set_defaults(func=cmd_report_links)
 
     psm = sub.add_parser("summarize-file")
-    psm.add_argument("--profile", default=DEFAULT_PROFILE_PATH)
+    psm.add_argument("--profile", default=USER_PROFILE_PATH)
     psm.add_argument("--path", required=True)
     psm.add_argument("--model", required=True)
     psm.add_argument("--max-tokens", type=int, default=200)
@@ -67,7 +115,7 @@ def main(argv=None):
     psm.set_defaults(func=cmd_summarize_file)
 
     psf = sub.add_parser("summarize-folder")
-    psf.add_argument("--profile", default=DEFAULT_PROFILE_PATH)
+    psf.add_argument("--profile", default=USER_PROFILE_PATH)
     psf.add_argument("--folder", required=True)
     psf.add_argument("--model", required=True)
     psf.add_argument("--max-tokens", type=int, default=200)
@@ -79,7 +127,7 @@ def main(argv=None):
     pip = sub.add_parser("process-inbox")
     pip.add_argument("--inbox", default=None)
     pip.add_argument("--db", default=None)
-    pip.add_argument("--profile", default=DEFAULT_PROFILE_PATH)
+    pip.add_argument("--profile", default=USER_PROFILE_PATH)
     pip.add_argument("--model", default="")
     pip.add_argument("--report-dir", default=None)
     pip.add_argument("--limit", type=int, default=0)
@@ -90,7 +138,7 @@ def main(argv=None):
     pip.set_defaults(func=cmd_process_inbox)
 
     pprof = sub.add_parser("init-profile")
-    pprof.add_argument("--path", default=DEFAULT_PROFILE_PATH)
+    pprof.add_argument("--path", default=USER_PROFILE_PATH)
     pprof.add_argument("--force", action="store_true")
     pprof.set_defaults(func=cmd_init_profile)
 
@@ -103,7 +151,7 @@ def main(argv=None):
     psg = sub.add_parser("serve-gui")
     psg.add_argument("--report-dir", default=None)
     psg.add_argument("--db", default=None)
-    psg.add_argument("--profile", default=DEFAULT_PROFILE_PATH)
+    psg.add_argument("--profile", default=USER_PROFILE_PATH)
     psg.add_argument("--host", default=None)
     psg.add_argument("--port", type=int, default=None)
     psg.add_argument("--no-open", action="store_true")
@@ -111,7 +159,7 @@ def main(argv=None):
     psg.set_defaults(func=cmd_serve_gui)
 
     prd = sub.add_parser("refresh-descriptions")
-    prd.add_argument("--profile", default=DEFAULT_PROFILE_PATH)
+    prd.add_argument("--profile", default=USER_PROFILE_PATH)
     prd.add_argument("--db", default=None)
     prd.add_argument("--model", default="")
     prd.add_argument("--source", default="")
@@ -126,7 +174,7 @@ def main(argv=None):
     prd.set_defaults(func=cmd_refresh_descriptions)
 
     psk = sub.add_parser("sync-user-skills")
-    psk.add_argument("--profile", default=DEFAULT_PROFILE_PATH)
+    psk.add_argument("--profile", default=USER_PROFILE_PATH)
     psk.add_argument("--db", default=None)
     psk.add_argument("--model", default="")
     psk.add_argument("--cv", default="./CV")
@@ -137,14 +185,14 @@ def main(argv=None):
     psk.set_defaults(func=cmd_sync_user_skills)
 
     pcs = sub.add_parser("cleanup-skills")
-    pcs.add_argument("--profile", default=DEFAULT_PROFILE_PATH)
+    pcs.add_argument("--profile", default=USER_PROFILE_PATH)
     pcs.add_argument("--db", default=None)
     pcs.add_argument("--limit", type=int, default=0)
     pcs.add_argument("--dry-run", action="store_true")
     pcs.set_defaults(func=cmd_cleanup_skills)
 
     pdj = sub.add_parser("dedupe-jobs")
-    pdj.add_argument("--profile", default=DEFAULT_PROFILE_PATH)
+    pdj.add_argument("--profile", default=USER_PROFILE_PATH)
     pdj.add_argument("--db", default=None)
     pdj.set_defaults(func=cmd_dedupe_jobs)
 
@@ -152,21 +200,34 @@ def main(argv=None):
     if not hasattr(args, "func"):
         p.print_help()
         sys.exit(1)
-    
+
+    _resolve_args_paths(args)
+    _validate_profile_arg(args)
+
     cmd_name = getattr(args, "cmd", "")
     if cmd_name:
         cmd_name = cmd_name.replace("-", "_")
-        
-    if cmd_name in LANGUAGE_CHECKER_REQUIRED_COMMANDS:
-        initialize_language_checker_or_exit(args.profile or DEFAULT_PROFILE_PATH)
-    if cmd_name in TRANSLATION_REQUIRED_COMMANDS:
-        initialize_translation_or_exit(args.profile or DEFAULT_PROFILE_PATH)
-    if cmd_name in LLM_REQUIRED_COMMANDS:
+
+    required = COMMAND_INIT.get(cmd_name, frozenset())
+    profile_path = _profile_path_from_args(cmd_name, args)
+
+    if "language_checker" in required:
+        initialize_language_checker_or_exit(profile_path)
+    if "translation" in required:
+        initialize_translation_or_exit(profile_path)
+    if "llm" in required:
         override_model_path = str(getattr(args, "model", "") or "")
-        _initialize_llm_or_exit(
-            args.profile or DEFAULT_PROFILE_PATH,
+        llm_verbose = cmd_name == "sync_user_skills" and not getattr(args, "quiet_model", False)
+        llm = initialize_llm_or_exit(
+            profile_path,
             override_model_path=override_model_path,
+            verbose=llm_verbose,
         )
+        if cmd_name == "sync_user_skills":
+            args._llm = llm
+        else:
+            del llm
+
     args.func(args)
 
 

@@ -10,7 +10,25 @@ import json
 from .config import AppConfig, load_profile as config_load_profile, save_profile as config_save_profile, DEFAULT_PROFILE_FILE
 
 DEFAULT_PROFILE_PATH = os.path.join(os.path.dirname(__file__), "default_profile.json")
+USER_PROFILE_PATH = "./profile.json"
+WORKSPACE_ROOT_ENV = "SPEJDER_WORKSPACE"
 MANUAL_APPLIED_RAW_MARKER = "[MANUAL_APPLIED_DESCRIPTION]"
+
+
+def workspace_root() -> str:
+    override = os.environ.get(WORKSPACE_ROOT_ENV, "").strip()
+    if override:
+        return os.path.abspath(os.path.expanduser(override))
+    return os.path.abspath(os.getcwd())
+
+
+def resolve_user_path(path: str) -> str:
+    if not path:
+        return path
+    expanded = os.path.expanduser(path)
+    if os.path.isabs(expanded):
+        return expanded
+    return os.path.normpath(os.path.join(workspace_root(), expanded))
 
 
 def load_profile(profile_path=None) -> AppConfig:
@@ -40,4 +58,4 @@ def load_runtime_profile(profile_path: str):
             return load_profile(path)
         except Exception:
             pass
-    return DEFAULT_PROFILE.copy()
+    return load_profile(None)

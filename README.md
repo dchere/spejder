@@ -37,12 +37,21 @@ pip install -r spejder/requirements.txt
 
 ## Running the CLI
 
-There are two supported ways to invoke the CLI:
+Run commands from the **workspace root** (the directory that contains `profile.json`, `jobs.db`, `inbox/`, and `outbox/` next to the `spejder/` package):
 
-- From the workspace root: `python3 -m spejder.cli ...`
-- From inside the `spejder` directory: `python3 -m cli ...`
+```bash
+python3 -m spejder.cli ...
+```
 
-Examples below use the workspace-root form because `profile.json`, `inbox`, and `outbox` typically live next to the `spejder` folder.
+Relative CLI paths (`--profile`, `--db`, `--inbox`, `--cv`, `--report-dir`, `--input`, `--out`, `--folder`, `init-profile --path`, and `report-links` folder) are resolved against the workspace root. By default that is the current working directory; override with:
+
+```bash
+export SPEJDER_WORKSPACE=/path/to/your/project
+```
+
+You can also invoke from inside the `spejder` directory with `python3 -m cli ...`, but data paths still resolve from `SPEJDER_WORKSPACE` or your shell cwd — keep cwd at the workspace root for predictable behavior.
+
+Examples below use the workspace-root form.
 
 ## Quick start
 

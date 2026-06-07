@@ -24,8 +24,9 @@ def init_profile(path: str = None, force: bool = False):
         print("Profile already exists. Use --force to overwrite:", path)
         return
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    config = AppConfig.load(DEFAULT_PROFILE_PATH)
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(DEFAULT_PROFILE, f, ensure_ascii=False, indent=2)
+        json.dump(config.model_dump(), f, ensure_ascii=False, indent=2)
     print("Created profile:", path)
 
 

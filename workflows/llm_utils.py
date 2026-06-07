@@ -19,6 +19,8 @@ from spejder.jobs import *
 from spejder.managers.dashboard_manager import _render_html_from_items
 from spejder.config import AppConfig
 # from spejder.server import run_server
+
+LLM_SELF_TEST_PROMPT = "Reply with one word: OK"
 def _llm_model_path(
     runtime_profile: Optional[AppConfig], override_model_path: str = ""
 ) -> str:
@@ -53,7 +55,9 @@ def _fail_llm_init(message: str) -> None:
 
 
 
-def _initialize_llm_or_exit(profile_path: str, override_model_path: str = "") -> None:
+def _initialize_llm_or_exit(
+    profile_path: str, override_model_path: str = "", verbose: bool = False
+) -> LocalLLM:
     _print_llm_step(f"loading profile from {profile_path}")
     if not profile_path or not os.path.isfile(profile_path):
         _fail_llm_init("profile file is missing")
@@ -78,7 +82,7 @@ def _initialize_llm_or_exit(profile_path: str, override_model_path: str = "") ->
         llm = LocalLLM(
             model_path=model_path,
             n_ctx=int(runtime_profile.n_ctx),
-            verbose=False,
+            verbose=verbose,
         )
         llm.load()
     except Exception as exc:
@@ -95,6 +99,10 @@ def _initialize_llm_or_exit(profile_path: str, override_model_path: str = "") ->
         _fail_llm_init("self-test returned empty output")
     _print_llm_step(f"self-test output: {cleaned}")
     _print_llm_step("self-test passed")
+    return llm
+
+
+initialize_llm_or_exit = _initialize_llm_or_exit
 
 
 
