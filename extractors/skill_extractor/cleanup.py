@@ -1,38 +1,15 @@
-from .filtering import _protected_skill_keys, _blocked_skill_keys, _skill_cleanup_reason
-from .normalization import _normalize_skill_name
-from .patterns import _ensure_skill_pattern_seed_migration
-# pylint: disable=all
-"""
-Skill extractor for parsing...
-"""
-import json
-import os
-import re
-from collections import Counter
-from contextlib import suppress
-from typing import Optional
+"""Skill database cleanup CLI."""
 
 from spejder.config import AppConfig
-from spejder.core import DEFAULT_PROFILE_PATH, load_profile, load_runtime_profile
-from spejder.db import (
-    ensure_db,
-    delete_skill_from_db,
-    get_job_skills,
-    set_job_skills,
-    get_skill_patterns as get_db_skill_patterns,
-    get_applied_jobs,
-    get_jobs_by_category,
-    upsert_skill_pattern,
-    migrate_profile_skill_patterns_to_db
-)
-from spejder.llm import LocalLLM
-from spejder.managers.language_manager import translate_text_to_english_if_needed as _translate_text_to_english_if_needed
-from spejder.managers.profile_manager import _save_profile, _block_skill_in_profile
-from spejder.parsers.cv_parser import load_cv_text
+from spejder.core import DEFAULT_PROFILE_PATH, load_runtime_profile
+from spejder.db import delete_skill_from_db, ensure_db
+from spejder.db import get_skill_patterns as get_db_skill_patterns
+from spejder.managers.profile_manager import _block_skill_in_profile, _save_profile
 
-SKILL_CLEANUP_GENERIC_PHRASES = set()
-SKILL_CLEANUP_STOPWORDS = set()
-SKILL_CLEANUP_PREFIXES = ()
+from .filtering import _blocked_skill_keys, _protected_skill_keys, _skill_cleanup_reason
+from .normalization import _normalize_skill_name
+from .patterns import _ensure_skill_pattern_seed_migration
+
 
 def _collect_skill_cleanup_candidates(db_path: str, profile: AppConfig) -> list[dict]:
     protected_keys = _protected_skill_keys(profile)
@@ -119,4 +96,3 @@ def cleanup_skills(profile: str = None, db: str = None, limit: int = 0, dry_run:
         f"db_job_links_deleted={db_job_links_deleted}, "
         f"profile={profile_path}, db={db_path}"
     )
-

@@ -21,7 +21,7 @@ from .db import (
     set_job_feedback,
     set_job_viewed,
 )
-from .extractors.skill_extractor import _get_or_extract_job_skills, _normalize_skill_name
+from .extractors.skill_extractor import _normalize_skill_name
 from .llm import LocalLLM
 from .managers.dashboard_manager import _render_company_dashboard_html
 from .managers.profile_manager import (
@@ -30,8 +30,8 @@ from .managers.profile_manager import (
     _toggle_profile_skill,
 )
 from .workflows.job_enrichment import (
-    _enrich_raw_text_with_position_page,
     _translate_text_to_english_if_needed,
+    materialize_job_skills,
 )
 
 
@@ -67,7 +67,7 @@ def create_app(
         if signal not in {"relevant", "not relevant"}:
             return JSONResponse(status_code=400, content={"ok": False, "error": "signal must be 'relevant' or 'not relevant'"})
 
-        updated = set_job_feedback(db_path, req.job_id, signal)
+        set_job_feedback(db_path, req.job_id, signal)
         print(f"API: Set feedback signal={signal} for job_id={req.job_id}")
         queue_dashboard_rebuild(reason=f"feedback {signal} on job {req.job_id}")
         return {"ok": True, "job_id": req.job_id, "signal": signal, "profile_learning": {"queued": True}}
@@ -78,7 +78,7 @@ def create_app(
 
     @app.post("/api/applied")
     def api_applied(req: AppliedRequest):
-        updated = set_job_applied(db_path, req.job_id, req.applied)
+        set_job_applied(db_path, req.job_id, req.applied)
         print(f"API: Set applied={req.applied} for job_id={req.job_id}")
         learning_info = {"queued": req.applied} if req.applied else None
         if req.applied:
@@ -92,7 +92,7 @@ def create_app(
     @app.post("/api/viewed")
     def api_viewed(req: ViewedRequest):
         print(f"API: Marked job_id={req.job_id} as viewed={req.viewed}")
-        updated = set_job_viewed(db_path, req.job_id, req.viewed)
+        set_job_viewed(db_path, req.job_id, req.viewed)
         queue_dashboard_rebuild(reason=f"job {req.job_id} marked viewed")
         return {"ok": True, "job_id": req.job_id, "viewed": req.viewed}
 
@@ -120,16 +120,13 @@ def create_app(
         target_row = next((r for r in applied_rows if int(r.get("id", 0) or 0) == req.job_id), None)
 
         if target_row is not None:
-            page_context_cache = {}
-            title_translation_cache = {}
-            enriched_raw = _enrich_raw_text_with_position_page(
-                db_path, target_row, page_context_cache=page_context_cache, llm=llm_for_manual,
-                runtime_profile=runtime_profile, title_translation_cache=title_translation_cache
-            )
-            _get_or_extract_job_skills(
-                db_path, req.job_id, enriched_raw, llm=llm_for_manual, profile=runtime_profile,
-                position_link=target_row.get("position_link", ""), page_context_cache=page_context_cache,
-                limit=10
+            materialize_job_skills(
+                db_path,
+                target_row,
+                llm=llm_for_manual,
+                runtime_profile=runtime_profile,
+                limit=10,
+                rescore=True,
             )
             queue_dashboard_rebuild(reason=f"manual raw text job {req.job_id}")
 
@@ -196,7 +193,7 @@ def create_app(
         profile_removed = _remove_skill_from_profile(runtime_profile, skill)
         persist_runtime_profile()
         reload_runtime_profile()
-        db_deleted = delete_skill_from_db,  (db_path, skill)
+        db_deleted = delete_skill_from_db(db_path, skill)
         queue_dashboard_rebuild(reason=f"skill deleted cleanup {skill}")
         return {"ok": True, "skill": skill, "profile_removed": profile_removed, "db_deleted": db_deleted}
 

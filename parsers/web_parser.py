@@ -1,33 +1,15 @@
-
-import os
 import re
-import time
 from typing import Optional
-from urllib.request import Request
 from urllib.error import HTTPError, URLError
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
+
 from bs4 import BeautifulSoup
 
 from spejder.config import AppConfig
-from spejder.core import DEFAULT_PROFILE_PATH, load_runtime_profile
-from spejder.parsers import email_parser
-from spejder.llm import LocalLLM
-from spejder.db import (
-    ensure_db, set_job_summary, get_jobs_by_category, set_job_description,
-    get_applied_jobs, get_relevant_jobs, get_viewed_jobs_count,
-    get_jobs_for_description_refresh
-)
-from spejder.jobs import ingest_docs_to_db, apply_relevance, update_profile_from_db_signals
-from spejder.managers.dashboard_manager import _render_html_dashboard
-from spejder.extractors.skill_extractor import _build_skills_tab_items
 from spejder.managers.language_manager import (
     translate_text_to_english_if_needed as _translate_text_to_english_if_needed,
-    translate_title_to_english as _translate_title_to_english,
-    finalize_title_english as _finalize_title_english,
-    normalize_title_compare_key as _normalize_title_compare_key,
-    get_title_english_for_row as _get_title_english_for_row
 )
-MAX_INGEST_FILE_STATS_LINES = 10
+
 # pylint: skip-file
 
 def _extract_position_page_text(

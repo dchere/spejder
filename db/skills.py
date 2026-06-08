@@ -1,4 +1,3 @@
-# pylint: disable=all
 import sqlite3
 import re
 import time
@@ -234,6 +233,72 @@ def clear_job_skills_for_job(db_path: str, job_id: int) -> int:
         return int(cur.rowcount or 0)
     finally:
         conn.close()
+
+
+def get_job_ids_for_skill(db_path: str, skill_name: str, limit: int = 2) -> list[int]:
+    """Return job ids linked to a skill pattern, most recently updated first."""
+    key = _normalize_skill_name_key(skill_name)
+    if not key or limit <= 0:
+        return []
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT js.job_id
+            FROM job_skills js
+            JOIN skill_patterns sp ON sp.id = js.skill_id
+            JOIN jobs j ON j.id = js.job_id
+            WHERE sp.name_key = ?
+            ORDER BY j.updated_at DESC, j.id DESC
+            LIMIT ?
+            """,
+            (key, int(limit)),
+        )
+        return [int(r[0]) for r in cur.fetchall() if r and r[0]]
+    finally:
+        conn.close()
+
+
+def count_job_links_for_skills(db_path: str, skill_names: list[str]) -> dict[str, int]:
+    """Return job link counts keyed by input skill name."""
+    if not skill_names:
+        return {}
+
+    key_to_names: dict[str, list[str]] = {}
+    for name in skill_names:
+        key = _normalize_skill_name_key(name)
+        if not key:
+            continue
+        key_to_names.setdefault(key, []).append(name)
+
+    if not key_to_names:
+        return {name: 0 for name in skill_names}
+
+    placeholders = ",".join("?" for _ in key_to_names)
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            f"""
+            SELECT sp.name_key, COUNT(js.job_id)
+            FROM skill_patterns sp
+            JOIN job_skills js ON js.skill_id = sp.id
+            WHERE sp.name_key IN ({placeholders})
+            GROUP BY sp.name_key
+            """,
+            tuple(key_to_names.keys()),
+        )
+        counts_by_key = {str(r[0]): int(r[1] or 0) for r in cur.fetchall() if r and r[0]}
+    finally:
+        conn.close()
+
+    result = {name: 0 for name in skill_names}
+    for key, names in key_to_names.items():
+        count = counts_by_key.get(key, 0)
+        for name in names:
+            result[name] = count
+    return result
 
 
 def delete_skill_from_db(db_path: str, skill_name: str) -> dict[str, int]:

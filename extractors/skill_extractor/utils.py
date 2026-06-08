@@ -1,36 +1,10 @@
-from .normalization import _normalize_skill_name
-# pylint: disable=all
-"""
-Skill extractor for parsing...
-"""
+"""Text parsing and formatting helpers for skill extraction."""
+
 import json
-import os
 import re
-from collections import Counter
-from contextlib import suppress
-from typing import Optional
 
-from spejder.config import AppConfig
-from spejder.core import DEFAULT_PROFILE_PATH, load_profile, load_runtime_profile
-from spejder.db import (
-    ensure_db,
-    delete_skill_from_db,
-    get_job_skills,
-    set_job_skills,
-    get_skill_patterns as get_db_skill_patterns,
-    get_applied_jobs,
-    get_jobs_by_category,
-    upsert_skill_pattern,
-    migrate_profile_skill_patterns_to_db
-)
-from spejder.llm import LocalLLM
-from spejder.managers.language_manager import translate_text_to_english_if_needed as _translate_text_to_english_if_needed
-from spejder.managers.profile_manager import _save_profile, _block_skill_in_profile
-from spejder.parsers.cv_parser import load_cv_text
+from .normalization import _normalize_skill_name
 
-SKILL_CLEANUP_GENERIC_PHRASES = set()
-SKILL_CLEANUP_STOPWORDS = set()
-SKILL_CLEANUP_PREFIXES = ()
 
 def _split_skills_from_text(text: str) -> list[str]:
     compact = (text or "").replace("\n", ",")
@@ -102,3 +76,22 @@ def _to_items(value) -> list[dict]:
             out.append(item)
     return out
 
+
+def _skill_to_regex(skill_name: str) -> str:
+    tokens = [re.escape(t) for t in re.findall(r"[A-Za-z0-9+#.]+", skill_name or "") if t]
+    if not tokens:
+        return ""
+    return r"\b" + r"\s+".join(tokens) + r"\b"
+
+
+def _profile_skill_pattern_fields(item) -> tuple[str, str]:
+    """Read (name, pattern) from a profile known_skill_patterns entry (dict or Pydantic)."""
+    if hasattr(item, "name"):
+        name = str(getattr(item, "name", "")).strip()
+        pattern = str(getattr(item, "pattern", "")).strip()
+    elif isinstance(item, dict):
+        name = str(item.get("name", "")).strip()
+        pattern = str(item.get("pattern", "")).strip()
+    else:
+        return "", ""
+    return name, pattern

@@ -1,37 +1,11 @@
-from .filtering import _blocked_skill_keys
-from .normalization import _normalize_skill_name
-# pylint: disable=all
-"""
-Skill extractor for parsing...
-"""
-import json
-import os
-import re
-from collections import Counter
-from contextlib import suppress
-from typing import Optional
+"""Skills tab data builder for the dashboard UI."""
 
 from spejder.config import AppConfig
-from spejder.core import DEFAULT_PROFILE_PATH, load_profile, load_runtime_profile
-from spejder.db import (
-    ensure_db,
-    delete_skill_from_db,
-    get_job_skills,
-    set_job_skills,
-    get_skill_patterns as get_db_skill_patterns,
-    get_applied_jobs,
-    get_jobs_by_category,
-    upsert_skill_pattern,
-    migrate_profile_skill_patterns_to_db
-)
-from spejder.llm import LocalLLM
-from spejder.managers.language_manager import translate_text_to_english_if_needed as _translate_text_to_english_if_needed
-from spejder.managers.profile_manager import _save_profile, _block_skill_in_profile
-from spejder.parsers.cv_parser import load_cv_text
+from spejder.db import get_skill_patterns as get_db_skill_patterns
 
-SKILL_CLEANUP_GENERIC_PHRASES = set()
-SKILL_CLEANUP_STOPWORDS = set()
-SKILL_CLEANUP_PREFIXES = ()
+from .filtering import _blocked_skill_keys
+from .normalization import _normalize_skill_name
+
 
 def _build_skills_tab_items(db_path: str, profile: AppConfig) -> list[dict]:
     """Build the skills tab items for the UI."""
@@ -95,4 +69,3 @@ def _build_skills_tab_items(db_path: str, profile: AppConfig) -> list[dict]:
     rows = list(by_key.values())
     rows.sort(key=lambda x: (x["name"].lower(), -x.get("occurrences", 0)))
     return rows
-

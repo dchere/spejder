@@ -1,4 +1,3 @@
-# pylint: disable=all
 import sqlite3
 import re
 import time

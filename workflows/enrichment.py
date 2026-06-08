@@ -12,7 +12,6 @@ from spejder.db.queries import (
 from spejder.extractors.skill_extractor import (
     _build_skills_tab_items,
     _ensure_skill_pattern_seed_migration,
-    _get_or_extract_job_skills,
     _learn_skill_patterns_from_positions,
 )
 from spejder.llm import LocalLLM
@@ -26,6 +25,8 @@ from spejder.workflows.job_enrichment import (
     _has_invalid_description_marker,
     _is_low_quality_description,
     _summary_for_display,
+    materialize_job_skills,
+    materialize_relevant_and_applied_skills,
 )
 from spejder.workflows.reporting import (
     _report_max_not_relevant_positions,
@@ -107,6 +108,15 @@ def refresh_descriptions(profile: str = None, db: str = None, model: str = "", s
 
     print(f"Description refresh done. matched={len(rows)}, updated={updated}, skipped={skipped}")
 
+    materialize_relevant_and_applied_skills(
+        db_path,
+        llm=llm,
+        runtime_profile=runtime_profile,
+        rescore=True,
+        skip_cached=True,
+        progress_label="Skill materialization",
+    )
+
     skill_learning = _learn_skill_patterns_from_positions(
         db_path,
         runtime_profile=runtime_profile,
@@ -130,23 +140,15 @@ def refresh_descriptions(profile: str = None, db: str = None, model: str = "", s
             cat_rows = get_jobs_by_category(db_path, cat, limit=0, unviewed_only=True)
             records = []
             for row in cat_rows:
-                raw_text = _enrich_raw_text_with_position_page(
+                skills, raw_text = materialize_job_skills(
                     db_path,
                     row,
-                    page_context_cache=page_context_cache,
                     llm=llm,
                     runtime_profile=runtime_profile,
-                    title_translation_cache=title_translation_cache,
-                )
-                skills = _get_or_extract_job_skills(
-                    db_path,
-                    row.get("id", 0),
-                    raw_text,
-                    llm=llm,
-                    profile=runtime_profile,
-                    position_link=row.get("position_link", ""),
                     page_context_cache=page_context_cache,
+                    title_translation_cache=title_translation_cache,
                     limit=10,
+                    rescore=False,
                 )
                 records.append(
                     {
@@ -184,23 +186,15 @@ def refresh_descriptions(profile: str = None, db: str = None, model: str = "", s
         applied_rows = get_applied_jobs(db_path, limit=0)
         applied_records = []
         for row in applied_rows:
-            raw_text = _enrich_raw_text_with_position_page(
+            skills, raw_text = materialize_job_skills(
                 db_path,
                 row,
-                page_context_cache=page_context_cache,
                 llm=llm,
                 runtime_profile=runtime_profile,
-                title_translation_cache=title_translation_cache,
-            )
-            skills = _get_or_extract_job_skills(
-                db_path,
-                row.get("id", 0),
-                raw_text,
-                llm=llm,
-                profile=runtime_profile,
-                position_link=row.get("position_link", ""),
                 page_context_cache=page_context_cache,
+                title_translation_cache=title_translation_cache,
                 limit=10,
+                rescore=False,
             )
             applied_records.append(
                 {

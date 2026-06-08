@@ -1,45 +1,30 @@
-from .normalization import _normalize_skill_name
-from .utils import _split_skills_from_text
-from .extraction import _extract_skills_fallback
-from .patterns import _get_skill_patterns, _ensure_skill_pattern_seed_migration
-# pylint: disable=all
-"""
-Skill extractor for parsing...
-"""
+"""CV skill extraction and profile sync CLI."""
+
 import json
 import os
-import re
-from collections import Counter
-from contextlib import suppress
 from typing import Optional
 
 from spejder.config import AppConfig
 from spejder.core import DEFAULT_PROFILE_PATH, load_profile, load_runtime_profile
-from spejder.db import (
-    ensure_db,
-    delete_skill_from_db,
-    get_job_skills,
-    set_job_skills,
-    get_skill_patterns as get_db_skill_patterns,
-    get_applied_jobs,
-    get_jobs_by_category,
-    upsert_skill_pattern,
-    migrate_profile_skill_patterns_to_db
-)
+from spejder.db import ensure_db
 from spejder.llm import LocalLLM
-from spejder.managers.language_manager import translate_text_to_english_if_needed as _translate_text_to_english_if_needed
-from spejder.managers.profile_manager import _save_profile, _block_skill_in_profile
+from spejder.managers.language_manager import (
+    translate_text_to_english_if_needed as _translate_text_to_english_if_needed,
+)
+from spejder.managers.profile_manager import _save_profile
 from spejder.parsers.cv_parser import load_cv_text
 
-SKILL_CLEANUP_GENERIC_PHRASES = set()
-SKILL_CLEANUP_STOPWORDS = set()
-SKILL_CLEANUP_PREFIXES = ()
+from .extraction import _extract_skills_fallback
+from .normalization import _normalize_skill_name
+from .patterns import _ensure_skill_pattern_seed_migration, _get_skill_patterns
+from .utils import _split_skills_from_text
+
 
 def _extract_user_skills_from_cv(
     cv_text: str,
     db_path: str,
     profile: AppConfig,
-    llm: LocalLLM = None,
+    llm: Optional[LocalLLM] = None,
     limit: int = 80,
 ) -> list[str]:
     compact = " ".join((cv_text or "").split())
@@ -85,7 +70,17 @@ def _extract_user_skills_from_cv(
     return _cleanup(fallback, int(limit))
 
 
-def sync_user_skills(profile: str = None, db: str = None, model: str = "", cv: str = "./CV", limit: int = 80, max_chars: int = 40000, replace: bool = False, quiet_model: bool = False, llm: LocalLLM = None):
+def sync_user_skills(
+    profile: str = None,
+    db: str = None,
+    model: str = "",
+    cv: str = "./CV",
+    limit: int = 80,
+    max_chars: int = 40000,
+    replace: bool = False,
+    quiet_model: bool = False,
+    llm: Optional[LocalLLM] = None,
+):
     profile_path = profile or DEFAULT_PROFILE_PATH
     runtime_profile = load_runtime_profile(profile_path)
     db_path = db or runtime_profile.default_db or "./jobs.db"
@@ -110,7 +105,11 @@ def sync_user_skills(profile: str = None, db: str = None, model: str = "", cv: s
     )
 
     if llm is None:
-        llm = LocalLLM(model_path=model_path, n_ctx=int(runtime_profile.n_ctx), verbose=not quiet_model) if model_path else None
+        llm = (
+            LocalLLM(model_path=model_path, n_ctx=int(runtime_profile.n_ctx), verbose=not quiet_model)
+            if model_path
+            else None
+        )
     if not llm:
         raise SystemExit("Model init: model is required for sync-user-skills")
     print("Sync user skills: extracting with model")
@@ -163,4 +162,3 @@ def sync_user_skills(profile: str = None, db: str = None, model: str = "", cv: s
         f"total_user_skills={len(merged)}, profile={profile_path}"
     )
     print("Top extracted:", ", ".join(extracted[:20]))
-

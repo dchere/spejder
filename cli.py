@@ -3,7 +3,7 @@ import argparse
 import sys
 
 from spejder.core import USER_PROFILE_PATH, fail_init, resolve_user_path
-from spejder.extractors.skill_extractor import cleanup_skills, sync_user_skills
+from spejder.extractors.skill_extractor import cleanup_skills, sync_skill_antipatterns, sync_user_skills
 from spejder.managers.language_manager import (
     initialize_language_checker_or_exit,
     initialize_translation_or_exit,
@@ -22,12 +22,14 @@ from spejder.workflows import (
 )
 
 _FULL_INIT = frozenset({"language_checker", "translation", "llm"})
+_LLM_ONLY_INIT = frozenset({"llm"})
 COMMAND_INIT = {
     "process_inbox": _FULL_INIT,
     "summarize_file": _FULL_INIT,
     "summarize_folder": _FULL_INIT,
     "refresh_descriptions": _FULL_INIT,
     "sync_user_skills": _FULL_INIT,
+    "sync_antipatterns": _LLM_ONLY_INIT,
 }
 
 _RELATIVE_ARG_NAMES = (
@@ -94,6 +96,16 @@ def cmd_sync_user_skills(args):
 
 def cmd_cleanup_skills(args):
     cleanup_skills(profile=args.profile, db=args.db, limit=args.limit, dry_run=args.dry_run)
+
+def cmd_sync_antipatterns(args):
+    sync_skill_antipatterns(
+        profile=args.profile,
+        db=args.db,
+        model=args.model,
+        dry_run=args.dry_run,
+        force=args.force,
+        llm=getattr(args, "_llm", None),
+    )
 
 def cmd_dedupe_jobs(args):
     dedupe_jobs(profile=args.profile, db=args.db)
@@ -191,6 +203,14 @@ def main(argv=None):
     pcs.add_argument("--dry-run", action="store_true")
     pcs.set_defaults(func=cmd_cleanup_skills)
 
+    psa = sub.add_parser("sync-antipatterns")
+    psa.add_argument("--profile", default=USER_PROFILE_PATH)
+    psa.add_argument("--db", default=None)
+    psa.add_argument("--model", default="")
+    psa.add_argument("--dry-run", action="store_true")
+    psa.add_argument("--force", action="store_true")
+    psa.set_defaults(func=cmd_sync_antipatterns)
+
     pdj = sub.add_parser("dedupe-jobs")
     pdj.add_argument("--profile", default=USER_PROFILE_PATH)
     pdj.add_argument("--db", default=None)
@@ -224,6 +244,8 @@ def main(argv=None):
             verbose=llm_verbose,
         )
         if cmd_name == "sync_user_skills":
+            args._llm = llm
+        elif cmd_name == "sync_antipatterns":
             args._llm = llm
         else:
             del llm

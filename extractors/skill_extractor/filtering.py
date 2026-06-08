@@ -1,39 +1,20 @@
-SKILL_CLEANUP_GENERIC_SINGLE = __import__('re').compile(r'^([a-z])\\1*$')
-SKILL_CUE_PATTERN = __import__('re').compile(r'(?i)(?:skills?|requirements|requirements?|qualifications?|you have|your profile|your background|about you|we expect|what you bring|who you are|we are looking for|you bring)')
-from .normalization import _normalize_skill_name
-from .patterns import _skill_to_regex
-# pylint: disable=all
-"""
-Skill extractor for parsing...
-"""
-import json
-import os
+"""Skill filtering, blocking, and phrase-quality heuristics."""
+
 import re
-from collections import Counter
-from contextlib import suppress
 from typing import Optional
 
 from spejder.config import AppConfig
-from spejder.core import DEFAULT_PROFILE_PATH, load_profile, load_runtime_profile
-from spejder.db import (
-    ensure_db,
-    delete_skill_from_db,
-    get_job_skills,
-    set_job_skills,
-    get_skill_patterns as get_db_skill_patterns,
-    get_applied_jobs,
-    get_jobs_by_category,
-    upsert_skill_pattern,
-    migrate_profile_skill_patterns_to_db
-)
-from spejder.llm import LocalLLM
-from spejder.managers.language_manager import translate_text_to_english_if_needed as _translate_text_to_english_if_needed
-from spejder.managers.profile_manager import _save_profile, _block_skill_in_profile
-from spejder.parsers.cv_parser import load_cv_text
 
-SKILL_CLEANUP_GENERIC_PHRASES = set()
-SKILL_CLEANUP_STOPWORDS = set()
-SKILL_CLEANUP_PREFIXES = ()
+from .constants import (
+    SKILL_CLEANUP_GENERIC_PHRASES,
+    SKILL_CLEANUP_GENERIC_SINGLE,
+    SKILL_CLEANUP_PREFIXES,
+    SKILL_CLEANUP_STOPWORDS,
+    SKILL_CUE_PATTERN,
+)
+from .normalization import _normalize_skill_name
+from .utils import _profile_skill_pattern_fields, _skill_to_regex
+
 
 def _blocked_skill_keys(profile: Optional[AppConfig] = None) -> set[str]:
     values = profile.blocked_skills if profile and profile.blocked_skills else []
@@ -62,11 +43,10 @@ def _protected_skill_keys(profile: AppConfig) -> set[str]:
     protected = set()
 
     for item in profile.known_skill_patterns or []:
-        if not isinstance(item, dict):
-            continue
-        name = _normalize_skill_name(str(item.get("name", "")))
-        if name:
-            protected.add(name.lower())
+        name, _ = _profile_skill_pattern_fields(item)
+        normalized = _normalize_skill_name(name)
+        if normalized:
+            protected.add(normalized.lower())
 
     for field in ("user_skills", "missing_skills_suggestions"):
         for item in getattr(profile, field, []) or []:
@@ -104,13 +84,19 @@ def _skill_cleanup_reason(name: str, source: str, protected_keys: set[str]) -> s
         reason = "contains stopword"
     elif tokens[0] in SKILL_CLEANUP_PREFIXES:
         reason = "sentence fragment"
-    elif len(tokens) == 1 and tokens[0] in SKILL_CLEANUP_GENERIC_SINGLE:
+    elif len(tokens) == 1 and SKILL_CLEANUP_GENERIC_SINGLE.match(tokens[0]):
         reason = "generic term"
 
     return reason
 
 
-def _is_candidate_strong(skill: str, evidence: str, confidence: float, new_skill_conf_threshold: float, cleaned: str) -> bool:
+def _is_candidate_strong(
+    skill: str,
+    evidence: str,
+    confidence: float,
+    new_skill_conf_threshold: float,
+    cleaned: str,
+) -> bool:
     if not skill or len(skill.split()) > 4 or confidence < new_skill_conf_threshold:
         return False
     corpus = cleaned.lower()
@@ -148,7 +134,4 @@ def _passes_phrase_quality(skill_name: str) -> bool:
         "position", "work", "used", "across", "with", "for", "and", "or",
         "but", "the", "a", "an", "as", "at", "to",
     }
-    if all(t in stop_tokens for t in tokens):
-        return False
-    return True
-
+    return not all(t in stop_tokens for t in tokens)

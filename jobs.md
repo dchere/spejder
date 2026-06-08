@@ -6,7 +6,7 @@ Contains the core business domain logic for processing, scoring, classifying, an
 **API:**
 - `score_relevance(...)`
 - `apply_relevance(...)` 
-- `merge_cross_source_duplicates(...)`
+- `merge_cross_source_duplicates(...)` — also invoked from GUI background sync via `workflows.deduplication.run_cross_source_dedupe`
 - `rescore_job_by_id(...)`
 - `ingest_docs_to_db(...)`
 

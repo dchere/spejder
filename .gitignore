@@ -20,6 +20,8 @@ env/
 
 # Local runtime data
 jobs.db
+jobs.db-wal
+jobs.db-shm
 profile.json
 inbox/
 outbox/

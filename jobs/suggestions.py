@@ -1,28 +1,17 @@
 # pylint: disable=all
-from spejder.db import *
-from spejder.db.utils import _normalize_skill_name_key
-from spejder.db import _provider_from_link, _normalize_position_link
-from spejder.extractors.skill_extractor import _blocked_skill_keys
-import re
-import json
-import base64
-from datetime import datetime, timezone
-from urllib.parse import parse_qs, unquote, urlparse
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
-from collections.abc import Callable
-from typing import Optional
-from html import unescape
-from bs4 import BeautifulSoup
 from collections import Counter
-from spejder.config import AppConfig
 
-COMPANY_NOISE_TOKENS = {'danmark', 'denmark', 'aps', 'a', 's', 'as', 'ab', 'oy', 'ltd', 'llc', 'inc', 'group', 'holding'}
-LEARNING_STOPWORDS = {'about', 'above', 'after', 'again', 'against', 'all', 'also', 'and', 'any', 'are', 'because', 'been', 'before', 'being', 'below', 'between', 'both', 'but', 'can', 'company', 'could', 'danish', 'denmark', 'developer', 'email', 'for', 'from', 'have', 'into', 'job', 'jobs', 'just', 'more', 'not', 'our', 'out', 'position', 'role', 'than', 'that', 'the', 'their', 'them', 'there', 'these', 'this', 'those', 'through', 'under', 'using', 'very', 'want', 'when', 'where', 'which', 'with', 'you', 'your'}
-EASY_APPLY_PATTERN = re.compile(r'\beasy\s*apply\b', flags=re.IGNORECASE)
+from spejder.config import AppConfig
+from spejder.db import get_job_skills, get_jobs_for_skill_suggestions
+from spejder.db.utils import _normalize_skill_name_key
+from spejder.extractors.skill_extractor import _blocked_skill_keys
+
+
 def _suggest_keywords_from_labeled_jobs(
     db_path: str, max_keywords: int = 20
 ) -> tuple[list[str], list[str], int]:
+    from spejder.db import get_jobs_for_keyword_suggestions
+
     rows = get_jobs_for_keyword_suggestions(db_path)
 
     relevant_docs = 0
@@ -85,17 +74,12 @@ def _suggest_keywords_from_labeled_jobs(
     return learned_include, learned_exclude, total_labeled
 
 
-
 def _suggest_missing_skills_from_applied_jobs(
     db_path: str, profile: AppConfig, max_items: int = 25
 ) -> list[str]:
     rows = get_jobs_for_skill_suggestions(db_path)
 
     if not rows:
-        return []
-
-    skill_patterns = _profile_skill_patterns(profile)
-    if not skill_patterns:
         return []
 
     user_skills = {
@@ -107,9 +91,8 @@ def _suggest_missing_skills_from_applied_jobs(
 
     freq: Counter = Counter()
     display_by_key: dict[str, str] = {}
-    for title, summary, raw_text in rows:
-        text = "\n".join([(title or ""), (summary or ""), (raw_text or "")])
-        skills = _extract_job_skills(text, skill_patterns)
+    for (job_id,) in rows:
+        skills = get_job_skills(db_path, int(job_id or 0))
         for skill in skills:
             key = _normalize_skill_name_key(skill)
             if not key or key in user_skills or key in blocked_skills:
@@ -123,8 +106,20 @@ def _suggest_missing_skills_from_applied_jobs(
     return ordered[:max_items]
 
 
+def _tokenize_learning_text(text: str) -> list[str]:
+    import re
 
-
+    LEARNING_STOPWORDS = {
+        "about", "above", "after", "again", "against", "all", "also", "and", "any", "are",
+        "because", "been", "before", "being", "below", "between", "both", "but", "can",
+        "company", "could", "danish", "denmark", "developer", "email", "for", "from",
+        "have", "into", "job", "jobs", "just", "more", "not", "our", "out", "position",
+        "role", "than", "that", "the", "their", "them", "there", "these", "this", "those",
+        "through", "under", "using", "very", "want", "when", "where", "which", "with",
+        "you", "your",
+    }
+    tokens = re.findall(r"[a-z0-9+#./-]{3,}", (text or "").lower())
+    return [t for t in tokens if t not in LEARNING_STOPWORDS]
 
 
 def _unique_keywords(items: list) -> list[str]:
@@ -136,5 +131,3 @@ def _unique_keywords(items: list) -> list[str]:
             seen.add(cleaned.lower())
             out.append(cleaned)
     return out
-
-

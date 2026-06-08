@@ -52,6 +52,9 @@ class AppConfig(BaseModel):
     
     user_skills: list[str] = Field(default_factory=list)
     blocked_skills: list[str] = Field(default_factory=list)
+    skill_extraction_antipatterns: list[str] = Field(default_factory=list)
+    skill_antipattern_last_sync_blocked_count: int = 0
+    skill_antipattern_prompt_max_items: int = 40
     missing_skills_suggestions: list[str] = Field(default_factory=list)
     known_skill_patterns: list[dict] = Field(default_factory=list)
 

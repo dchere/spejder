@@ -1,26 +1,17 @@
 # pylint: disable=all
+import re
+from typing import Optional
+
+from spejder.config import AppConfig
 from spejder.db import *
 from spejder.db.utils import _normalize_skill_name_key
-from spejder.db import _provider_from_link, _normalize_position_link
 from spejder.extractors.skill_extractor.extraction import _extract_skills_fallback
+from spejder.extractors.skill_extractor.patterns import _get_skill_patterns
 from spejder.jobs.parsing import _has_easy_apply_signal, _has_linkedin_public_easy_apply
-import re
-import json
-import base64
-from datetime import datetime, timezone
-from urllib.parse import parse_qs, unquote, urlparse
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
-from collections.abc import Callable
-from typing import Optional
-from html import unescape
-from bs4 import BeautifulSoup
-from collections import Counter
-from spejder.config import AppConfig
 
-COMPANY_NOISE_TOKENS = {'danmark', 'denmark', 'aps', 'a', 's', 'as', 'ab', 'oy', 'ltd', 'llc', 'inc', 'group', 'holding'}
-LEARNING_STOPWORDS = {'about', 'above', 'after', 'again', 'against', 'all', 'also', 'and', 'any', 'are', 'because', 'been', 'before', 'being', 'below', 'between', 'both', 'but', 'can', 'company', 'could', 'danish', 'denmark', 'developer', 'email', 'for', 'from', 'have', 'into', 'job', 'jobs', 'just', 'more', 'not', 'our', 'out', 'position', 'role', 'than', 'that', 'the', 'their', 'them', 'there', 'these', 'this', 'those', 'through', 'under', 'using', 'very', 'want', 'when', 'where', 'which', 'with', 'you', 'your'}
 EASY_APPLY_PATTERN = re.compile(r'\beasy\s*apply\b', flags=re.IGNORECASE)
+
+
 def score_relevance(
     text: str,
     profile: AppConfig,
@@ -28,6 +19,7 @@ def score_relevance(
     source: str = "",
     position_link: str = "",
     easy_apply_cache: Optional[dict[str, bool]] = None,
+    cached_required_skills: Optional[list[str]] = None,
 ) -> tuple[float, str, int, str]:
     include = [
         k.lower().strip() for k in profile.include_keywords if k.strip()
@@ -56,8 +48,11 @@ def score_relevance(
         for s in (profile.user_skills or [])
         if _normalize_skill_name_key(str(s))
     }
-    extracted_required = _extract_skills_fallback(
-        text, skill_patterns or [])
+    if cached_required_skills:
+        extracted_required = list(cached_required_skills)
+    else:
+        extracted_required = _extract_skills_fallback(
+            text, skill_patterns or [])
     required_keys = {_normalize_skill_name_key(s) for s in extracted_required}
 
     matched = sorted(
@@ -91,13 +86,18 @@ def score_relevance(
     relevant = 1 if score >= min_score else 0
     category = "relevant" if score >= min_score else "not relevant"
 
+    skill_source = "cached" if cached_required_skills else "regex"
     reason = (
         f"score={score:.1f}; include={hit_inc[:6]}; exclude={hit_exc[:6]}; "
         f"required_skills={list(required_keys)[:8]}; matched_skills={matched[:8]}; missing_skills={missing[:8]}; "
+        f"skill_source={skill_source}; "
         f"easy_apply={has_easy_apply}; easy_apply_bonus={easy_apply_bonus if has_easy_apply else 0}"
     )
     return score, reason, relevant, category
 
+
+def _load_skill_patterns(db_path: str, profile: AppConfig) -> list[tuple[str, str]]:
+    return _get_skill_patterns(db_path, profile)
 
 
 def apply_relevance(
@@ -108,19 +108,7 @@ def apply_relevance(
              r["raw_text"], r["relevance_reason"]) for r in rows_dict]
     relevant_count = 0
 
-    skill_pattern_rows = get_skill_patterns(db_path, enabled_only=True)
-    if skill_pattern_rows:
-        skill_patterns = [
-            (
-                str(item.get("name", "")).strip(),
-                str(item.get("pattern", "")).strip(),
-            )
-            for item in skill_pattern_rows
-            if str(item.get("name", "")).strip()
-            and str(item.get("pattern", "")).strip()
-        ]
-    else:
-        skill_patterns = _profile_skill_patterns(profile)
+    skill_patterns = _load_skill_patterns(db_path, profile)
 
     easy_apply_cache: dict[str, bool] = {}
     pending_updates: list[tuple[int, float, str, int, str]] = []
@@ -133,6 +121,7 @@ def apply_relevance(
         if manual_reason == "manual_feedback=not relevant":
             continue
 
+        cached_skills = get_job_skills(db_path, rid) if rid else []
         composed = f"{title or ''}\n{company or ''}\n{raw_text or ''}"
         score, reason, relevant, category = score_relevance(
             composed,
@@ -141,6 +130,7 @@ def apply_relevance(
             source=source or "",
             position_link=position_link or "",
             easy_apply_cache=easy_apply_cache,
+            cached_required_skills=cached_skills if cached_skills else None,
         )
         pending_updates.append((rid, score, reason, relevant, category))
         if relevant:
@@ -148,7 +138,6 @@ def apply_relevance(
 
     update_jobs_relevance(db_path, pending_updates, prune_irrelevant)
     return len(rows), relevant_count
-
 
 
 def rescore_job_by_id(db_path: str, profile: AppConfig, job_id: int) -> bool:
@@ -167,19 +156,8 @@ def rescore_job_by_id(db_path: str, profile: AppConfig, job_id: int) -> bool:
     raw_text = job_dict["raw_text"]
     applied = job_dict["applied"]
 
-    skill_pattern_rows = get_skill_patterns(db_path, enabled_only=True)
-    if skill_pattern_rows:
-        skill_patterns = [
-            (
-                str(item.get("name", "")).strip(),
-                str(item.get("pattern", "")).strip(),
-            )
-            for item in skill_pattern_rows
-            if str(item.get("name", "")).strip()
-            and str(item.get("pattern", "")).strip()
-        ]
-    else:
-        skill_patterns = _profile_skill_patterns(profile)
+    skill_patterns = _load_skill_patterns(db_path, profile)
+    cached_skills = get_job_skills(db_path, rid) if rid else []
 
     composed = f"{title or ''}\n{company or ''}\n{raw_text or ''}"
     score, reason, relevant, category = score_relevance(
@@ -189,6 +167,7 @@ def rescore_job_by_id(db_path: str, profile: AppConfig, job_id: int) -> bool:
         source=source or "",
         position_link=position_link or "",
         easy_apply_cache={},
+        cached_required_skills=cached_skills if cached_skills else None,
     )
 
     if int(applied or 0) == 1:
@@ -199,13 +178,9 @@ def rescore_job_by_id(db_path: str, profile: AppConfig, job_id: int) -> bool:
     return True
 
 
-
 def _skill_to_regex_simple(name: str) -> str:
     tokens = [re.escape(t) for t in re.findall(
         r"[A-Za-z0-9+#.]+", name or "") if t]
     if not tokens:
         return name
     return r"\b" + r"\s+".join(tokens) + r"\b"
-
-
-

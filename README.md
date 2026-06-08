@@ -81,7 +81,7 @@ Open `http://127.0.0.1:8765/report.html`.
 - Marking a job as `Viewed` removes it from those tabs.
 - Marking a job as `Applied` moves it into the `Applied` tab and also marks it as relevant and viewed.
 - Feedback writes are applied to DB immediately; `report.html` regeneration is queued and runs in background.
-- When `serve-gui` starts, it also performs a background inbox sync, relevance scoring, and missing-description generation.
+- When `serve-gui` starts, it also performs a background inbox sync, cross-source dedupe, relevance scoring, and missing-description generation.
 - If the requested port is busy, the server automatically tries the next ports up to 20 times.
 - Clicking a company name opens a `/company.html` view filtered to that company's jobs.
 - Applied jobs have a "Paste full description" form that feeds the full text to the LLM, regenerating the summary, description, and skill tags.
@@ -216,9 +216,25 @@ Notes:
 - The command protects profile seed skills and explicit user skills.
 - Removed skills are added to `blocked_skills` so they stay hidden and are not reintroduced into the dashboard.
 
+### `sync-antipatterns`
+
+Distill junk-like `blocked_skills` into LLM antipattern rules for the job extraction prompt, validate on sample jobs, and prune entries the prompt now filters without the deny list.
+
+```bash
+python3 -m spejder.cli sync-antipatterns \
+  --profile ./profile.json \
+  --db ./jobs.db \
+  --model /path/to/model.gguf \
+  --dry-run
+```
+
+Options: `--profile`, `--db`, `--model`, `--dry-run`, `--force` (skip gate thresholds).
+
+Runs automatically at the end of GUI background sync when blocked skills grow enough (rare maintenance).
+
 ### `dedupe-jobs`
 
-Run cross-source job deduplication explicitly instead of doing it during startup.
+Run cross-source job deduplication on demand (e.g. after manual DB edits).
 
 ```bash
 python3 -m spejder.cli dedupe-jobs \
@@ -231,7 +247,7 @@ Options: `--profile`, `--db`.
 Notes:
 
 - This merges matching LinkedIn and Jobindex entries into a single record.
-- `serve-gui` and other startup paths no longer run this full-table dedupe automatically.
+- `serve-gui` background sync also runs cross-source dedupe after ingest and before relevance scoring; use this command for a standalone full-table pass.
 
 ### `init-profile`
 
@@ -289,6 +305,9 @@ In `profile.json`:
 
 - `user_skills`: your editable skill list used for scoring.
 - `blocked_skills`: skills hidden from the Skills tab and filtered out from extracted skill results.
+- `skill_extraction_antipatterns`: LLM-synthesized rules/examples injected into the job skill extraction prompt.
+- `skill_antipattern_last_sync_blocked_count`: gate state for rare antipattern sync (updated after a successful sync).
+- `skill_antipattern_prompt_max_items`: max antipatterns included in the extraction prompt (default `40`).
 - `missing_skills_suggestions`: generated from applied jobs.
 - `skill_match_weight`: bonus per matched required skill.
 - `skill_missing_penalty`: penalty per missing required skill.

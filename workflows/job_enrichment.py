@@ -1,37 +1,73 @@
-import os
 import re
 import time
-from typing import Optional
-from urllib.request import Request
-from urllib.error import HTTPError, URLError
-from urllib.request import urlopen
-from bs4 import BeautifulSoup
+from typing import Callable, Optional
 
 from spejder.config import AppConfig
-from spejder.core import DEFAULT_PROFILE_PATH, load_runtime_profile
-from spejder.parsers import email_parser
-from spejder.parsers.web_parser import _get_position_page_context, _append_page_context_to_raw_text
-from spejder.llm import LocalLLM
 from spejder.db import (
-    ensure_db, set_job_summary, get_jobs_by_category, set_job_description,
-    get_applied_jobs, get_relevant_jobs, get_viewed_jobs_count,
-    get_jobs_for_description_refresh
+    get_applied_jobs,
+    get_jobs_by_category,
+    get_jobs_for_description_refresh,
+    set_job_description,
 )
-from spejder.jobs import ingest_docs_to_db, apply_relevance, update_profile_from_db_signals
-      
-from spejder.managers.dashboard_manager import _render_html_dashboard
-from spejder.extractors.skill_extractor import _build_skills_tab_items, _ensure_skill_pattern_seed_migration, _learn_skill_patterns_from_positions, _get_or_extract_job_skills
-from spejder.workflows.reporting import _report_max_relevant_positions, _report_max_not_relevant_positions
-from spejder.workflows.formatting import _prepend_title_to_raw_text, _prepend_summary_to_raw_text
-from spejder.parsers.web_parser import *
+from spejder.extractors.skill_extractor import (
+    _get_or_extract_job_skills,
+)
+from spejder.llm import LocalLLM
+from spejder.managers.language_manager import (
+    finalize_title_english as _finalize_title_english,
+)
+from spejder.managers.language_manager import (
+    get_title_english_for_row as _get_title_english_for_row,
+)
+from spejder.managers.language_manager import (
+    normalize_title_compare_key as _normalize_title_compare_key,
+)
 from spejder.managers.language_manager import (
     translate_text_to_english_if_needed as _translate_text_to_english_if_needed,
-    translate_title_to_english as _translate_title_to_english,
-    finalize_title_english as _finalize_title_english,
-    normalize_title_compare_key as _normalize_title_compare_key,
-    get_title_english_for_row as _get_title_english_for_row
 )
-MAX_INGEST_FILE_STATS_LINES = 10
+from spejder.managers.language_manager import (
+    translate_title_to_english as _translate_title_to_english,
+)
+from spejder.parsers.web_parser import _append_page_context_to_raw_text, _get_position_page_context
+from spejder.workflows.formatting import _prepend_summary_to_raw_text, _prepend_title_to_raw_text
+
+
+def make_translate_job_entry_for_storage(
+    runtime_profile: AppConfig,
+    text_translation_cache: dict[str, str],
+    title_translation_cache: dict[str, str],
+) -> Callable[[dict], dict]:
+    def _translate(entry: dict) -> dict:
+        entry = dict(entry)
+        entry["raw_text"] = _translate_text_to_english_if_needed(
+            str(entry.get("raw_text", "") or ""),
+            runtime_profile=runtime_profile,
+            translation_cache=text_translation_cache,
+        )
+        title_value = str(entry.get("title", "") or "")
+        try:
+            title_english = _translate_title_to_english(
+                title_value,
+                runtime_profile=runtime_profile,
+                title_translation_cache=title_translation_cache,
+            )
+        except Exception:
+            try:
+                title_english = _translate_text_to_english_if_needed(
+                    title_value,
+                    runtime_profile=runtime_profile,
+                    translation_cache=text_translation_cache,
+                )
+            except Exception:
+                title_english = title_value
+        final_title_english = _finalize_title_english(title_english, title_value)
+        if _normalize_title_compare_key(final_title_english) == _normalize_title_compare_key(title_value):
+            final_title_english = ""
+        entry["title_english"] = final_title_english
+        return entry
+
+    return _translate
+
 
 def _generate_missing_descriptions_for_ingest(
     db_path: str,
@@ -190,6 +226,135 @@ def _enrich_raw_text_with_position_page(
         row["raw_text"] = merged
         return merged
     return raw
+
+
+def materialize_job_skills(
+    db_path: str,
+    row: dict,
+    *,
+    llm: LocalLLM = None,
+    runtime_profile: Optional[AppConfig] = None,
+    page_context_cache: Optional[dict] = None,
+    title_translation_cache: Optional[dict] = None,
+    limit: int = 10,
+    rescore: bool = False,
+) -> tuple[str, str]:
+    """Enrich job text, extract skills, persist to job_skills. Returns (skills_text, enriched_raw)."""
+    job_id = int(row.get("id", 0) or 0)
+    raw_text = _enrich_raw_text_with_position_page(
+        db_path,
+        row,
+        page_context_cache=page_context_cache,
+        llm=llm,
+        runtime_profile=runtime_profile,
+        title_translation_cache=title_translation_cache,
+    )
+    skills_text = _get_or_extract_job_skills(
+        db_path,
+        job_id,
+        raw_text,
+        llm=llm,
+        profile=runtime_profile,
+        position_link=row.get("position_link", ""),
+        page_context_cache=page_context_cache,
+        limit=limit,
+    )
+    if rescore and job_id and runtime_profile is not None and skills_text:
+        from spejder.jobs.scoring import rescore_job_by_id
+
+        rescore_job_by_id(db_path, runtime_profile, job_id)
+    return skills_text, raw_text
+
+
+def materialize_jobs_skills(
+    db_path: str,
+    rows: list[dict],
+    *,
+    llm: LocalLLM = None,
+    runtime_profile: Optional[AppConfig] = None,
+    limit: int = 10,
+    rescore: bool = False,
+    skip_cached: bool = False,
+    progress_label: str = "",
+) -> int:
+    """Materialize skills for multiple jobs. Returns count of jobs that received skills."""
+    if not rows:
+        return 0
+
+    from spejder.db import get_job_skills
+
+    page_context_cache: dict[str, str] = {}
+    title_translation_cache: dict[str, str] = {}
+    updated = 0
+    total = len(rows)
+    for idx, row in enumerate(rows, start=1):
+        job_id = int(row.get("id", 0) or 0)
+        if not job_id:
+            continue
+        if skip_cached and get_job_skills(db_path, job_id):
+            continue
+
+        skills_text, _ = materialize_job_skills(
+            db_path,
+            row,
+            llm=llm,
+            runtime_profile=runtime_profile,
+            page_context_cache=page_context_cache,
+            title_translation_cache=title_translation_cache,
+            limit=limit,
+            rescore=rescore,
+        )
+        if skills_text:
+            updated += 1
+        if progress_label and (idx % 25 == 0 or idx == total):
+            print(f"{progress_label}: checked={idx}/{total}, updated={updated}")
+    return updated
+
+
+def _collect_relevant_and_applied_rows(db_path: str) -> list[dict]:
+    rows: list[dict] = []
+    seen_ids: set[int] = set()
+    for row in get_applied_jobs(db_path, limit=0):
+        rid = int(row.get("id", 0) or 0)
+        if rid and rid not in seen_ids:
+            seen_ids.add(rid)
+            rows.append(row)
+    for cat in ("relevant", "not relevant"):
+        for row in get_jobs_by_category(db_path, cat, limit=0, unviewed_only=True):
+            rid = int(row.get("id", 0) or 0)
+            if rid and rid not in seen_ids:
+                seen_ids.add(rid)
+                rows.append(row)
+    return rows
+
+
+def materialize_relevant_and_applied_skills(
+    db_path: str,
+    *,
+    llm: LocalLLM = None,
+    runtime_profile: Optional[AppConfig] = None,
+    limit: int = 10,
+    rescore: bool = True,
+    skip_cached: bool = True,
+    progress_label: str = "Skill materialization",
+) -> int:
+    """Phase-2 batch: enrich, extract, persist, and optionally rescore scoped jobs."""
+    rows = _collect_relevant_and_applied_rows(db_path)
+    if progress_label:
+        print(f"{progress_label}: starting (jobs={len(rows)})")
+    updated = materialize_jobs_skills(
+        db_path,
+        rows,
+        llm=llm,
+        runtime_profile=runtime_profile,
+        limit=limit,
+        rescore=rescore,
+        skip_cached=skip_cached,
+        progress_label=progress_label,
+    )
+    if progress_label:
+        print(f"{progress_label}: done (updated={updated})")
+    return updated
 
 
 def _build_description_summary(
@@ -395,4 +560,4 @@ def _is_easy_apply_item(item: dict) -> bool:
         str(item.get("raw_text", "")),
     )
 
-_EASY_APPLY_REGEX = __import__('re').compile(r'(?i)easy\s*apply|apply\s*with\s*linkedin')
+_EASY_APPLY_REGEX = re.compile(r'(?i)easy\s*apply|apply\s*with\s*linkedin')

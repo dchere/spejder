@@ -14,90 +14,36 @@ from spejder.db import (
 from spejder.extractors.skill_extractor import (
     _build_skills_tab_items,
     _ensure_skill_pattern_seed_migration,
-    _get_or_extract_job_skills,
     _learn_skill_patterns_from_positions,
 )
 from spejder.jobs import apply_relevance, ingest_docs_to_db, update_profile_from_db_signals
 from spejder.llm import LocalLLM
 from spejder.managers.dashboard_manager import _render_html_dashboard
-from spejder.managers.language_manager import finalize_title_english as _finalize_title_english
 from spejder.managers.language_manager import (
     get_title_english_for_row as _get_title_english_for_row,
 )
-from spejder.managers.language_manager import (
-    normalize_title_compare_key as _normalize_title_compare_key,
-)
-from spejder.managers.language_manager import (
-    translate_text_to_english_if_needed as _translate_text_to_english_if_needed,
-)
-from spejder.managers.language_manager import (
-    translate_title_to_english as _translate_title_to_english,
-)
 from spejder.parsers import email_parser
+from spejder.workflows.ingest_utils import (
+    delete_processed_inbox_files,
+    print_ingest_file_stats,
+)
 from spejder.workflows.job_enrichment import (
     _build_description_summary,
     _build_title_fields,
-    _enrich_raw_text_with_position_page,
     _fallback_description_text,
     _generate_missing_descriptions_for_ingest,
     _has_invalid_description_marker,
     _is_invalid_summary_text,
     _is_low_quality_description,
     _summary_for_display,
+    make_translate_job_entry_for_storage,
+    materialize_job_skills,
+    materialize_relevant_and_applied_skills,
 )
 from spejder.workflows.reporting import (
     _report_max_not_relevant_positions,
     _report_max_relevant_positions,
 )
-
-MAX_INGEST_FILE_STATS_LINES = 10
-
-def _delete_processed_inbox_files(ingest_stats: dict, inbox_root: str = "") -> dict[str, int]:
-    rows = ingest_stats.get("positions_by_file") or []
-    if not isinstance(rows, list) or not rows:
-        return {"eligible": 0, "deleted": 0, "missing": 0, "failed": 0}
-
-    root = os.path.abspath(inbox_root) if inbox_root else ""
-    eligible = 0
-    deleted = 0
-    missing = 0
-    failed = 0
-
-    for row in rows:
-        found = int(row.get("found", 0) or 0)
-        file_path = str(row.get("file", "") or "").strip()
-        if found <= 0 or not file_path:
-            continue
-
-        abs_path = os.path.abspath(file_path)
-        if root:
-            try:
-                if os.path.commonpath([abs_path, root]) != root:
-                    continue
-            except Exception:
-                continue
-
-        eligible += 1
-
-        if not os.path.exists(abs_path):
-            missing += 1
-            continue
-        if not os.path.isfile(abs_path):
-            failed += 1
-            continue
-
-        try:
-            os.remove(abs_path)
-            deleted += 1
-        except Exception:
-            failed += 1
-
-    return {
-        "eligible": int(eligible),
-        "deleted": int(deleted),
-        "missing": int(missing),
-        "failed": int(failed),
-    }
 
 
 def process_inbox(inbox: str = None, db: str = None, profile: str = None, model: str = "", report_dir: str = None, limit: int = 0, max_tokens: int = 220, max_input_chars: int = None, prune_irrelevant: bool = False, verbose: bool = False):
@@ -122,39 +68,11 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
     _ensure_skill_pattern_seed_migration(db_path, profile_path)
     text_translation_cache: dict[str, str] = {}
 
-    def _translate_job_entry_for_storage(entry: dict) -> dict:
-        entry = dict(entry)
-        entry["raw_text"] = _translate_text_to_english_if_needed(
-            str(entry.get("raw_text", "") or ""),
-            runtime_profile=profile,
-            translation_cache=text_translation_cache,
-        )
-        title_value = str(entry.get("title", "") or "")
-        try:
-            title_english = _translate_title_to_english(
-                title_value,
-                runtime_profile=profile,
-                title_translation_cache=title_translation_cache,
-            )
-        except Exception:
-            try:
-                title_english = _translate_text_to_english_if_needed(
-                    title_value,
-                    runtime_profile=profile,
-                    translation_cache=text_translation_cache,
-                )
-            except Exception:
-                title_english = title_value
-        final_title_english = _finalize_title_english(title_english, title_value)
-        if _normalize_title_compare_key(final_title_english) == _normalize_title_compare_key(
-            title_value
-        ):
-            final_title_english = ""
-        entry["title_english"] = final_title_english
-        return entry
-
     title_translation_cache: dict[str, str] = {}
-    ingest_stats = ingest_docs_to_db(db_path, docs, entry_transform=_translate_job_entry_for_storage)
+    entry_transform = make_translate_job_entry_for_storage(
+        profile, text_translation_cache, title_translation_cache
+    )
+    ingest_stats = ingest_docs_to_db(db_path, docs, entry_transform=entry_transform)
     print(
         "Ingestion done: "
         f"processed={ingest_stats.get('processed', 0)}, "
@@ -162,8 +80,8 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
         f"skipped_existing={ingest_stats.get('skipped_existing', 0)} "
         f"into DB: {db_path}"
     )
-    _print_ingest_file_stats(ingest_stats)
-    delete_stats = _delete_processed_inbox_files(ingest_stats, inbox_root=inbox)
+    print_ingest_file_stats(ingest_stats)
+    delete_stats = delete_processed_inbox_files(ingest_stats, inbox_root=inbox)
     print(
         "Inbox cleanup: "
         f"eligible={delete_stats.get('eligible', 0)}, "
@@ -186,6 +104,15 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
         db_path, llm=llm, runtime_profile=profile, allow_empty=False
     )
     print(f"Descriptions generated during ingest: updated={desc_updated}, skipped={desc_skipped}")
+
+    materialize_relevant_and_applied_skills(
+        db_path,
+        llm=llm,
+        runtime_profile=profile,
+        rescore=True,
+        skip_cached=True,
+        progress_label="Skill materialization",
+    )
 
     skill_learning = _learn_skill_patterns_from_positions(
         db_path,
@@ -258,7 +185,7 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
 
     report_data = {}
     page_context_cache: dict[str, str] = {}
-    title_translation_cache: dict[str, str] = {}
+    report_title_translation_cache: dict[str, str] = {}
     for cat in ["relevant", "not relevant"]:
         rows = get_jobs_by_category(db_path, cat, limit=0, unviewed_only=True)
         records = []
@@ -269,23 +196,15 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
             )
             description = row.get("description") or ""
             source_raw = row.get("raw_text", "") or ""
-            raw_text = _enrich_raw_text_with_position_page(
+            skills, raw_text = materialize_job_skills(
                 db_path,
                 row,
-                page_context_cache=page_context_cache,
                 llm=llm,
                 runtime_profile=profile,
-                title_translation_cache=title_translation_cache,
-            )
-            skills = _get_or_extract_job_skills(
-                db_path,
-                row.get("id", 0),
-                raw_text,
-                llm=llm,
-                profile=profile,
-                position_link=row.get("position_link", ""),
                 page_context_cache=page_context_cache,
+                title_translation_cache=report_title_translation_cache,
                 limit=10,
+                rescore=False,
             )
             if not description:
                 generated = _build_description_summary(
@@ -305,7 +224,7 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
                             db_path,
                             row,
                             runtime_profile=profile,
-                            title_translation_cache=title_translation_cache,
+                            title_translation_cache=report_title_translation_cache,
                         ),
                     )
                 ):
@@ -324,7 +243,7 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
                         db_path,
                         row,
                         runtime_profile=profile,
-                        title_translation_cache=title_translation_cache,
+                        title_translation_cache=report_title_translation_cache,
                     ),
                     "place": row.get("place", ""),
                     "work_type": row.get("work_type", "Unknown"),
@@ -350,23 +269,15 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
             row.get("raw_text", ""),
         )
         description = row.get("description") or ""
-        raw_text = _enrich_raw_text_with_position_page(
+        skills, raw_text = materialize_job_skills(
             db_path,
             row,
-            page_context_cache=page_context_cache,
             llm=llm,
             runtime_profile=profile,
-            title_translation_cache=title_translation_cache,
-        )
-        skills = _get_or_extract_job_skills(
-            db_path,
-            row.get("id", 0),
-            raw_text,
-            llm=llm,
-            profile=profile,
-            position_link=row.get("position_link", ""),
             page_context_cache=page_context_cache,
+            title_translation_cache=report_title_translation_cache,
             limit=10,
+            rescore=False,
         )
         applied_records.append(
             {
@@ -377,7 +288,7 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
                     db_path,
                     row,
                     runtime_profile=profile,
-                    title_translation_cache=title_translation_cache,
+                    title_translation_cache=report_title_translation_cache,
                 ),
                 "place": row.get("place", ""),
                 "work_type": row.get("work_type", "Unknown"),
@@ -412,29 +323,5 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
         print("No relevant positions after filtering.")
 
     print(f"Done. Relevant summarized={len(relevant_jobs)}")
-
-
-
-def _print_ingest_file_stats(ingest_stats: dict) -> None:
-    rows = ingest_stats.get("positions_by_file") or []
-    if not isinstance(rows, list) or not rows:
-        return
-
-    print("Positions found by file:")
-    shown = 0
-    for row in rows:
-        if shown >= MAX_INGEST_FILE_STATS_LINES:
-            remaining = len(rows) - shown
-            print(f"  ... and {remaining} more files")
-            break
-        file_path = str(row.get("file", "") or "")
-        file_label = file_path if file_path else "(unknown file)"
-        found = int(row.get("found", 0) or 0)
-        inserted = int(row.get("inserted_new", 0) or 0)
-        skipped = int(row.get("skipped_existing", 0) or 0)
-        print(
-            f"  - {file_label}: found={found}, inserted_new={inserted}, skipped_existing={skipped}"
-        )
-        shown += 1
 
 

@@ -6,9 +6,7 @@ import json
 import logging
 from typing import Optional
 
-import sys
-
-from spejder.core import load_profile, load_runtime_profile, AppConfig, DEFAULT_PROFILE_PATH
+from spejder.core import load_profile, AppConfig, DEFAULT_PROFILE_PATH
 
 
 try:
@@ -34,8 +32,36 @@ _language_checker_detector = None
 _translation_instance = None
 
 
-from .utils import _language_checker_model_path, _language_checker_model_looks_valid, _print_language_checker_step, _fail_language_checker_init, _translation_model_path, _translation_model_looks_valid, _print_translation_step, _fail_translation_init
-from .engines import _get_language_checker_detector
+from .utils import (
+    _language_checker_model_path,
+    _language_checker_model_looks_valid,
+    _print_language_checker_step,
+    _fail_language_checker_init,
+    _translation_model_path,
+    _translation_model_looks_valid,
+    _print_translation_step,
+    _fail_translation_init,
+    language_checker_engine,
+)
+from .engines import (
+    _get_language_checker_detector,
+    get_translation_runtime,
+    torch,
+    MarianTokenizer,
+    MarianMTModel,
+)
+from .detection import is_danish_text
+from .titles import translate_title_to_english, normalize_title_text, normalize_title_compare_key
+
+LANGUAGE_CHECKER_SELF_TESTS: list[tuple[str, str, bool]] = [
+    ("danish_job_title", "Vi søger en erfaren softwareudvikler til vores team i København", True),
+    ("english_job_title", "Senior Software Engineer at Acme Corp", False),
+    ("too_short", "ab", False),
+]
+
+TRANSLATION_SELF_TEST: tuple[str, bool] = ("Softwareudvikler", True)
+
+
 def initialize_language_checker_or_exit(profile_path: str) -> None:
     _print_language_checker_step(f"loading profile from {profile_path}")
     if not profile_path or not os.path.isfile(profile_path):

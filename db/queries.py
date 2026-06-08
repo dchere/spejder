@@ -1,13 +1,8 @@
-# pylint: disable=all
-import sqlite3
-import re
-import time
-import json
-from datetime import datetime, timezone
 from typing import Optional
-from urllib.parse import parse_qs, unquote, urlparse
+
 from .connection import _connect
-from .utils import sanitize_job_title, _normalize_position_link, get_job_link, _provider_from_link
+from .utils import _normalize_position_link, _provider_from_link
+
 
 def get_relevant_jobs(db_path: str, limit: int = 0) -> list[dict]:
     conn = _connect(db_path)
@@ -429,7 +424,7 @@ def get_jobs_for_skill_suggestions(db_path: str):
     try:
         cur = conn.cursor()
         cur.execute(
-            "SELECT title, summary, raw_text FROM jobs WHERE applied=1"
+            "SELECT id FROM jobs WHERE applied=1"
         )
         return cur.fetchall()
     finally:
