@@ -1,25 +1,12 @@
-# pylint: disable=all
-import os
-import sys
-import time
 import json
-import codecs
-import html as html_lib
-import re
-import traceback
-import subprocess
+import os
 from typing import Optional
-from contextlib import contextmanager
-from jinja2 import Environment, FileSystemLoader
-import spejder
-from spejder.llm import LocalLLM
-from spejder.core import DEFAULT_PROFILE_PATH, load_runtime_profile
-from spejder.db import *
-from spejder.jobs import *
-from spejder.managers.dashboard_manager import _render_html_from_items
+
 from spejder.config import AppConfig
+from spejder.managers.dashboard_manager import _render_html_from_items
 from spejder.parsers import email_parser
-# from spejder.server import run_server
+
+
 def _report_limit_value(raw, default: int) -> int:
     try:
         value = int(raw)
@@ -38,6 +25,7 @@ def _report_max_relevant_positions(runtime_profile: Optional[AppConfig]) -> int:
 
 def _report_max_not_relevant_positions(runtime_profile: Optional[AppConfig]) -> int:
     profile = runtime_profile or {}
+    # Older profiles only had report_max_relevant_positions; reuse it as fallback.
     legacy = _report_limit_value(profile.report_max_relevant_positions, 7)
     return _report_limit_value(profile.report_max_not_relevant_positions, legacy)
 

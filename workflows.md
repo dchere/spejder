@@ -1,21 +1,49 @@
 # spejder.workflows
 
 **Purpose:**
-Contains the core orchestration logic for all CLI orchestrations and heavy workflows.
+Core orchestration for CLI commands, GUI background sync, and heavy multi-step pipelines.
 
-**API:**
-- High-level orchestrators: `process_inbox`, `report_links`, `serve_gui`, `dedupe_jobs`, `sync_user_skills`, etc.
-- Dashboard extraction module: `spejder/workflows/dashboard.py` (record building + rebuild queue worker)
-- Shared ingest helpers: `spejder/workflows/ingest_utils.py` (per-file ingest stats + inbox file cleanup)
+**High-level orchestrators** (via `workflows/__init__.py`):
+- `process_inbox` — `inbox_workflow.py`
+- `serve_gui` — `gui.py`
+- `run_inbox_sync` — `gui_sync.py`
+- `report_links`, `render_html` — `report_workflow.py`
+- `dedupe_jobs` — `deduplication.py`
+- `refresh_descriptions` — `enrichment.py`
+- `summarize_file`, `summarize_folder` — `summarization.py`
+- `init_profile` — `profile.py`
+
+**Submodules:**
+
+| Module | Role |
+|--------|------|
+| `dashboard.py` | Dashboard record building + rebuild queue worker |
+| `gui.py` | GUI/server thread orchestration |
+| `gui_sync.py` | Background inbox sync pipeline (7 steps) |
+| `ingest_utils.py` | Per-file ingest stats + inbox file cleanup |
+| `inbox_report.py` | Inbox relevant-job summaries + HTML dashboard write |
+| `job_enrichment.py` | Facade re-exporting job enrichment helpers |
+| `job_translation.py` | Ingest entry translation factory |
+| `job_text_enrichment.py` | Raw-text enrichment (title, summary, page context) |
+| `job_descriptions.py` | LLM description generation + quality heuristics |
+| `job_skills_materialize.py` | Skill extraction materialization batches |
+| `job_easy_apply.py` | LinkedIn easy-apply detection |
+| `report_workflow.py` | CLI link reports + JSONL HTML export |
+| `deduplication.py` | Cross-source dedupe wrapper |
+| `enrichment.py` | `refresh-descriptions` command |
+| `text_prepend.py` | Summary validity checks + title/summary raw-text prepend |
+| `formatting.py` | Dashboard title HTML line rendering |
+| `llm_utils.py` | CLI LLM init helpers |
+| `summarization.py` | File/folder summarization commands |
 
 **Context:**
-Extracted from `cli.py` to create a "thin CLI" pattern. `cli.py` now merely sets up `argparse` and delegates execution to the workflow functions here. This decouples the CLI interface from the actual execution logic, making workflows usable directly from tests or Web endpoints.
+`cli.py` is a thin argparse layer delegating here. Workflows are callable from tests and `server.py` without going through the CLI.
 
-**GUI background sync pipeline (`run_inbox_sync` in `gui_sync.py`):**
+**GUI background sync** (`run_inbox_sync` in `gui_sync.py`):
 1. Ingest inbox (or backfill missing descriptions)
 2. Delete processed inbox files
-3. Cross-source dedupe (`run_cross_source_dedupe`)
-4. Queue dashboard rebuild (ingest + dedupe stats)
+3. Cross-source dedupe
+4. Queue dashboard rebuild
 5. Relevance scoring
 6. Skill materialization, description generation, skill-pattern learning
 7. Optional antipattern sync (async)

@@ -10,9 +10,14 @@ This module is responsible for parsing and extracting specialized entities (such
   - `utils.py` — text parsing, JSON helpers, regex generation
   - `filtering.py` — blocked/protected keys, phrase quality, cleanup reasons
   - `patterns.py` — skill pattern registry and profile-to-DB migration
-  - `extraction.py` — LLM + regex job skill extraction and caching
+  - `extraction_prompt.py` — LLM prompt and antipattern injection
+  - `extraction_fallback.py` — regex/phrase fallback and blocked-skill filter
+  - `extraction_llm.py` — LLM JSON parse path for job skills
+  - `extraction.py` — orchestration facade (LLM + fallback + DB cache)
   - `learning.py` — batch pattern learning from applied/relevant jobs
-  - `antipattern_sync.py` — distill junk `blocked_skills` into `skill_extraction_antipatterns` for the extraction prompt; prune validated entries
+  - `antipattern_synthesis.py` — candidate selection, LLM JSON synthesis, profile merge helpers
+  - `antipattern_validation.py` — synthetic job generation and multi-run extraction validation
+  - `antipattern_sync.py` — orchestration, gates, CLI entry; re-exports synthesis/validation helpers
   - `user_sync.py` / `cleanup.py` — CLI commands for CV sync and DB cleanup
   - `ui.py` — skills tab data for the dashboard
 
@@ -20,7 +25,7 @@ This module is responsible for parsing and extracting specialized entities (such
 
 - `blocked_skills`: runtime deny list; filtered post-extraction and excluded from known patterns.
 - `skill_extraction_antipatterns`: LLM-synthesized rules/examples injected into the job extraction prompt to reduce junk before post-filters run.
-- Rare sync (`sync-antipatterns` CLI or end of GUI background sync): junk-like blocked entries are clustered by LLM, **per-rule probe-filtered**, merged only if batch validation filters ≥1 blocked skill on sample jobs; otherwise the merge is rolled back (`batch_rejected`). Validated entries are removed from `blocked_skills` and SQLite. LLM synthesis uses at most **40** candidate phrases per call (`SYNTHESIS_INPUT_MAX`) with a higher token budget so JSON is not truncated. Prompt injection uses the **newest** antipatterns (tail of the list, capped at 40). On commit, the profile is saved first, then SQLite deletes run per validated skill; there is no cross-store transaction, so a DB delete failure after a successful profile save leaves the profile updated and the skill row still in SQLite. Skipped runs log `skip_reason` (e.g. `synthesis_empty`, `gate_failed`); GUI background sync does not queue a dashboard rebuild when skipped.
+- Antipattern sync (`sync-antipatterns` CLI or end of GUI background sync): when `blocked_skills` count ≥ 15, synthesize **3** generic rules from **all** blocked entries, generate a **synthetic job posting** embedding blocked phrases + DB skills with `occurrences >= 1`, then validate each candidate by comparing stable multi-run extractions (3 runs, set intersection). Validation calls `_extract_job_skills_llm_path` with **`skip_blocked_filter=True`** so baseline and candidate comparisons measure prompt antipatterns only, not the post-extraction deny list; blocked-skill subsets are compared explicitly after extraction. Synthesis and synthetic-job prompts share the same input cap (`ANTIPATTERN_PROMPT_INPUT_MAX`, default 150). Accept a candidate only if it strictly reduces blocked-skill extraction without dropping seen skills; prune proven blocked entries and delete from SQLite. Logs synthesized rules and per-candidate accept/skip reasons. Prompt injection uses the **newest** antipatterns (tail of the list, capped at 40). GUI background sync reloads profile and queues dashboard rebuild **only** when sync commits (`committed=True`).
 
 ## Architectural Constraints
 - **Pylint adherence**: Do not disable pylint rules (e.g. `# pylint: disable=...`) in this module. Refactor the code instead.

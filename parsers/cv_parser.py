@@ -1,4 +1,4 @@
-# pylint: disable=broad-exception-caught,too-many-locals
+
 """
 cv_parser covers logic for reading CV files
 """

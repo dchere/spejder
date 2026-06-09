@@ -26,4 +26,17 @@ The previously monolithic `parsing.py` has been transitioned into a `spejder.job
 - `linkedin.py`: Rules specific to LinkedIn formatting inside jobs.
 - `companies.py`: Entity and title inferences.
 - `links.py`, `platforms.py`: Source routing via external links.
+- `platforms_career_alerts.py`: Career-alert email extractors (The Hub, Vestas, Oracle CX).
 - `core.py`: The aggregator coordinating all extractors (`extract_job_entries`).
+
+**Career-alert sources (email job alerts):**
+| Source | Link pattern | Extractor | Provider label |
+|--------|--------------|-----------|----------------|
+| The Hub | `thehub.io/jobs/{hex}` (often via Mandrill track links) | `_extract_thehub_entries_by_link` | The Hub |
+| Vestas | `careers.vestas.com/job/.../{id}` | `_extract_vestas_entries_by_link` | Vestas |
+| Oracle CX | `*.fa.{region}.oraclecloud.com/.../CandidateExperience/.../job/{id}` (not Emerson host) | `_extract_oracle_cx_entries_by_link` | Oracle CX |
+| Emerson Career Site | `hdjq.fa.us2.oraclecloud.com/.../CandidateExperience/.../job/{id}` | `_extract_oracle_cx_entries_by_link` | Emerson Career Site (`company=Emerson`) |
+
+**Merge order in `core.extract_job_entries`:** platform-specific fields from Google → The Hub → Vestas → Oracle CX → Danfoss → Demant → Jobindex → generic HTML, then `_provider_from_link` as fallback source. The links loop uses the same priority when building entries from `doc["links"]`.
+
+**Import policy:** `jobs/` and `jobs/parsing/` use explicit imports only (no `from spejder.db import *`). Each parsing submodule imports only the DB helpers it needs.

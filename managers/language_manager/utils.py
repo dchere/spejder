@@ -1,4 +1,4 @@
-# pylint: disable=all
+
 import re
 import sys
 import os
@@ -70,7 +70,7 @@ def _language_checker_threshold(runtime_profile: Optional[AppConfig]) -> float:
     profile = runtime_profile or {}
     try:
         value = float(profile.language_checker_threshold or 0.8)
-    except Exception:  # pylint: disable=broad-exception-caught
+    except Exception:
         value = 0.8
     return max(0.0, min(1.0, value))
 
@@ -79,7 +79,7 @@ def _language_checker_min_letters(runtime_profile: Optional[AppConfig]) -> int:
     profile = runtime_profile or {}
     try:
         value = int(profile.language_checker_min_letters or 4)
-    except Exception:  # pylint: disable=broad-exception-caught
+    except Exception:
         value = 4
     return max(1, value)
 

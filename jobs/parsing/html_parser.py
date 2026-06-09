@@ -1,24 +1,11 @@
-from .text_parser import _infer_work_type_from_text
-from .links import _is_job_link
-# pylint: disable=all
-from spejder.db import *
-from spejder.db import _provider_from_link, _normalize_position_link
 import re
-import json
-import base64
-from datetime import datetime, timezone
-from urllib.parse import parse_qs, unquote, urlparse
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
-from collections.abc import Callable
-from typing import Optional
-from html import unescape
+
 from bs4 import BeautifulSoup
-from collections import Counter
-from spejder.config import AppConfig
 
-from .constants import *
+from spejder.db import _normalize_position_link
 
+from .links import _is_job_link
+from .text_parser import _infer_work_type_from_text
 
 
 def _parse_card_text_fields(card_text: str) -> dict[str, str]:

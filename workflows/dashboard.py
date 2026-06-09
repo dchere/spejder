@@ -19,7 +19,7 @@ from spejder.workflows.job_enrichment import (
     _summary_for_display,
     materialize_jobs_skills,
 )
-from spejder.workflows.reporting import (
+from spejder.workflows.report_workflow import (
     _report_max_not_relevant_positions,
     _report_max_relevant_positions,
 )

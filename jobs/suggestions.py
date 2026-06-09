@@ -1,4 +1,4 @@
-# pylint: disable=all
+
 from collections import Counter
 
 from spejder.config import AppConfig

@@ -308,6 +308,23 @@ def ensure_db(db_path: str):
             if provider and (not source or source.strip() != provider):
                 cur.execute("UPDATE jobs SET source=? WHERE id=?", (provider, rid))
 
+        cur.execute(
+            """
+            UPDATE jobs SET source = 'Emerson Career Site'
+            WHERE lower(position_link) LIKE '%hdjq.fa.us2.oraclecloud.com%'
+              AND lower(position_link) LIKE '%/candidateexperience/%'
+              AND (source IS NULL OR trim(source) = '' OR source = 'Oracle CX')
+            """
+        )
+        cur.execute(
+            """
+            UPDATE jobs SET company = 'Emerson'
+            WHERE lower(position_link) LIKE '%hdjq.fa.us2.oraclecloud.com%'
+              AND lower(position_link) LIKE '%/candidateexperience/%'
+              AND (company IS NULL OR trim(company) = '' OR company = 'Emerson Career Site')
+            """
+        )
+
         conn.commit()
     finally:
         conn.close()

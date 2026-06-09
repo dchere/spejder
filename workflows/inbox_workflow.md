@@ -6,8 +6,9 @@ Coordinates the ingestion of new job postings from the inbox folder, matching jo
 **API:**
 - `process_inbox`
 
-**Shared ingest helpers:**
-- Ingest reporting and inbox file cleanup moved to `spejder.workflows.ingest_utils` and are imported by this module.
+**Related modules:**
+- `spejder.workflows.ingest_utils` — per-file ingest stats + inbox file cleanup
+- `spejder.workflows.inbox_report` — relevant-job LLM summaries + HTML dashboard write
 
 **Ingest translation flow:**
 - Ingest now builds `entry_transform` through `spejder.workflows.job_enrichment.make_translate_job_entry_for_storage`.

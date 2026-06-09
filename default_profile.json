@@ -48,7 +48,8 @@
   "user_skills": [],
   "blocked_skills": [],
   "skill_extraction_antipatterns": [],
-  "skill_antipattern_last_sync_blocked_count": 0,
+  "skill_antipattern_synthesis_count": 3,
+  "skill_antipattern_validation_runs": 3,
   "skill_antipattern_prompt_max_items": 40,
   "missing_skills_suggestions": [],
   "known_skill_patterns": [

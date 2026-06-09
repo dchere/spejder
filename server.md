@@ -8,8 +8,8 @@ Provides an interactive dashboard (web GUI) to review extracted jobs and view th
 - `create_app(...)`: FastAPI factory
 
 **Context:**
-Originally built with the built-in `http.server`, it has been upgraded to a modern asynchronous stack using **FastAPI** and **Uvicorn**. It provides endpoints like `/`, `/company.html`, `/logs`, `/action/submit_job`, etc. It fetches data via `db.py` and renders HTML via `reporting.py` (which uses Jinja2).
+Originally built with the built-in `http.server`, it has been upgraded to a modern asynchronous stack using **FastAPI** and **Uvicorn**. It provides endpoints like `/`, `/company.html`, `/logs`, `/action/submit_job`, etc. It fetches data via `db.py` and renders HTML via `managers/dashboard_manager.py` (Jinja2 templates).
 
 **Dependencies:**
 - `fastapi`, `uvicorn`, `pydantic`
-- `spejder.reporting`, `spejder.db`, `spejder.workflows`
+- `spejder.db`, `spejder.workflows`, `spejder.managers.dashboard_manager`

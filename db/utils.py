@@ -1,10 +1,14 @@
+import base64
 import sqlite3
 import re
 import time
 import json
 from datetime import datetime, timezone
+from html import unescape
 from typing import Optional
 from urllib.parse import parse_qs, unquote, urlparse
+
+EMERSON_ORACLE_FA_HOST = "hdjq.fa.us2.oraclecloud.com"
 
 TITLE_GARBAGE_MARKERS = [
     "translated title",
@@ -24,8 +28,6 @@ def sanitize_job_title(title: str) -> str:
             t = t[len(marker):].strip()
             low = t.lower()
     return t
-
-from typing import Optional
 
 SQLITE_TIMEOUT_SECONDS = 15
 SQLITE_BUSY_TIMEOUT_MS = 15000
@@ -107,6 +109,21 @@ def _normalize_position_link(link: str) -> str:
     if "careers.novonordisk.com" in low and "/job/" in low and parsed.path:
         return f"https://careers.novonordisk.com{parsed.path}".rstrip("/")
 
+    if "careers.vestas.com" in low and re.search(r"/job/.+/\d+", low) and parsed.path:
+        return f"{parsed.scheme}://{parsed.netloc}{parsed.path}".rstrip("/")
+
+    if (
+        re.search(r"\.fa\.[a-z0-9]+\.oraclecloud\.com", (parsed.netloc or "").lower())
+        and "/candidateexperience/" in (parsed.path or "").lower()
+        and re.search(r"/job/\d+/?", (parsed.path or "").lower())
+    ):
+        netloc_clean = re.sub(r":(443|80)$", "", parsed.netloc or "")
+        return (
+            f"https://{netloc_clean}{parsed.path}"
+            if netloc_clean and parsed.path
+            else link
+        ).rstrip("/")
+
     if (
         re.search(r"\.fa\.ocs\.oraclecloud\.(?:com|eu)",
                   (parsed.netloc or "").lower())
@@ -172,12 +189,21 @@ def _provider_from_link(link: str) -> str:
         return "Nordea"
     if "careers.novonordisk.com" in low:
         return "Novo Nordisk"
+    parsed = urlparse(link)
+    netloc_clean = re.sub(r":(443|80)$", "", (parsed.netloc or "")).lower()
+    path_low = (parsed.path or "").lower()
+    if netloc_clean == EMERSON_ORACLE_FA_HOST and "/candidateexperience/" in path_low:
+        return "Emerson Career Site"
+    if re.search(r"\.fa\.[a-z0-9]+\.oraclecloud\.com", low) and "/candidateexperience/" in low:
+        return "Oracle CX"
     if re.search(r"\.fa\.ocs\.oraclecloud\.(?:com|eu)", low) and "/candidateexperience/" in low:
         return "Oracle CX"
     if "careers.demant.com" in low:
         return "Demant"
     if "jobs.danfoss.com" in low:
         return "Danfoss"
+    if "careers.vestas.com" in low:
+        return "Vestas"
     if "jobs.teradyne.com" in low:
         return "Teradyne"
     if "careers.nttdata-solutions.com" in low:
@@ -187,7 +213,6 @@ def _provider_from_link(link: str) -> str:
     if "jobs.tetrapak.com" in low:
         return "Tetra Pak"
 
-    parsed = urlparse(link)
     host = (parsed.netloc or "").strip().lower()
     if host.startswith("www."):
         host = host[4:]

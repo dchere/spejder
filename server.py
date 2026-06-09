@@ -1,14 +1,9 @@
 """API Server for Spejder"""
-# pylint: disable=too-many-locals,missing-function-docstring,unused-import,no-name-in-module,trailing-whitespace,unused-variable,broad-exception-caught,line-too-long,wrong-import-order,unexpected-keyword-arg
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-
-# pylint: disable=too-many-branches,too-many-statements,too-many-locals,broad-exception-caught
-# pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-return-statements
-# pylint: disable=line-too-long,import-error,duplicate-code,cyclic-import,import-outside-toplevel,unused-argument,unused-import,unused-variable,missing-class-docstring
 from pydantic import BaseModel
 
 from .db import (

@@ -1,15 +1,19 @@
-# pylint: disable=all
 import re
 from typing import Optional
 
 from spejder.config import AppConfig
-from spejder.db import *
+from spejder.db import (
+    get_job_for_rescoring,
+    get_job_skills,
+    get_jobs_for_scoring,
+    update_jobs_relevance,
+)
 from spejder.db.utils import _normalize_skill_name_key
-from spejder.extractors.skill_extractor.extraction import _extract_skills_fallback
+from spejder.extractors.skill_extractor.extraction_fallback import _extract_skills_fallback
 from spejder.extractors.skill_extractor.patterns import _get_skill_patterns
 from spejder.jobs.parsing import _has_easy_apply_signal, _has_linkedin_public_easy_apply
 
-EASY_APPLY_PATTERN = re.compile(r'\beasy\s*apply\b', flags=re.IGNORECASE)
+EASY_APPLY_PATTERN = re.compile(r"\beasy\s*apply\b", flags=re.IGNORECASE)
 
 
 def score_relevance(

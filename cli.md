@@ -7,7 +7,7 @@ Provides the "thin" command-line interface entry point for the application.
 - Parses `argparse` definitions for tasks like `process-inbox`, `report-links`, `serve-gui`, etc.
 
 **Context:**
-As part of the structural refactor, `cli.py` has been completely stripped of business logic. It handles solely formatting descriptions, reading arguments via standard argparse configuration, and forwarding invocations cleanly into their real implementations housed inside `spejder.workflows`.
+As part of the structural refactor, `cli.py` has been completely stripped of business logic. It handles solely formatting descriptions, reading arguments via standard argparse configuration, and forwarding invocations cleanly into `spejder.workflows`. There is no separate `spejder.commands` package — command handlers live as workflow functions.
 
 **Init orchestration:**
 `COMMAND_INIT` maps each command to required subsystems (`language_checker`, `translation`, `llm`). Commands not listed skip pre-init. Only `sync-user-skills` receives `args._llm` from `initialize_llm_or_exit` to avoid loading the model twice; the CLI releases the local instance (`del llm`) for other LLM commands so workflows load a single in-memory copy. Other LLM commands validate at the CLI layer and load their own instance in the workflow. `--quiet-model` affects CLI `verbose` only for `sync-user-skills`; `refresh-descriptions` and similar commands use workflow-level quiet flags.

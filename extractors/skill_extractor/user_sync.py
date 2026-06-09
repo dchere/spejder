@@ -14,7 +14,7 @@ from spejder.managers.language_manager import (
 from spejder.managers.profile_manager import _save_profile
 from spejder.parsers.cv_parser import load_cv_text
 
-from .extraction import _extract_skills_fallback
+from .extraction_fallback import _extract_skills_fallback
 from .normalization import _normalize_skill_name
 from .patterns import _ensure_skill_pattern_seed_migration, _get_skill_patterns
 from .utils import _split_skills_from_text
@@ -59,7 +59,7 @@ def _extract_user_skills_from_cv(
             cleaned = _cleanup(parsed, int(limit))
             if cleaned:
                 return cleaned
-        except Exception:
+        except (OSError, RuntimeError, ValueError, TypeError):
             pass
 
     fallback = _extract_skills_fallback(
@@ -134,7 +134,7 @@ def sync_user_skills(
                 loaded = json.load(f)
             if isinstance(loaded, dict):
                 profile_data.update(loaded)
-        except Exception:
+        except (OSError, json.JSONDecodeError, ValueError, TypeError):
             pass
 
     existing = [_normalize_skill_name(s) for s in (profile_data.get("user_skills") or [])]

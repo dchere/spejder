@@ -1,4 +1,4 @@
-# pylint: disable=all
+
 import re
 import sys
 import os
@@ -50,7 +50,7 @@ def is_danish_text(text: str, runtime_profile: Optional[AppConfig] = None) -> bo
 
     try:
         labels, probabilities = detector.predict(sample.replace("\n", " "), k=1)
-    except Exception:  # pylint: disable=broad-exception-caught
+    except Exception:
         return False
 
     if not labels or not probabilities:

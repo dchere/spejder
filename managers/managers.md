@@ -1,14 +1,18 @@
 # Managers
 
 **Purpose:**
-The `managers` package contains higher-level orchestration logic that coordinates between models, APIs, data stores, and application config.
+Higher-level services coordinating config, HTML rendering, and language tooling.
 
 **Modules:**
-- `profile_manager.py` / `profile_manager.md`: Handles profile configuration defaults and overrides.
-- `dashboard_manager.py` / `dashboard_manager.md`: Handles HTML dashboard generation or reporting structures.
-- `language_manager.py`: (refactored) Exposes language parsing and translation utilities. It's composed of smaller feature-specific modules:
-  - `language_detector.py`: FastText detection module.
-  - `language_translator.py`: MarianMT translation module.
+- `profile_manager.py` / `profile_manager.md` — profile defaults and persistence
+- `dashboard_manager.py` / `dashboard_manager.md` — interactive HTML dashboard generation
+- `language_manager/` / `language_manager.md` — detection, translation, title normalization
+  - `detection.py` — FastText Danish detection
+  - `engines.py` — MarianMT / ctranslate2 runtime
+  - `initialization.py` — CLI init hooks
+  - `text_translation.py` — body translation
+  - `titles.py` — title translation and compare keys
+  - `utils.py` — shared init helpers
 
-**Architectural Rule (`No Monoliths`):**
-No file should exceed 300 lines. If a manager grows too large, refer to this md and split it logically into domain-specific modules.
+**Architectural rule (`No monoliths`):**
+No file should exceed 300 lines. Split into domain-specific modules and update this file when adding submodules.

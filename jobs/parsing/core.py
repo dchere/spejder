@@ -1,28 +1,25 @@
+from spejder.db import _normalize_position_link, _provider_from_link
+
 from .companies import extract_company_title
-from .links import _is_job_link
-from .linkedin import _is_linkedin_reference_position_link, _is_linkedin_boilerplate_entry, _work_type_from_html_for_link, _has_linkedin_public_easy_apply, _has_easy_apply_signal
 from .html_parser import _extract_html_entries_by_link
+from .links import _is_job_link
+from .linkedin import (
+    _is_linkedin_boilerplate_entry,
+    _is_linkedin_reference_position_link,
+    _work_type_from_html_for_link,
+)
+from .platforms import (
+    _extract_danfoss_entries_by_link,
+    _extract_demant_entries_by_link,
+    _extract_google_entries_by_link,
+    _extract_jobindex_entries_by_link,
+)
+from .platforms_career_alerts import (
+    _extract_oracle_cx_entries_by_link,
+    _extract_thehub_entries_by_link,
+    _extract_vestas_entries_by_link,
+)
 from .text_parser import _extract_entries_from_text
-from .platforms import _extract_jobindex_entries_by_link, _extract_demant_entries_by_link, _extract_danfoss_entries_by_link, _extract_google_entries_by_link
-# pylint: disable=all
-from spejder.db import *
-from spejder.db import _provider_from_link, _normalize_position_link
-import re
-import json
-import base64
-from datetime import datetime, timezone
-from urllib.parse import parse_qs, unquote, urlparse
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
-from collections.abc import Callable
-from typing import Optional
-from html import unescape
-from bs4 import BeautifulSoup
-from collections import Counter
-from spejder.config import AppConfig
-
-from .constants import *
-
 
 
 def extract_job_entries(doc: dict) -> list[dict]:
@@ -35,6 +32,9 @@ def extract_job_entries(doc: dict) -> list[dict]:
     demant_by_link = _extract_demant_entries_by_link(html_text)
     danfoss_by_link = _extract_danfoss_entries_by_link(html_text)
     google_by_link = _extract_google_entries_by_link(html_text)
+    vestas_by_link = _extract_vestas_entries_by_link(html_text)
+    thehub_by_link = _extract_thehub_entries_by_link(html_text)
+    oracle_by_link = _extract_oracle_cx_entries_by_link(html_text)
 
     by_text = _extract_entries_from_text(text)
     by_link = {}
@@ -47,6 +47,9 @@ def extract_job_entries(doc: dict) -> list[dict]:
         demant_fields = demant_by_link.get(lnk, {})
         danfoss_fields = danfoss_by_link.get(lnk, {})
         google_fields = google_by_link.get(lnk, {})
+        vestas_fields = vestas_by_link.get(lnk, {})
+        thehub_fields = thehub_by_link.get(lnk, {})
+        oracle_fields = oracle_by_link.get(lnk, {})
 
         if google_fields.get("title"):
             entry["title"] = google_fields["title"]
@@ -60,6 +63,45 @@ def extract_job_entries(doc: dict) -> list[dict]:
             entry["raw_text"] = google_fields["raw_text"]
         if google_fields.get("source"):
             entry["source"] = google_fields["source"]
+
+        if vestas_fields.get("title"):
+            entry["title"] = vestas_fields["title"]
+        if vestas_fields.get("company"):
+            entry["company"] = vestas_fields["company"]
+        if vestas_fields.get("place"):
+            entry["place"] = vestas_fields["place"]
+        if vestas_fields.get("work_type"):
+            entry["work_type"] = vestas_fields["work_type"]
+        if vestas_fields.get("raw_text"):
+            entry["raw_text"] = vestas_fields["raw_text"]
+        if vestas_fields.get("source"):
+            entry["source"] = vestas_fields["source"]
+
+        if thehub_fields.get("title"):
+            entry["title"] = thehub_fields["title"]
+        if thehub_fields.get("company"):
+            entry["company"] = thehub_fields["company"]
+        if thehub_fields.get("place"):
+            entry["place"] = thehub_fields["place"]
+        if thehub_fields.get("work_type"):
+            entry["work_type"] = thehub_fields["work_type"]
+        if thehub_fields.get("raw_text"):
+            entry["raw_text"] = thehub_fields["raw_text"]
+        if thehub_fields.get("source"):
+            entry["source"] = thehub_fields["source"]
+
+        if oracle_fields.get("title"):
+            entry["title"] = oracle_fields["title"]
+        if oracle_fields.get("company"):
+            entry["company"] = oracle_fields["company"]
+        if oracle_fields.get("place"):
+            entry["place"] = oracle_fields["place"]
+        if oracle_fields.get("work_type"):
+            entry["work_type"] = oracle_fields["work_type"]
+        if oracle_fields.get("raw_text"):
+            entry["raw_text"] = oracle_fields["raw_text"]
+        if oracle_fields.get("source"):
+            entry["source"] = oracle_fields["source"]
 
         if danfoss_fields.get("title"):
             entry["title"] = danfoss_fields["title"]
@@ -129,41 +171,62 @@ def extract_job_entries(doc: dict) -> list[dict]:
         demant_fields = demant_by_link.get(normalized, {})
         danfoss_fields = danfoss_by_link.get(normalized, {})
         google_fields = google_by_link.get(normalized, {})
+        vestas_fields = vestas_by_link.get(normalized, {})
+        thehub_fields = thehub_by_link.get(normalized, {})
+        oracle_fields = oracle_by_link.get(normalized, {})
         company, title = extract_company_title(text, title_hint)
         wt = html_fields.get("work_type") or _work_type_from_html_for_link(
             html_text, normalized
         )
         by_link[normalized] = {
             "company": google_fields.get("company")
+            or thehub_fields.get("company")
+            or vestas_fields.get("company")
+            or oracle_fields.get("company")
             or danfoss_fields.get("company")
             or demant_fields.get("company")
             or ji_fields.get("company")
             or html_fields.get("company")
             or company,
             "title": google_fields.get("title")
+            or thehub_fields.get("title")
+            or vestas_fields.get("title")
+            or oracle_fields.get("title")
             or danfoss_fields.get("title")
             or demant_fields.get("title")
             or ji_fields.get("title")
             or html_fields.get("title")
             or title,
             "place": google_fields.get("place")
+            or thehub_fields.get("place")
+            or vestas_fields.get("place")
+            or oracle_fields.get("place")
             or danfoss_fields.get("place")
             or demant_fields.get("place")
             or ji_fields.get("place")
             or html_fields.get("place")
             or "",
             "work_type": google_fields.get("work_type")
+            or thehub_fields.get("work_type")
+            or vestas_fields.get("work_type")
+            or oracle_fields.get("work_type")
             or danfoss_fields.get("work_type")
             or demant_fields.get("work_type")
             or (wt if wt else "Unknown"),
             "position_link": normalized,
             "raw_text": google_fields.get("raw_text")
+            or thehub_fields.get("raw_text")
+            or vestas_fields.get("raw_text")
+            or oracle_fields.get("raw_text")
             or danfoss_fields.get("raw_text")
             or demant_fields.get("raw_text")
             or ji_fields.get("raw_text")
             or html_fields.get("raw_text")
             or text[:2500],
             "source": google_fields.get("source")
+            or thehub_fields.get("source")
+            or vestas_fields.get("source")
+            or oracle_fields.get("source")
             or danfoss_fields.get("source")
             or demant_fields.get("source")
             or _provider_from_link(normalized),

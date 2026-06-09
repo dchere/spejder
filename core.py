@@ -1,6 +1,5 @@
-# pylint: disable=too-many-locals,missing-class-docstring,missing-function-docstring,unused-import,no-name-in-module,trailing-whitespace,unused-variable,broad-exception-caught,line-too-long,wrong-import-position,undefined-variable,pointless-string-statement
+
 """Core methods."""
-# pylint: disable=too-many-locals,missing-class-docstring,missing-function-docstring,unused-import,no-name-in-module,trailing-whitespace,unused-variable,broad-exception-caught,line-too-long,wrong-import-position,undefined-variable,pointless-string-statement
 """
 core.py: Core utilities and profile management for spejder
 """
@@ -56,6 +55,6 @@ def load_runtime_profile(profile_path: str):
     if path and os.path.exists(path):
         try:
             return load_profile(path)
-        except Exception:
-            pass
+        except (OSError, ValueError, TypeError) as exc:
+            print_step(f"profile load failed for {path}, using defaults: {exc}")
     return load_profile(None)

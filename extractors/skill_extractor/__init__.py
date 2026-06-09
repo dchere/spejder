@@ -6,12 +6,10 @@ from .antipattern_sync import (
     sync_skill_antipatterns as sync_skill_antipatterns,
     sync_skill_extraction_antipatterns as sync_skill_extraction_antipatterns,
 )
-from .extraction import (
+from .extraction import _get_or_extract_job_skills as _get_or_extract_job_skills
+from .extraction_fallback import _extract_skills_fallback as _extract_skills_fallback
+from .extraction_prompt import (
     _build_job_skill_extraction_prompt as _build_job_skill_extraction_prompt,
-    _extract_skills_fallback as _extract_skills_fallback,
-)
-from .extraction import (
-    _get_or_extract_job_skills as _get_or_extract_job_skills,
 )
 from .filtering import _blocked_skill_keys as _blocked_skill_keys
 from .learning import (

@@ -3,8 +3,6 @@ Profile manager handling profile operations like saving, toggling and blocking s
 """
 from spejder.config import AppConfig
 
-# pylint: disable=too-many-branches,too-many-statements,too-many-locals
-
 def _normalize_skill_name(skill_name: str) -> str:
     if not skill_name:
         return ""

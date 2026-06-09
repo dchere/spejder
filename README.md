@@ -218,7 +218,7 @@ Notes:
 
 ### `sync-antipatterns`
 
-Distill junk-like `blocked_skills` into LLM antipattern rules for the job extraction prompt, validate on sample jobs, and prune entries the prompt now filters without the deny list.
+Distill `blocked_skills` into LLM antipattern rules using a synthetic test job, validate each candidate independently, and prune blocked entries the prompt now filters.
 
 ```bash
 python3 -m spejder.cli sync-antipatterns \
@@ -305,8 +305,9 @@ In `profile.json`:
 
 - `user_skills`: your editable skill list used for scoring.
 - `blocked_skills`: skills hidden from the Skills tab and filtered out from extracted skill results.
-- `skill_extraction_antipatterns`: LLM-synthesized rules/examples injected into the job skill extraction prompt.
-- `skill_antipattern_last_sync_blocked_count`: gate state for rare antipattern sync (updated after a successful sync).
+- `skill_extraction_antipatterns`: LLM-synthesized rules injected into the job skill extraction prompt.
+- `skill_antipattern_synthesis_count`: antipattern rules to synthesize per sync (default `3`).
+- `skill_antipattern_validation_runs`: stable extraction runs per validation step (default `3`).
 - `skill_antipattern_prompt_max_items`: max antipatterns included in the extraction prompt (default `40`).
 - `missing_skills_suggestions`: generated from applied jobs.
 - `skill_match_weight`: bonus per matched required skill.

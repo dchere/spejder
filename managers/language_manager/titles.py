@@ -1,4 +1,4 @@
-# pylint: disable=all
+
 import re
 import sys
 import os
@@ -74,7 +74,6 @@ def clean_translated_title_output(text: str) -> str:
 
 
 def is_plausible_translated_title(candidate: str, original: str) -> bool:
-    # pylint: disable=too-many-return-statements
     text = " ".join((candidate or "").split()).strip()
     base = " ".join((original or "").split()).strip()
     if not text:
@@ -118,9 +117,8 @@ def normalize_title_compare_key(text: str) -> str:
 
 
 def translate_title_to_english(
-    # pylint: disable=too-many-locals
     title: str,
-    llm: Optional[LocalLLM] = None,  # pylint: disable=unused-argument
+    llm: Optional[LocalLLM] = None,
     runtime_profile: Optional[AppConfig] = None,
     title_translation_cache: Optional[dict] = None,
 ) -> str:

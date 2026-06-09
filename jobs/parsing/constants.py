@@ -1,4 +1,4 @@
-# pylint: disable=all
+
 import re
 
 COMPANY_NOISE_TOKENS = {'danmark', 'denmark', 'aps', 'a', 's', 'as', 'ab', 'oy', 'ltd', 'llc', 'inc', 'group', 'holding'}

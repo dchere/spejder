@@ -12,10 +12,10 @@ def _make_transform():
 
 
 class TranslateJobEntryForStorageTest(unittest.TestCase):
-    @patch("spejder.workflows.job_enrichment._normalize_title_compare_key")
-    @patch("spejder.workflows.job_enrichment._finalize_title_english")
-    @patch("spejder.workflows.job_enrichment._translate_title_to_english")
-    @patch("spejder.workflows.job_enrichment._translate_text_to_english_if_needed")
+    @patch("spejder.workflows.job_translation._normalize_title_compare_key")
+    @patch("spejder.workflows.job_translation._finalize_title_english")
+    @patch("spejder.workflows.job_translation._translate_title_to_english")
+    @patch("spejder.workflows.job_translation._translate_text_to_english_if_needed")
     def test_happy_path_both_translators_succeed(
         self,
         mock_translate_text,
@@ -36,10 +36,10 @@ class TranslateJobEntryForStorageTest(unittest.TestCase):
         self.assertEqual(result["title_english"], "EN Title Final")
         self.assertEqual(entry, original_entry)
 
-    @patch("spejder.workflows.job_enrichment._normalize_title_compare_key")
-    @patch("spejder.workflows.job_enrichment._finalize_title_english")
-    @patch("spejder.workflows.job_enrichment._translate_title_to_english")
-    @patch("spejder.workflows.job_enrichment._translate_text_to_english_if_needed")
+    @patch("spejder.workflows.job_translation._normalize_title_compare_key")
+    @patch("spejder.workflows.job_translation._finalize_title_english")
+    @patch("spejder.workflows.job_translation._translate_title_to_english")
+    @patch("spejder.workflows.job_translation._translate_text_to_english_if_needed")
     def test_title_translator_raises_falls_back_to_text_translator(
         self,
         mock_translate_text,
@@ -58,10 +58,10 @@ class TranslateJobEntryForStorageTest(unittest.TestCase):
         self.assertEqual(result["raw_text"], "EN body")
         self.assertEqual(result["title_english"], "EN Title Fallback")
 
-    @patch("spejder.workflows.job_enrichment._normalize_title_compare_key")
-    @patch("spejder.workflows.job_enrichment._finalize_title_english")
-    @patch("spejder.workflows.job_enrichment._translate_title_to_english")
-    @patch("spejder.workflows.job_enrichment._translate_text_to_english_if_needed")
+    @patch("spejder.workflows.job_translation._normalize_title_compare_key")
+    @patch("spejder.workflows.job_translation._finalize_title_english")
+    @patch("spejder.workflows.job_translation._translate_title_to_english")
+    @patch("spejder.workflows.job_translation._translate_text_to_english_if_needed")
     def test_both_title_translators_raise_uses_raw_title_value(
         self,
         mock_translate_text,
@@ -80,10 +80,10 @@ class TranslateJobEntryForStorageTest(unittest.TestCase):
         self.assertEqual(result["title_english"], "Software Engineer")
         mock_finalize_title.assert_called_once_with("Software Engineer", "Software Engineer")
 
-    @patch("spejder.workflows.job_enrichment._normalize_title_compare_key")
-    @patch("spejder.workflows.job_enrichment._finalize_title_english")
-    @patch("spejder.workflows.job_enrichment._translate_title_to_english")
-    @patch("spejder.workflows.job_enrichment._translate_text_to_english_if_needed")
+    @patch("spejder.workflows.job_translation._normalize_title_compare_key")
+    @patch("spejder.workflows.job_translation._finalize_title_english")
+    @patch("spejder.workflows.job_translation._translate_title_to_english")
+    @patch("spejder.workflows.job_translation._translate_text_to_english_if_needed")
     def test_normalize_match_blanks_title_english(
         self,
         mock_translate_text,
@@ -101,10 +101,10 @@ class TranslateJobEntryForStorageTest(unittest.TestCase):
 
         self.assertEqual(result["title_english"], "")
 
-    @patch("spejder.workflows.job_enrichment._normalize_title_compare_key")
-    @patch("spejder.workflows.job_enrichment._finalize_title_english")
-    @patch("spejder.workflows.job_enrichment._translate_title_to_english")
-    @patch("spejder.workflows.job_enrichment._translate_text_to_english_if_needed")
+    @patch("spejder.workflows.job_translation._normalize_title_compare_key")
+    @patch("spejder.workflows.job_translation._finalize_title_english")
+    @patch("spejder.workflows.job_translation._translate_title_to_english")
+    @patch("spejder.workflows.job_translation._translate_text_to_english_if_needed")
     def test_entry_copy_does_not_mutate_original(
         self,
         mock_translate_text,
@@ -126,10 +126,10 @@ class TranslateJobEntryForStorageTest(unittest.TestCase):
         self.assertEqual(entry, original_entry)
         self.assertNotEqual(result, entry)
 
-    @patch("spejder.workflows.job_enrichment._normalize_title_compare_key")
-    @patch("spejder.workflows.job_enrichment._finalize_title_english")
-    @patch("spejder.workflows.job_enrichment._translate_title_to_english")
-    @patch("spejder.workflows.job_enrichment._translate_text_to_english_if_needed")
+    @patch("spejder.workflows.job_translation._normalize_title_compare_key")
+    @patch("spejder.workflows.job_translation._finalize_title_english")
+    @patch("spejder.workflows.job_translation._translate_title_to_english")
+    @patch("spejder.workflows.job_translation._translate_text_to_english_if_needed")
     def test_missing_raw_text_and_title_keys_handled_gracefully(
         self,
         mock_translate_text,
@@ -148,10 +148,10 @@ class TranslateJobEntryForStorageTest(unittest.TestCase):
         self.assertEqual(result["raw_text"], "")
         self.assertEqual(result["title_english"], "")
 
-    @patch("spejder.workflows.job_enrichment._normalize_title_compare_key")
-    @patch("spejder.workflows.job_enrichment._finalize_title_english")
-    @patch("spejder.workflows.job_enrichment._translate_title_to_english")
-    @patch("spejder.workflows.job_enrichment._translate_text_to_english_if_needed")
+    @patch("spejder.workflows.job_translation._normalize_title_compare_key")
+    @patch("spejder.workflows.job_translation._finalize_title_english")
+    @patch("spejder.workflows.job_translation._translate_title_to_english")
+    @patch("spejder.workflows.job_translation._translate_text_to_english_if_needed")
     def test_caches_forwarded_to_correct_translators(
         self,
         mock_translate_text,

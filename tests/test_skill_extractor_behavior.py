@@ -2,7 +2,7 @@
 
 import unittest
 
-from spejder.extractors.skill_extractor.extraction import _extract_skills_fallback
+from spejder.extractors.skill_extractor.extraction_fallback import _extract_skills_fallback
 from spejder.extractors.skill_extractor.filtering import (
     _filter_blocked_skill_names,
     _passes_phrase_quality,

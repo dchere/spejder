@@ -4,28 +4,31 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from spejder.config import AppConfig
-from spejder.extractors.skill_extractor.antipattern_sync import (
-    SYNTHESIS_INPUT_MAX,
-    SYNTHESIS_MAX_TOKENS,
-    SYNC_MIN_BLOCKED,
-    SYNC_MIN_DELTA,
-    SYNC_MIN_JUNK_CANDIDATES,
-    _filter_synthesized_antipatterns,
+from spejder.extractors.skill_extractor.antipattern_synthesis import (
+    SYNTHESIS_PATTERN_COUNT,
+    _blocked_skills_for_synthesis,
     _merge_antipatterns,
     _remove_from_blocked_skills,
-    _select_junk_blocked_candidates,
     _synthesize_antipatterns_via_llm,
-    _validate_skill_filtered_by_prompt,
+)
+from spejder.extractors.skill_extractor.antipattern_sync import (
+    SYNC_MIN_BLOCKED,
     should_sync_skill_antipatterns,
     sync_skill_extraction_antipatterns,
 )
-from spejder.extractors.skill_extractor.extraction import (
+from spejder.extractors.skill_extractor.antipattern_validation import (
+    VALIDATION_RUNS,
+    _generate_synthetic_job_posting,
+    _stable_extracted_keys,
+    _validate_antipattern_candidate,
+)
+from spejder.extractors.skill_extractor.extraction_prompt import (
     _build_job_skill_extraction_prompt,
     _prompt_antipatterns,
 )
 
 
-def _junk_blocked_samples(count: int) -> list[str]:
+def _blocked_samples(count: int) -> list[str]:
     templates = [
         "we are looking for",
         "our new colleague",
@@ -51,7 +54,6 @@ class BuildPromptAntipatternsTest(unittest.TestCase):
         )
         self.assertIn("Antipatterns (never return these or similar phrasing):", prompt)
         self.assertIn("- we are looking for", prompt)
-        self.assertIn("- our team culture", prompt)
 
     def test_omits_antipatterns_when_empty(self):
         prompt = _build_job_skill_extraction_prompt(
@@ -74,49 +76,25 @@ class PromptAntipatternsNewestFirstTest(unittest.TestCase):
         self.assertEqual(result, ["pattern-45", "pattern-46", "pattern-47", "pattern-48", "pattern-49"])
 
 
-class SelectJunkBlockedCandidatesTest(unittest.TestCase):
-    def test_selects_sentence_fragments(self):
+class BlockedSkillsForSynthesisTest(unittest.TestCase):
+    def test_uses_all_blocked_skills(self):
         profile = AppConfig(
-            blocked_skills=[
-                "we are looking for",
-                "python",
-                "wms",
-            ],
+            blocked_skills=["we are looking for", "python", "our new colleague"],
             skill_extraction_antipatterns=[],
         )
-        candidates = _select_junk_blocked_candidates(profile)
-        self.assertIn("we are looking for", candidates)
-        self.assertNotIn("python", candidates)
-        self.assertNotIn("wms", candidates)
+        skills, truncated = _blocked_skills_for_synthesis(profile)
+        self.assertIn("we are looking for", skills)
+        self.assertIn("python", skills)
+        self.assertIn("our new colleague", skills)
+        self.assertFalse(truncated)
 
     def test_skips_already_in_antipatterns(self):
         profile = AppConfig(
             blocked_skills=["we are looking for"],
             skill_extraction_antipatterns=["we are looking for"],
         )
-        self.assertEqual(_select_junk_blocked_candidates(profile), [])
-
-    def test_candidates_sorted_by_job_links(self):
-        link_counts = {
-            "we are looking for": 3,
-            "our new colleague": 1,
-            "what you will do develop": 2,
-        }
-        profile = AppConfig(
-            blocked_skills=[
-                "our new colleague",
-                "what you will do develop",
-                "we are looking for",
-            ],
-            skill_extraction_antipatterns=[],
-        )
-        candidates = _select_junk_blocked_candidates(
-            profile, db_path="./jobs.db", link_counts=link_counts
-        )
-        self.assertEqual(
-            candidates,
-            ["we are looking for", "what you will do develop", "our new colleague"],
-        )
+        skills, _ = _blocked_skills_for_synthesis(profile)
+        self.assertEqual(skills, [])
 
 
 class MergeAntipatternsTest(unittest.TestCase):
@@ -137,463 +115,239 @@ class RemoveFromBlockedSkillsTest(unittest.TestCase):
 
 class ShouldSyncGateTest(unittest.TestCase):
     def test_skips_without_llm(self):
-        profile = AppConfig(blocked_skills=["we are looking for"] * 20)
+        profile = AppConfig(blocked_skills=_blocked_samples(SYNC_MIN_BLOCKED))
         self.assertFalse(should_sync_skill_antipatterns(profile, llm=None))
 
     def test_skips_when_blocked_below_minimum(self):
-        profile = AppConfig(blocked_skills=["we are looking for"] * (SYNC_MIN_BLOCKED - 1))
+        profile = AppConfig(blocked_skills=_blocked_samples(SYNC_MIN_BLOCKED - 1))
         self.assertFalse(should_sync_skill_antipatterns(profile, llm=MagicMock()))
 
-    def test_skips_when_delta_below_threshold(self):
-        blocked = ["we are looking for"] * SYNC_MIN_BLOCKED
-        profile = AppConfig(
-            blocked_skills=blocked,
-            skill_antipattern_last_sync_blocked_count=SYNC_MIN_BLOCKED - 1,
-        )
-        self.assertFalse(should_sync_skill_antipatterns(profile, llm=MagicMock()))
-
-    def test_runs_when_first_sync_and_enough_junk(self):
-        junk = _junk_blocked_samples(SYNC_MIN_JUNK_CANDIDATES)
-        profile = AppConfig(
-            blocked_skills=junk + ["python"] * SYNC_MIN_BLOCKED,
-            skill_antipattern_last_sync_blocked_count=0,
-        )
+    def test_runs_when_blocked_at_minimum(self):
+        profile = AppConfig(blocked_skills=_blocked_samples(SYNC_MIN_BLOCKED))
         self.assertTrue(should_sync_skill_antipatterns(profile, llm=MagicMock()))
-
-    def test_runs_when_delta_large_enough(self):
-        junk = _junk_blocked_samples(SYNC_MIN_JUNK_CANDIDATES)
-        profile = AppConfig(
-            blocked_skills=junk + ["python"] * (SYNC_MIN_BLOCKED + SYNC_MIN_DELTA),
-            skill_antipattern_last_sync_blocked_count=SYNC_MIN_BLOCKED,
-        )
-        self.assertTrue(should_sync_skill_antipatterns(profile, llm=MagicMock()))
-
-
-class ValidateSkillFilteredByPromptTest(unittest.TestCase):
-    @patch("spejder.extractors.skill_extractor.antipattern_sync._extract_job_skills_llm_path")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync.get_job_for_rescoring")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync.get_job_ids_for_skill")
-    def test_skips_missing_jobs_and_empty_text(
-        self, mock_get_job_ids, mock_get_job, mock_llm_path
-    ):
-        mock_get_job_ids.return_value = [1, 2, 3]
-        mock_get_job.side_effect = [
-            None,
-            {"raw_text": "   "},
-            {"raw_text": "Requirements: python required."},
-        ]
-        mock_llm_path.return_value = "python"
-
-        profile = AppConfig()
-        llm = MagicMock()
-        result = _validate_skill_filtered_by_prompt(
-            "./jobs.db", profile, llm, "we are looking for"
-        )
-
-        self.assertTrue(result)
-        mock_llm_path.assert_called_once()
-
-    @patch("spejder.extractors.skill_extractor.antipattern_sync._extract_job_skills_llm_path")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync.get_job_for_rescoring")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync.get_job_ids_for_skill")
-    def test_returns_false_when_all_llm_failures(
-        self, mock_get_job_ids, mock_get_job, mock_llm_path
-    ):
-        mock_get_job_ids.return_value = [1, 2]
-        mock_get_job.return_value = {"raw_text": "Requirements: python required."}
-        mock_llm_path.return_value = None
-
-        profile = AppConfig()
-        llm = MagicMock()
-        result = _validate_skill_filtered_by_prompt(
-            "./jobs.db", profile, llm, "we are looking for"
-        )
-
-        self.assertFalse(result)
-        self.assertEqual(mock_llm_path.call_count, 2)
-
-    @patch("spejder.extractors.skill_extractor.antipattern_sync._extract_job_skills_llm_path")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync.get_job_for_rescoring")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync.get_job_ids_for_skill")
-    def test_returns_false_when_skill_in_output(
-        self, mock_get_job_ids, mock_get_job, mock_llm_path
-    ):
-        mock_get_job_ids.return_value = [1]
-        mock_get_job.return_value = {"raw_text": "We are looking for engineers."}
-        mock_llm_path.return_value = "we are looking for"
-
-        profile = AppConfig()
-        llm = MagicMock()
-        result = _validate_skill_filtered_by_prompt(
-            "./jobs.db", profile, llm, "we are looking for"
-        )
-
-        self.assertFalse(result)
-
-    @patch("spejder.extractors.skill_extractor.antipattern_sync.get_job_ids_for_skill")
-    def test_returns_false_when_no_usable_jobs(self, mock_get_job_ids):
-        mock_get_job_ids.return_value = []
-
-        profile = AppConfig()
-        llm = MagicMock()
-        result = _validate_skill_filtered_by_prompt(
-            "./jobs.db", profile, llm, "we are looking for"
-        )
-
-        self.assertFalse(result)
 
 
 class SynthesizeAntipatternsViaLlmTest(unittest.TestCase):
-    def test_caps_llm_input_and_token_budget(self):
-        candidates = [f"junk phrase {i}" for i in range(SYNTHESIS_INPUT_MAX + 20)]
+    def test_requests_three_patterns(self):
+        blocked = _blocked_samples(20)
         llm = MagicMock()
-        llm.generate.return_value = '{"rules": ["hiring narrative"], "examples": []}'
+        llm.generate.return_value = (
+            '{"rules": ["hiring narrative", "pronoun fragments", "company fluff"]}'
+        )
 
-        result = _synthesize_antipatterns_via_llm(llm, candidates)
+        result = _synthesize_antipatterns_via_llm(llm, blocked, pattern_count=SYNTHESIS_PATTERN_COUNT)
 
-        self.assertEqual(result, ["hiring narrative"])
+        self.assertEqual(
+            result,
+            ["hiring narrative", "pronoun fragments", "company fluff"],
+        )
         prompt = llm.generate.call_args[0][0]
-        for item in candidates[SYNTHESIS_INPUT_MAX:]:
-            self.assertNotIn(item, prompt)
-        self.assertEqual(llm.generate.call_args.kwargs["max_tokens"], SYNTHESIS_MAX_TOKENS)
+        self.assertIn("exactly 3", prompt)
 
 
-class FilterSynthesizedAntipatternsTest(unittest.TestCase):
-    @patch("spejder.extractors.skill_extractor.antipattern_sync._validate_skill_filtered_by_prompt")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync._pick_probe_skill")
-    def test_per_rule_filter_drops_useless_rule(self, mock_pick_probe, mock_validate):
-        mock_pick_probe.return_value = "we are looking for"
-        mock_validate.side_effect = [False, False]
-
-        profile = AppConfig(skill_extraction_antipatterns=[])
+class StableExtractedKeysTest(unittest.TestCase):
+    @patch("spejder.extractors.skill_extractor.antipattern_validation._extract_job_skills_llm_path")
+    def test_returns_intersection_across_runs(self, mock_extract):
+        mock_extract.side_effect = [
+            "python, sql, junk",
+            "python, sql",
+            "python, sql, extra",
+        ]
+        profile = AppConfig()
         llm = MagicMock()
-        kept, stats = _filter_synthesized_antipatterns(
+        keys = _stable_extracted_keys(
             "./jobs.db",
             profile,
             llm,
-            [],
-            ["exclude useless hiring fluff"],
-            ["we are looking for"],
+            "job text",
+            antipatterns_override=[],
+            runs=3,
         )
+        self.assertEqual(keys, {"python", "sql"})
 
-        self.assertEqual(kept, [])
-        self.assertEqual(stats["rules_filtered"], 1)
-        self.assertEqual(stats["rules_kept"], 0)
+    @patch("spejder.extractors.skill_extractor.antipattern_validation._extract_job_skills_llm_path")
+    def test_skips_blocked_filter_during_validation(self, mock_extract):
+        mock_extract.return_value = "python, we are looking for"
+        profile = AppConfig(blocked_skills=["we are looking for"])
+        _stable_extracted_keys(
+            "./jobs.db",
+            profile,
+            MagicMock(),
+            "job text",
+            antipatterns_override=[],
+            runs=1,
+        )
+        self.assertTrue(mock_extract.call_args.kwargs["skip_blocked_filter"])
+
+
+class ValidateAntipatternCandidateTest(unittest.TestCase):
+    @patch("spejder.extractors.skill_extractor.antipattern_validation._stable_extracted_keys")
+    def test_accepts_when_blocked_count_drops(self, mock_stable):
+        mock_stable.return_value = {"python", "our new colleague"}
+        profile = AppConfig()
+        llm = MagicMock()
+        result = _validate_antipattern_candidate(
+            "./jobs.db",
+            profile,
+            llm,
+            "job text",
+            "exclude hiring fluff",
+            [],
+            {"we are looking for", "our new colleague"},
+            {"python"},
+            baseline_keys={"python", "we are looking for", "our new colleague"},
+        )
+        self.assertTrue(result["accepted"])
+        self.assertEqual(result["pruned_blocked"], ["we are looking for"])
+
+    @patch("spejder.extractors.skill_extractor.antipattern_validation._stable_extracted_keys")
+    def test_skips_when_no_blocked_reduction(self, mock_stable):
+        blocked = {"we are looking for"}
+        keys = {"python", "we are looking for"}
+        mock_stable.side_effect = [keys, keys]
+        profile = AppConfig()
+        result = _validate_antipattern_candidate(
+            "./jobs.db",
+            profile,
+            MagicMock(),
+            "job text",
+            "useless rule",
+            [],
+            blocked,
+            {"python"},
+            baseline_keys=keys,
+        )
+        self.assertFalse(result["accepted"])
+        self.assertEqual(result["skip_reason"], "no_blocked_reduction")
+
+    @patch("spejder.extractors.skill_extractor.antipattern_validation._stable_extracted_keys")
+    def test_skips_when_seen_skills_lost(self, mock_stable):
+        mock_stable.return_value = {"we are looking for"}
+        profile = AppConfig()
+        result = _validate_antipattern_candidate(
+            "./jobs.db",
+            profile,
+            MagicMock(),
+            "job text",
+            "too aggressive",
+            [],
+            {"we are looking for", "our new colleague"},
+            {"python", "sql", "java"},
+            baseline_keys={
+                "python",
+                "sql",
+                "java",
+                "we are looking for",
+                "our new colleague",
+            },
+        )
+        self.assertFalse(result["accepted"])
+        self.assertEqual(result["skip_reason"], "seen_skills_lost")
 
 
 class SyncSkillExtractionAntipatternsTest(unittest.TestCase):
-    @patch("spejder.extractors.skill_extractor.antipattern_sync.count_job_links_for_skills")
     @patch("spejder.extractors.skill_extractor.antipattern_sync._save_antipattern_sync_profile")
     @patch("spejder.extractors.skill_extractor.antipattern_sync.delete_skill_from_db")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync._validate_skill_filtered_by_prompt")
+    @patch("spejder.extractors.skill_extractor.antipattern_sync._validate_antipattern_candidate")
+    @patch("spejder.extractors.skill_extractor.antipattern_sync._stable_extracted_keys")
+    @patch("spejder.extractors.skill_extractor.antipattern_sync._generate_synthetic_job_posting")
+    @patch("spejder.extractors.skill_extractor.antipattern_sync._skills_seen_at_least_once")
     @patch("spejder.extractors.skill_extractor.antipattern_sync._synthesize_antipatterns_via_llm")
-    def test_prunes_validated_skills(
+    def test_commits_accepted_candidates(
         self,
         mock_synthesize,
+        mock_seen,
+        mock_job,
+        mock_baseline,
         mock_validate,
         mock_delete,
         mock_save,
-        mock_link_counts,
     ):
-        mock_link_counts.return_value = {}
         mock_save.return_value = True
-        junk = _junk_blocked_samples(SYNC_MIN_JUNK_CANDIDATES)
-        profile = AppConfig(
-            blocked_skills=list(junk),
-            skill_extraction_antipatterns=[],
-            skill_antipattern_last_sync_blocked_count=0,
-        )
-        mock_synthesize.return_value = [junk[0]]
-        mock_validate.return_value = True
+        mock_seen.return_value = ["python"]
+        mock_job.return_value = ("Synthetic job posting text.", False, False)
+        mock_baseline.return_value = {"python", "we are looking for"}
+        mock_synthesize.return_value = ["rule one", "rule two", "rule three"]
+        mock_validate.side_effect = [
+            {
+                "rule": "rule one",
+                "accepted": True,
+                "skip_reason": "",
+                "baseline_blocked": ["we are looking for"],
+                "with_blocked": [],
+                "pruned_blocked": ["we are looking for"],
+            },
+            {
+                "rule": "rule two",
+                "accepted": False,
+                "skip_reason": "no_blocked_reduction",
+                "baseline_blocked": ["we are looking for"],
+                "with_blocked": ["we are looking for"],
+                "pruned_blocked": [],
+            },
+            {
+                "rule": "rule three",
+                "accepted": False,
+                "skip_reason": "no_blocked_reduction",
+                "baseline_blocked": ["we are looking for"],
+                "with_blocked": ["we are looking for"],
+                "pruned_blocked": [],
+            },
+        ]
         mock_delete.return_value = {"skill_rows_deleted": 1, "job_skill_links_deleted": 2}
 
-        llm = MagicMock()
+        blocked = _blocked_samples(SYNC_MIN_BLOCKED)
+        profile = AppConfig(blocked_skills=blocked, skill_extraction_antipatterns=[])
+
         stats = sync_skill_extraction_antipatterns(
             "./jobs.db",
             profile,
-            llm,
+            MagicMock(),
             profile_path="./profile.json",
             force=True,
         )
 
         self.assertFalse(stats["skipped"])
-        self.assertFalse(stats["batch_rejected"])
-        self.assertGreater(stats["merged"], 0)
-        self.assertGreater(stats["pruned_blocked"], 0)
-        self.assertIn(junk[0], profile.skill_extraction_antipatterns)
+        self.assertTrue(stats["committed"])
+        self.assertEqual(stats["candidates_accepted"], 1)
+        self.assertEqual(stats["merged"], 1)
+        self.assertEqual(stats["pruned_blocked"], 1)
+        self.assertIn("rule one", profile.skill_extraction_antipatterns)
         mock_save.assert_called_once()
-        mock_delete.assert_called()
+        mock_delete.assert_called_once()
 
-    @patch("spejder.extractors.skill_extractor.antipattern_sync.count_job_links_for_skills")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync._save_antipattern_sync_profile")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync.delete_skill_from_db")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync._validate_skill_filtered_by_prompt")
+    @patch("spejder.extractors.skill_extractor.antipattern_sync._validate_antipattern_candidate")
+    @patch("spejder.extractors.skill_extractor.antipattern_sync._stable_extracted_keys")
+    @patch("spejder.extractors.skill_extractor.antipattern_sync._generate_synthetic_job_posting")
+    @patch("spejder.extractors.skill_extractor.antipattern_sync._skills_seen_at_least_once")
     @patch("spejder.extractors.skill_extractor.antipattern_sync._synthesize_antipatterns_via_llm")
-    def test_keeps_skills_when_validation_fails(
+    def test_skips_when_no_candidates_accepted(
         self,
         mock_synthesize,
+        mock_seen,
+        mock_job,
+        mock_baseline,
         mock_validate,
-        mock_delete,
-        mock_save,
-        mock_link_counts,
     ):
-        mock_link_counts.return_value = {}
-        junk = _junk_blocked_samples(SYNC_MIN_JUNK_CANDIDATES)
+        mock_seen.return_value = ["python"]
+        mock_job.return_value = ("Synthetic job posting text.", False, False)
+        mock_baseline.return_value = {"python", "we are looking for"}
+        mock_synthesize.return_value = ["rule one"]
+        mock_validate.return_value = {
+            "rule": "rule one",
+            "accepted": False,
+            "skip_reason": "no_blocked_reduction",
+            "baseline_blocked": ["we are looking for"],
+            "with_blocked": ["we are looking for"],
+            "pruned_blocked": [],
+        }
+
+        blocked = _blocked_samples(SYNC_MIN_BLOCKED)
         profile = AppConfig(
-            blocked_skills=list(junk),
-            skill_extraction_antipatterns=["existing rule"],
-            skill_antipattern_last_sync_blocked_count=0,
-        )
-        original_antipatterns = list(profile.skill_extraction_antipatterns)
-        mock_synthesize.return_value = [junk[0]]
-        mock_validate.return_value = False
-
-        llm = MagicMock()
-        stats = sync_skill_extraction_antipatterns(
-            "./jobs.db",
-            profile,
-            llm,
-            profile_path="./profile.json",
-            force=True,
-        )
-
-        self.assertTrue(stats["batch_rejected"])
-        self.assertEqual(stats["validated"], 0)
-        self.assertEqual(stats["pruned_blocked"], 0)
-        self.assertEqual(len(profile.blocked_skills), len(junk))
-        self.assertEqual(profile.skill_extraction_antipatterns, original_antipatterns)
-        mock_delete.assert_not_called()
-        mock_save.assert_not_called()
-
-    @patch("spejder.extractors.skill_extractor.antipattern_sync.count_job_links_for_skills")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync._save_antipattern_sync_profile")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync.delete_skill_from_db")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync._validate_skill_filtered_by_prompt")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync._synthesize_antipatterns_via_llm")
-    def test_batch_rollback_when_zero_validated(
-        self,
-        mock_synthesize,
-        mock_validate,
-        mock_delete,
-        mock_save,
-        mock_link_counts,
-    ):
-        mock_link_counts.return_value = {}
-        junk = _junk_blocked_samples(SYNC_MIN_JUNK_CANDIDATES)
-        profile = AppConfig(
-            blocked_skills=list(junk),
+            blocked_skills=blocked,
             skill_extraction_antipatterns=["keep me"],
-            skill_antipattern_last_sync_blocked_count=0,
         )
-        original_antipatterns = list(profile.skill_extraction_antipatterns)
-        mock_synthesize.return_value = [junk[0]]
-        mock_validate.return_value = False
-
-        llm = MagicMock()
-        stats = sync_skill_extraction_antipatterns(
-            "./jobs.db",
-            profile,
-            llm,
-            profile_path="./profile.json",
-            force=True,
-        )
-
-        self.assertTrue(stats["batch_rejected"])
-        self.assertEqual(stats["validated"], 0)
-        self.assertEqual(profile.skill_extraction_antipatterns, original_antipatterns)
-        self.assertEqual(profile.skill_antipattern_last_sync_blocked_count, 0)
-        mock_save.assert_not_called()
-        mock_delete.assert_not_called()
-
-    @patch("spejder.extractors.skill_extractor.antipattern_sync.count_job_links_for_skills")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync._save_antipattern_sync_profile")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync.delete_skill_from_db")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync._validate_skill_filtered_by_prompt")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync._synthesize_antipatterns_via_llm")
-    def test_dry_run_reports_would_prune_without_save(
-        self,
-        mock_synthesize,
-        mock_validate,
-        mock_delete,
-        mock_save,
-        mock_link_counts,
-    ):
-        mock_link_counts.return_value = {}
-        junk = _junk_blocked_samples(SYNC_MIN_JUNK_CANDIDATES)
-        profile = AppConfig(
-            blocked_skills=list(junk),
-            skill_extraction_antipatterns=[],
-            skill_antipattern_last_sync_blocked_count=0,
-        )
-        mock_synthesize.return_value = [junk[0]]
-        mock_validate.return_value = True
-
-        llm = MagicMock()
-        stats = sync_skill_extraction_antipatterns(
-            "./jobs.db",
-            profile,
-            llm,
-            profile_path="./profile.json",
-            force=True,
-            dry_run=True,
-        )
-
-        self.assertFalse(stats["skipped"])
-        self.assertGreater(stats["would_prune_blocked"], 0)
-        self.assertEqual(stats["pruned_blocked"], 0)
-        self.assertEqual(len(profile.blocked_skills), len(junk))
-        mock_save.assert_not_called()
-        mock_delete.assert_not_called()
-
-    @patch("spejder.extractors.skill_extractor.antipattern_sync.count_job_links_for_skills")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync._save_antipattern_sync_profile")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync.delete_skill_from_db")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync._validate_skill_filtered_by_prompt")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync._synthesize_antipatterns_via_llm")
-    def test_partial_batch_validates_subset(
-        self,
-        mock_synthesize,
-        mock_validate,
-        mock_delete,
-        mock_save,
-        mock_link_counts,
-    ):
-        mock_link_counts.return_value = {}
-        junk = _junk_blocked_samples(SYNC_MIN_JUNK_CANDIDATES)
-        profile = AppConfig(
-            blocked_skills=list(junk),
-            skill_extraction_antipatterns=[],
-            skill_antipattern_last_sync_blocked_count=0,
-        )
-        mock_synthesize.return_value = [junk[0]]
-        mock_validate.side_effect = [True, False, True] + [False] * (SYNC_MIN_JUNK_CANDIDATES - 3)
-        mock_delete.return_value = {"skill_rows_deleted": 1, "job_skill_links_deleted": 1}
-        mock_save.return_value = True
-
-        llm = MagicMock()
-        stats = sync_skill_extraction_antipatterns(
-            "./jobs.db",
-            profile,
-            llm,
-            profile_path="./profile.json",
-            force=True,
-        )
-
-        self.assertFalse(stats["batch_rejected"])
-        self.assertEqual(stats["validated"], 2)
-        self.assertEqual(stats["pruned_blocked"], 2)
-        mock_save.assert_called_once()
-        self.assertEqual(mock_delete.call_count, 2)
-
-    @patch("spejder.extractors.skill_extractor.antipattern_sync.count_job_links_for_skills")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync._save_antipattern_sync_profile")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync.delete_skill_from_db")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync._validate_skill_filtered_by_prompt")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync._synthesize_antipatterns_via_llm")
-    def test_profile_save_skipped_on_mtime_change(
-        self,
-        mock_synthesize,
-        mock_validate,
-        mock_delete,
-        mock_save,
-        mock_link_counts,
-    ):
-        mock_link_counts.return_value = {}
-        mock_save.return_value = False
-        junk = _junk_blocked_samples(SYNC_MIN_JUNK_CANDIDATES)
-        profile = AppConfig(
-            blocked_skills=list(junk),
-            skill_extraction_antipatterns=[],
-            skill_antipattern_last_sync_blocked_count=0,
-        )
-        original_blocked = list(profile.blocked_skills)
-        original_antipatterns = list(profile.skill_extraction_antipatterns)
-        mock_synthesize.return_value = [junk[0]]
-        mock_validate.return_value = True
-
-        llm = MagicMock()
-        stats = sync_skill_extraction_antipatterns(
-            "./jobs.db",
-            profile,
-            llm,
-            profile_path="./profile.json",
-            force=True,
-        )
-
-        self.assertTrue(stats["profile_save_skipped"])
-        self.assertEqual(stats["db_skill_rows_deleted"], 0)
-        self.assertEqual(stats["db_job_links_deleted"], 0)
-        self.assertEqual(profile.blocked_skills, original_blocked)
-        self.assertEqual(profile.skill_extraction_antipatterns, original_antipatterns)
-        self.assertEqual(stats["merged"], 0)
-        self.assertEqual(stats["pruned_blocked"], 0)
-        mock_save.assert_called_once()
-        mock_delete.assert_not_called()
-
-    @patch("spejder.extractors.skill_extractor.antipattern_sync.count_job_links_for_skills")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync._save_antipattern_sync_profile")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync.delete_skill_from_db")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync._validate_skill_filtered_by_prompt")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync._synthesize_antipatterns_via_llm")
-    def test_db_deletes_after_successful_save(
-        self,
-        mock_synthesize,
-        mock_validate,
-        mock_delete,
-        mock_save,
-        mock_link_counts,
-    ):
-        mock_link_counts.return_value = {}
-        mock_save.return_value = True
-        junk = _junk_blocked_samples(SYNC_MIN_JUNK_CANDIDATES)
-        profile = AppConfig(
-            blocked_skills=list(junk),
-            skill_extraction_antipatterns=[],
-            skill_antipattern_last_sync_blocked_count=0,
-        )
-        mock_synthesize.return_value = [junk[0]]
-        mock_validate.return_value = True
-        call_order: list[str] = []
-
-        def track_save(*_args, **_kwargs):
-            call_order.append("save")
-            return True
-
-        def track_delete(*_args, **_kwargs):
-            call_order.append("delete")
-            return {"skill_rows_deleted": 1, "job_skill_links_deleted": 1}
-
-        mock_save.side_effect = track_save
-        mock_delete.side_effect = track_delete
-
-        llm = MagicMock()
-        sync_skill_extraction_antipatterns(
-            "./jobs.db",
-            profile,
-            llm,
-            profile_path="./profile.json",
-            force=True,
-        )
-
-        self.assertGreater(len(call_order), 1)
-        self.assertEqual(call_order[0], "save")
-        self.assertTrue(all(step == "delete" for step in call_order[1:]))
-
-    @patch("spejder.extractors.skill_extractor.antipattern_sync.count_job_links_for_skills")
-    @patch("spejder.extractors.skill_extractor.antipattern_sync._synthesize_antipatterns_via_llm")
-    def test_reports_skip_reason_when_synthesis_empty(
-        self,
-        mock_synthesize,
-        mock_link_counts,
-    ):
-        mock_link_counts.return_value = {}
-        mock_synthesize.return_value = []
-        junk = _junk_blocked_samples(SYNC_MIN_JUNK_CANDIDATES)
-        profile = AppConfig(
-            blocked_skills=list(junk),
-            skill_extraction_antipatterns=[],
-            skill_antipattern_last_sync_blocked_count=0,
-        )
+        original = list(profile.skill_extraction_antipatterns)
 
         stats = sync_skill_extraction_antipatterns(
             "./jobs.db",
@@ -604,7 +358,66 @@ class SyncSkillExtractionAntipatternsTest(unittest.TestCase):
         )
 
         self.assertTrue(stats["skipped"])
-        self.assertEqual(stats["skip_reason"], "synthesis_empty")
+        self.assertEqual(stats["skip_reason"], "no_candidates_accepted")
+        self.assertFalse(stats["committed"])
+        self.assertEqual(profile.skill_extraction_antipatterns, original)
+
+    @patch("spejder.extractors.skill_extractor.antipattern_sync._validate_antipattern_candidate")
+    @patch("spejder.extractors.skill_extractor.antipattern_sync._stable_extracted_keys")
+    @patch("spejder.extractors.skill_extractor.antipattern_sync._generate_synthetic_job_posting")
+    @patch("spejder.extractors.skill_extractor.antipattern_sync._skills_seen_at_least_once")
+    @patch("spejder.extractors.skill_extractor.antipattern_sync._synthesize_antipatterns_via_llm")
+    def test_dry_run_reports_without_save(
+        self,
+        mock_synthesize,
+        mock_seen,
+        mock_job,
+        mock_baseline,
+        mock_validate,
+    ):
+        mock_seen.return_value = ["python"]
+        mock_job.return_value = ("Synthetic job posting text.", False, False)
+        mock_baseline.return_value = {"python", "we are looking for"}
+        mock_synthesize.return_value = ["rule one"]
+        mock_validate.return_value = {
+            "rule": "rule one",
+            "accepted": True,
+            "skip_reason": "",
+            "baseline_blocked": ["we are looking for"],
+            "with_blocked": [],
+            "pruned_blocked": ["we are looking for"],
+        }
+
+        blocked = _blocked_samples(SYNC_MIN_BLOCKED)
+        profile = AppConfig(blocked_skills=list(blocked), skill_extraction_antipatterns=[])
+
+        stats = sync_skill_extraction_antipatterns(
+            "./jobs.db",
+            profile,
+            MagicMock(),
+            profile_path="./profile.json",
+            force=True,
+            dry_run=True,
+        )
+
+        self.assertFalse(stats["skipped"])
+        self.assertFalse(stats["committed"])
+        self.assertEqual(stats["would_prune_blocked"], 1)
+        self.assertEqual(stats["pruned_blocked"], 0)
+        self.assertEqual(len(profile.blocked_skills), len(blocked))
+
+
+class GenerateSyntheticJobPostingTest(unittest.TestCase):
+    def test_returns_trimmed_text(self):
+        llm = MagicMock()
+        llm.generate.return_value = "  We are looking for a Python developer.\n\nJoin us.  "
+        text, blocked_truncated, seen_truncated = _generate_synthetic_job_posting(
+            llm, ["we are looking for"], ["python"]
+        )
+        self.assertEqual(text, "We are looking for a Python developer. Join us.")
+        self.assertFalse(blocked_truncated)
+        self.assertFalse(seen_truncated)
+        self.assertIn("we are looking for", llm.generate.call_args[0][0])
 
 
 if __name__ == "__main__":

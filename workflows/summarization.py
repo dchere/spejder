@@ -1,24 +1,13 @@
-# pylint: disable=all
-import os
-import sys
-import time
 import json
-import codecs
-import html as html_lib
-import re
-import traceback
-import subprocess
-from typing import Optional
-from contextlib import contextmanager
-from jinja2 import Environment, FileSystemLoader
-import spejder
-from spejder.llm import LocalLLM
+import os
+from contextlib import nullcontext
+
 from spejder.core import DEFAULT_PROFILE_PATH, load_runtime_profile
-from spejder.db import *
-from spejder.jobs import *
-from spejder.managers.dashboard_manager import _render_html_from_items
-from spejder.config import AppConfig
-# from spejder.server import run_server
+from spejder.llm import LocalLLM
+from spejder.parsers import email_parser
+from spejder.workflows.job_enrichment import _translate_text_to_english_if_needed
+
+
 def summarize_file(path: str, model: str, profile: str = None, max_tokens: int = 200, verbose_model: bool = False):
     if not os.path.exists(path):
         print("File not found:", path)
@@ -37,7 +26,6 @@ def summarize_file(path: str, model: str, profile: str = None, max_tokens: int =
         print(summary)
     except Exception as exc:
         print("LLM error:", exc)
-
 
 
 def summarize_folder(folder: str, model: str, profile: str = None, max_tokens: int = 200, limit: int = 0, out: str = "", verbose_model: bool = False):
@@ -81,6 +69,3 @@ def summarize_folder(folder: str, model: str, profile: str = None, max_tokens: i
                 print(f"[ERR] {path}: {exc}")
 
     print(f"Done. Processed={processed}, Failed={failed}, Total={max_docs}")
-
-
-

@@ -1,22 +1,9 @@
-# pylint: disable=all
-from spejder.db import *
-from spejder.db import _provider_from_link, _normalize_position_link, get_job_link, _extract_jobindex_id
 import re
-import json
-import base64
-from datetime import datetime, timezone
-from urllib.parse import parse_qs, unquote, urlparse
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
-from collections.abc import Callable
-from typing import Optional
-from html import unescape
+from urllib.parse import urlparse
+
 from bs4 import BeautifulSoup
-from collections import Counter
-from spejder.config import AppConfig
 
-from .constants import *
-
+from spejder.db import _extract_jobindex_id, _normalize_position_link, _provider_from_link
 
 
 def _extract_jobindex_entries_by_link(html_text: str) -> dict[str, dict[str, str]]:

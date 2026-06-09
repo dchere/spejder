@@ -225,8 +225,8 @@ def run_inbox_sync(context: GuiSyncContext) -> None:
                         reason = stats.get("skip_reason") or "unknown"
                         print(
                             "Background sync: antipattern sync skipped "
-                            f"(reason={reason}, junk_candidates={stats.get('junk_candidates', 0)}, "
-                            f"candidates_with_db_jobs={stats.get('candidates_with_db_jobs', 0)})."
+                            f"(reason={reason}, blocked_input={stats.get('blocked_input', 0)}, "
+                            f"synthesized={stats.get('synthesized', [])})."
                         )
                     else:
                         prune_parts = []
@@ -246,13 +246,16 @@ def run_inbox_sync(context: GuiSyncContext) -> None:
                         )
                         print(
                             "Background sync: antipattern sync "
-                            f"(merged={stats.get('merged', 0)}, "
+                            f"(synthesized={stats.get('synthesized', [])}, "
+                            f"candidates_accepted={stats.get('candidates_accepted', 0)}, "
+                            f"candidates_skipped={stats.get('candidates_skipped', 0)}, "
+                            f"merged={stats.get('merged', 0)}, "
                             f"{prune_summary}, "
-                            f"batch_rejected={stats.get('batch_rejected', False)}, "
-                            f"db_deleted={stats.get('db_skill_rows_deleted', 0)}"
+                            f"db_deleted={stats.get('db_skill_rows_deleted', 0)}, "
+                            f"committed={stats.get('committed', False)}"
                             f"{save_skipped})"
                         )
-                    if not stats.get("skipped"):
+                    if stats.get("committed"):
                         context.reload_runtime_profile()
                         context.queue_dashboard_rebuild(reason="antipattern sync")
                 except Exception as exc:

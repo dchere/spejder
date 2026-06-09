@@ -1,5 +1,4 @@
 """LLM models."""
-# pylint: disable=too-many-locals,missing-class-docstring,missing-function-docstring,unused-import,no-name-in-module,trailing-whitespace,unused-variable,broad-exception-caught,line-too-long,unused-argument,invalid-name,pointless-string-statement,wrong-import-position
 """Local LLM wrapper using llama-cpp-python (llama.cpp bindings)
 
 This module provides a thin wrapper around `llama_cpp.Llama` if available.

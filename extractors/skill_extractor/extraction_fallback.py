@@ -1,0 +1,75 @@
+"""Regex and phrase fallback for job skill extraction."""
+
+import re
+from typing import Optional
+
+from spejder.config import AppConfig
+
+from .constants import SKILL_CUE_PATTERN
+from .filtering import _filter_blocked_skill_names
+from .normalization import _normalize_skill_name
+
+
+def _apply_blocked_filter(
+    skills: list[str], profile: Optional[AppConfig], skip_blocked_filter: bool
+) -> list[str]:
+    if skip_blocked_filter:
+        return skills
+    return _filter_blocked_skill_names(skills, profile)
+
+
+def _extract_skills_fallback(
+    text: str, skill_patterns: list[tuple[str, str]], limit: int = 10
+) -> list[str]:
+    source = " ".join((text or "").split())
+    if not source:
+        return []
+
+    hits = []
+    low = source.lower()
+    for label, pattern in skill_patterns:
+        m = re.search(pattern, low, flags=re.IGNORECASE)
+        if m:
+            hits.append((m.start(), label))
+    hits.sort(key=lambda x: x[0])
+
+    ordered = []
+    seen = set()
+    for _, label in hits:
+        key = label.lower()
+        if key not in seen:
+            seen.add(key)
+            ordered.append(label)
+
+    if len(ordered) >= limit:
+        return ordered[:limit]
+
+    sentences = re.split(r"(?<=[.!?])\s+", source)
+    phrase_candidates = []
+    for sentence in sentences:
+        if not sentence:
+            continue
+        if not SKILL_CUE_PATTERN.search(sentence):
+            continue
+        cleaned_sentence = re.sub(
+            r"^.*?\b(?:requirements?|qualifications?)\b\s*:?",
+            "",
+            sentence,
+            flags=re.IGNORECASE,
+        )
+        chunks = re.split(r",|\band\b|\bor\b", cleaned_sentence, flags=re.IGNORECASE)
+        for chunk in chunks:
+            chunk = _normalize_skill_name(chunk)
+            if chunk:
+                phrase_candidates.append(chunk)
+
+    for skill in phrase_candidates:
+        key = skill.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(skill)
+        if len(ordered) >= limit:
+            break
+
+    return ordered[:limit]

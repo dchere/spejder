@@ -1,4 +1,4 @@
-# pylint: disable=all
+
 import re
 import sys
 import os
@@ -51,7 +51,7 @@ def _model_has_meta_tensors(model: object) -> bool:
         if parameters is None:
             return False
         return any(getattr(param, "is_meta", False) for param in parameters())
-    except Exception:  # pylint: disable=broad-exception-caught
+    except Exception:
         return False
 
 
@@ -102,7 +102,7 @@ def get_translation_runtime(
         try:
             model = model.to("mps")
             device = "mps"
-        except Exception:  # pylint: disable=broad-exception-caught
+        except Exception:
             # Retry with eager CPU materialization when the model was initialized on meta tensors.
             if _model_has_meta_tensors(model):
                 model = MarianMTModel.from_pretrained(model_path, low_cpu_mem_usage=False)

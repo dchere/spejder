@@ -1,5 +1,4 @@
 """Configuration loader."""
-# pylint: disable=line-too-long,too-many-locals,missing-class-docstring,missing-function-docstring,unused-import,no-name-in-module,trailing-whitespace,unused-variable,broad-exception-caught,line-too-long
 import os
 import json
 from pydantic import BaseModel, Field
@@ -53,7 +52,8 @@ class AppConfig(BaseModel):
     user_skills: list[str] = Field(default_factory=list)
     blocked_skills: list[str] = Field(default_factory=list)
     skill_extraction_antipatterns: list[str] = Field(default_factory=list)
-    skill_antipattern_last_sync_blocked_count: int = 0
+    skill_antipattern_synthesis_count: int = 3
+    skill_antipattern_validation_runs: int = 3
     skill_antipattern_prompt_max_items: int = 40
     missing_skills_suggestions: list[str] = Field(default_factory=list)
     known_skill_patterns: list[dict] = Field(default_factory=list)
@@ -70,7 +70,7 @@ class AppConfig(BaseModel):
                     loaded = json.load(f)
                 if isinstance(loaded, dict):
                     data = loaded
-            except Exception:
+            except (OSError, json.JSONDecodeError, ValueError, TypeError):
                 pass
                 
         # Backward compatibility for report_max_positions
