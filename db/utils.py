@@ -9,6 +9,12 @@ from typing import Optional
 from urllib.parse import parse_qs, unquote, urlparse
 
 EMERSON_ORACLE_FA_HOST = "hdjq.fa.us2.oraclecloud.com"
+_DJINNI_JOB_ID_RE = re.compile(r"/jobs/\d+")
+
+
+def _is_djinni_position_link(link: str) -> bool:
+    low = (link or "").lower()
+    return "djinni.co" in low and bool(_DJINNI_JOB_ID_RE.search(low))
 
 TITLE_GARBAGE_MARKERS = [
     "translated title",
@@ -109,6 +115,9 @@ def _normalize_position_link(link: str) -> str:
     if "careers.novonordisk.com" in low and "/job/" in low and parsed.path:
         return f"https://careers.novonordisk.com{parsed.path}".rstrip("/")
 
+    if "jobs.danfoss.com" in low and "/job/" in low and parsed.path:
+        return f"{parsed.scheme}://{parsed.netloc}{parsed.path}".rstrip("/")
+
     if "careers.vestas.com" in low and re.search(r"/job/.+/\d+", low) and parsed.path:
         return f"{parsed.scheme}://{parsed.netloc}{parsed.path}".rstrip("/")
 
@@ -139,6 +148,10 @@ def _normalize_position_link(link: str) -> str:
 
     if "jobs.tetrapak.com" in low and re.search(r"/job/[^/]+/\d+", low) and parsed.path:
         return f"http://jobs.tetrapak.com{parsed.path}".rstrip("/")
+
+    m = re.search(r"djinni\.co/jobs/(\d+[^/?#]*)", low)
+    if m:
+        return f"https://djinni.co/jobs/{m.group(1).rstrip('/')}"
 
     base = (
         f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
@@ -212,22 +225,13 @@ def _provider_from_link(link: str) -> str:
         return "Getinge"
     if "jobs.tetrapak.com" in low:
         return "Tetra Pak"
+    if _is_djinni_position_link(link):
+        return "Djinni"
 
     host = (parsed.netloc or "").strip().lower()
     if host.startswith("www."):
         host = host[4:]
     return host or "Unknown"
-
-def get_job_link(db_path: str, job_id: int) -> tuple[str]:
-    conn = _connect(db_path)
-    try:
-        cur = conn.cursor()
-        cur.execute("SELECT position_link FROM jobs WHERE id=?", (job_id,))
-        return cur.fetchone()
-    finally:
-        conn.close()
-
-
 
 def _normalize_skill_name_key(name: str) -> str:
     return " ".join((name or "").strip().lower().split())

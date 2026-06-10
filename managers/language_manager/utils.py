@@ -1,14 +1,10 @@
 
-import re
-import sys
-import os
-import json
 import logging
+import os
+import re
 from typing import Optional
 
-import sys
-
-from spejder.core import load_profile, load_runtime_profile, AppConfig, DEFAULT_PROFILE_PATH
+from spejder.core import AppConfig
 
 try:
     from ctranslate2 import Translator
@@ -28,19 +24,6 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# Global singletons
-_language_checker_detector = None
-_translation_instance = None
-
-
-def _print_language_checker_step(message: str) -> None:
-    print(f"[language checker init] {message}")
-
-
-def _fail_language_checker_init(message: str) -> None:
-    _print_language_checker_step(message)
-    raise SystemExit(1)
-
 
 def _print_translation_step(message: str) -> None:
     print(f"[translation init] {message}")
@@ -57,13 +40,24 @@ def _language_checker_model_path(runtime_profile: Optional[AppConfig]) -> str:
     return os.path.abspath(os.path.expanduser(value.strip())) if value.strip() else ""
 
 
-def _translation_model_path(runtime_profile: Optional[AppConfig]) -> str:
+def _danish_translation_model_path(runtime_profile: Optional[AppConfig]) -> str:
     profile = runtime_profile or {}
-    value = str(
-        profile.translation_model_path
-        or ""
-    )
+    value = str(profile.danish_translation_model_path or "")
     return os.path.abspath(os.path.expanduser(value.strip())) if value.strip() else ""
+
+
+def _ukrainian_translation_model_path(runtime_profile: Optional[AppConfig]) -> str:
+    profile = runtime_profile or {}
+    value = str(profile.ukrainian_translation_model_path or "")
+    return os.path.abspath(os.path.expanduser(value.strip())) if value.strip() else ""
+
+
+def _translation_model_path_for_language(
+    runtime_profile: Optional[AppConfig], source_lang: str
+) -> str:
+    if source_lang == "uk":
+        return _ukrainian_translation_model_path(runtime_profile)
+    return _danish_translation_model_path(runtime_profile)
 
 
 def _language_checker_threshold(runtime_profile: Optional[AppConfig]) -> float:

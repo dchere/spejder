@@ -23,8 +23,9 @@ class AppConfig(BaseModel):
     default_db: str = "./jobs.db"
     default_report_dir: str = "./outbox"
     default_model: str = ""
-    translation_model_path: str = ""
-    
+    danish_translation_model_path: str = ""
+    ukrainian_translation_model_path: str = ""
+
     language_checker_engine: str = "fasttext"
     language_checker_model_path: str = ""
     language_checker_threshold: float = 0.8
@@ -77,6 +78,12 @@ class AppConfig(BaseModel):
         if "report_max_positions" in data and "report_max_relevant_positions" not in data:
             data["report_max_relevant_positions"] = data["report_max_positions"]
             data["report_max_not_relevant_positions"] = data["report_max_positions"]
+
+        # Backward compatibility for translation_model_path → danish_translation_model_path
+        if "translation_model_path" in data:
+            if "danish_translation_model_path" not in data:
+                data["danish_translation_model_path"] = data["translation_model_path"]
+            del data["translation_model_path"]
 
         return cls(**data)
 

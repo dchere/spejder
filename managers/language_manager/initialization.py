@@ -1,12 +1,9 @@
 
-import re
-import sys
-import os
-import json
 import logging
+import os
 from typing import Optional
 
-from spejder.core import load_profile, AppConfig, DEFAULT_PROFILE_PATH
+from spejder.core import DEFAULT_PROFILE_PATH, AppConfig, load_profile
 
 
 try:
@@ -27,17 +24,14 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# Global singletons
-_language_checker_detector = None
-_translation_instance = None
-
 
 from .utils import (
     _language_checker_model_path,
     _language_checker_model_looks_valid,
     _print_language_checker_step,
     _fail_language_checker_init,
-    _translation_model_path,
+    _danish_translation_model_path,
+    _ukrainian_translation_model_path,
     _translation_model_looks_valid,
     _print_translation_step,
     _fail_translation_init,
@@ -50,16 +44,20 @@ from .engines import (
     MarianTokenizer,
     MarianMTModel,
 )
-from .detection import is_danish_text
+from .detection import is_danish_text, is_ukrainian_text
 from .titles import translate_title_to_english, normalize_title_text, normalize_title_compare_key
 
+DANISH_JOB_TITLE_SAMPLE = "Vi søger en erfaren softwareudvikler til vores team i København"
+
 LANGUAGE_CHECKER_SELF_TESTS: list[tuple[str, str, bool]] = [
-    ("danish_job_title", "Vi søger en erfaren softwareudvikler til vores team i København", True),
+    ("danish_job_title", DANISH_JOB_TITLE_SAMPLE, True),
+    ("ukrainian_job_title", "Системний адміністратор для нашої команди", True),
     ("english_job_title", "Senior Software Engineer at Acme Corp", False),
     ("too_short", "ab", False),
 ]
 
-TRANSLATION_SELF_TEST: tuple[str, bool] = ("Softwareudvikler", True)
+TRANSLATION_SELF_TEST: tuple[str, bool] = (DANISH_JOB_TITLE_SAMPLE, True)
+UKRAINIAN_TRANSLATION_SELF_TEST: tuple[str, bool] = ("Системний адміністратор", True)
 
 
 def initialize_language_checker_or_exit(profile_path: str) -> None:
@@ -102,7 +100,15 @@ def initialize_language_checker_or_exit(profile_path: str) -> None:
 
     for label, sample_text, expected in LANGUAGE_CHECKER_SELF_TESTS:
         try:
-            actual = is_danish_text(sample_text, runtime_profile)
+            if label.startswith("ukrainian"):
+                actual = is_ukrainian_text(sample_text, runtime_profile)
+            elif label.startswith("danish"):
+                actual = is_danish_text(sample_text, runtime_profile)
+            else:
+                actual = (
+                    is_danish_text(sample_text, runtime_profile)
+                    or is_ukrainian_text(sample_text, runtime_profile)
+                )
         except Exception as exc:
             _fail_language_checker_init(f"self-test {label} crashed: {exc}")
         _print_language_checker_step(
@@ -122,9 +128,9 @@ def initialize_translation_or_exit(profile_path: str) -> None:
     runtime_profile = load_profile(profile_path) if profile_path else None
     if not runtime_profile and profile_path is None:
         runtime_profile = load_profile(DEFAULT_PROFILE_PATH)
-    model_path = _translation_model_path(runtime_profile)
+    model_path = _danish_translation_model_path(runtime_profile)
     if not model_path:
-        _fail_translation_init("translation_model_path is not configured in profile")
+        _fail_translation_init("danish_translation_model_path is not configured in profile")
     _print_translation_step(f"model path configured: {model_path}")
 
     if not os.path.exists(model_path):
@@ -176,6 +182,52 @@ def initialize_translation_or_exit(profile_path: str) -> None:
         _fail_translation_init("translated text still looks Danish")
     if normalize_title_compare_key(sample_text) == normalize_title_compare_key(translated_clean):
         _fail_translation_init("translation self-test did not change the source text")
+
+    uk_model_path = _ukrainian_translation_model_path(runtime_profile)
+    if uk_model_path:
+        _print_translation_step(f"ukrainian model path configured: {uk_model_path}")
+        if not os.path.exists(uk_model_path):
+            _fail_translation_init("configured ukrainian model path does not exist")
+        if not os.path.isdir(uk_model_path):
+            _fail_translation_init("configured ukrainian model path is not a directory")
+        if not _translation_model_looks_valid(uk_model_path):
+            _fail_translation_init("ukrainian model directory failed basic validation")
+
+        uk_sample_text, uk_expected_is_ukrainian = UKRAINIAN_TRANSLATION_SELF_TEST
+        detected_uk_before = is_ukrainian_text(uk_sample_text, runtime_profile)
+        _print_translation_step(
+            "pre-translation ukrainian language self-test: "
+            f"expected={uk_expected_is_ukrainian} actual={detected_uk_before}"
+        )
+        if detected_uk_before != uk_expected_is_ukrainian:
+            _fail_translation_init("pre-translation ukrainian language self-test failed")
+
+        try:
+            uk_translated = translate_title_to_english(
+                uk_sample_text,
+                runtime_profile=runtime_profile,
+                title_translation_cache={},
+            )
+        except Exception as exc:
+            _fail_translation_init(f"ukrainian translation self-test crashed: {exc}")
+
+        uk_translated_clean = normalize_title_text(uk_translated)
+        if not uk_translated_clean:
+            _fail_translation_init("ukrainian translation self-test returned empty text")
+        _print_translation_step(
+            f"ukrainian translation self-test output: {uk_translated_clean}"
+        )
+
+        detected_uk_after = is_ukrainian_text(uk_translated_clean, runtime_profile)
+        _print_translation_step(
+            f"post-translation ukrainian language self-test: expected=False actual={detected_uk_after}"
+        )
+        if detected_uk_after:
+            _fail_translation_init("ukrainian translated text still looks Ukrainian")
+        if normalize_title_compare_key(uk_sample_text) == normalize_title_compare_key(
+            uk_translated_clean
+        ):
+            _fail_translation_init("ukrainian translation self-test did not change the source text")
 
     _print_translation_step("self-test passed")
 

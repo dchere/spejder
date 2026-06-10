@@ -14,12 +14,12 @@ from .linkedin import (
 )
 from .links import _is_job_link
 from .platforms import (
-    _extract_danfoss_entries_by_link,
     _extract_demant_entries_by_link,
     _extract_google_entries_by_link,
     _extract_jobindex_entries_by_link,
 )
 from .platforms_career_alerts import (
+    _extract_danfoss_entries_by_link,
     _extract_oracle_cx_entries_by_link,
     _extract_thehub_entries_by_link,
     _extract_vestas_entries_by_link,

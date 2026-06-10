@@ -9,12 +9,13 @@ from .linkedin import (
     _work_type_from_html_for_link,
 )
 from .platforms import (
-    _extract_danfoss_entries_by_link,
     _extract_demant_entries_by_link,
     _extract_google_entries_by_link,
     _extract_jobindex_entries_by_link,
 )
 from .platforms_career_alerts import (
+    _extract_danfoss_entries_by_link,
+    _extract_djinni_entries_by_link,
     _extract_oracle_cx_entries_by_link,
     _extract_thehub_entries_by_link,
     _extract_vestas_entries_by_link,
@@ -34,6 +35,7 @@ def extract_job_entries(doc: dict) -> list[dict]:
     google_by_link = _extract_google_entries_by_link(html_text)
     vestas_by_link = _extract_vestas_entries_by_link(html_text)
     thehub_by_link = _extract_thehub_entries_by_link(html_text)
+    djinni_by_link = _extract_djinni_entries_by_link(html_text)
     oracle_by_link = _extract_oracle_cx_entries_by_link(html_text)
 
     by_text = _extract_entries_from_text(text)
@@ -49,6 +51,7 @@ def extract_job_entries(doc: dict) -> list[dict]:
         google_fields = google_by_link.get(lnk, {})
         vestas_fields = vestas_by_link.get(lnk, {})
         thehub_fields = thehub_by_link.get(lnk, {})
+        djinni_fields = djinni_by_link.get(lnk, {})
         oracle_fields = oracle_by_link.get(lnk, {})
 
         if google_fields.get("title"):
@@ -89,6 +92,19 @@ def extract_job_entries(doc: dict) -> list[dict]:
             entry["raw_text"] = thehub_fields["raw_text"]
         if thehub_fields.get("source"):
             entry["source"] = thehub_fields["source"]
+
+        if djinni_fields.get("title"):
+            entry["title"] = djinni_fields["title"]
+        if djinni_fields.get("company"):
+            entry["company"] = djinni_fields["company"]
+        if djinni_fields.get("place"):
+            entry["place"] = djinni_fields["place"]
+        if djinni_fields.get("work_type"):
+            entry["work_type"] = djinni_fields["work_type"]
+        if djinni_fields.get("raw_text"):
+            entry["raw_text"] = djinni_fields["raw_text"]
+        if djinni_fields.get("source"):
+            entry["source"] = djinni_fields["source"]
 
         if oracle_fields.get("title"):
             entry["title"] = oracle_fields["title"]
@@ -138,23 +154,74 @@ def extract_job_entries(doc: dict) -> list[dict]:
         if ji_fields.get("raw_text"):
             entry["raw_text"] = ji_fields["raw_text"]
 
-        if html_fields.get("title"):
+        platform_title = (
+            google_fields.get("title")
+            or thehub_fields.get("title")
+            or djinni_fields.get("title")
+            or danfoss_fields.get("title")
+            or vestas_fields.get("title")
+            or oracle_fields.get("title")
+            or demant_fields.get("title")
+            or ji_fields.get("title")
+        )
+        platform_company = (
+            google_fields.get("company")
+            or thehub_fields.get("company")
+            or djinni_fields.get("company")
+            or danfoss_fields.get("company")
+            or vestas_fields.get("company")
+            or oracle_fields.get("company")
+            or demant_fields.get("company")
+            or ji_fields.get("company")
+        )
+        platform_place = (
+            google_fields.get("place")
+            or thehub_fields.get("place")
+            or djinni_fields.get("place")
+            or danfoss_fields.get("place")
+            or vestas_fields.get("place")
+            or oracle_fields.get("place")
+            or demant_fields.get("place")
+            or ji_fields.get("place")
+        )
+        platform_work_type = (
+            google_fields.get("work_type")
+            or thehub_fields.get("work_type")
+            or djinni_fields.get("work_type")
+            or danfoss_fields.get("work_type")
+            or vestas_fields.get("work_type")
+            or oracle_fields.get("work_type")
+            or demant_fields.get("work_type")
+        )
+        platform_raw_text = (
+            google_fields.get("raw_text")
+            or thehub_fields.get("raw_text")
+            or djinni_fields.get("raw_text")
+            or danfoss_fields.get("raw_text")
+            or vestas_fields.get("raw_text")
+            or oracle_fields.get("raw_text")
+            or demant_fields.get("raw_text")
+            or ji_fields.get("raw_text")
+        )
+
+        if html_fields.get("title") and not platform_title:
             entry["title"] = html_fields["title"]
-        if html_fields.get("company"):
+        if html_fields.get("company") and not platform_company:
             entry["company"] = html_fields["company"]
-        if html_fields.get("place"):
+        if html_fields.get("place") and not platform_place:
             entry["place"] = html_fields["place"]
 
         wt = html_fields.get("work_type") or _work_type_from_html_for_link(
             html_text, lnk
         )
-        if wt:
+        if wt and not platform_work_type:
             entry["work_type"] = wt
 
-        if html_fields.get("raw_text"):
+        if html_fields.get("raw_text") and not platform_raw_text:
             entry["raw_text"] = html_fields["raw_text"]
 
-        entry["source"] = _provider_from_link(lnk)
+        if not entry.get("source"):
+            entry["source"] = _provider_from_link(lnk)
 
     for raw_link in links:
         if not raw_link:
@@ -173,6 +240,7 @@ def extract_job_entries(doc: dict) -> list[dict]:
         google_fields = google_by_link.get(normalized, {})
         vestas_fields = vestas_by_link.get(normalized, {})
         thehub_fields = thehub_by_link.get(normalized, {})
+        djinni_fields = djinni_by_link.get(normalized, {})
         oracle_fields = oracle_by_link.get(normalized, {})
         company, title = extract_company_title(text, title_hint)
         wt = html_fields.get("work_type") or _work_type_from_html_for_link(
@@ -181,53 +249,59 @@ def extract_job_entries(doc: dict) -> list[dict]:
         by_link[normalized] = {
             "company": google_fields.get("company")
             or thehub_fields.get("company")
+            or djinni_fields.get("company")
+            or danfoss_fields.get("company")
             or vestas_fields.get("company")
             or oracle_fields.get("company")
-            or danfoss_fields.get("company")
             or demant_fields.get("company")
             or ji_fields.get("company")
             or html_fields.get("company")
             or company,
             "title": google_fields.get("title")
             or thehub_fields.get("title")
+            or djinni_fields.get("title")
+            or danfoss_fields.get("title")
             or vestas_fields.get("title")
             or oracle_fields.get("title")
-            or danfoss_fields.get("title")
             or demant_fields.get("title")
             or ji_fields.get("title")
             or html_fields.get("title")
             or title,
             "place": google_fields.get("place")
             or thehub_fields.get("place")
+            or djinni_fields.get("place")
+            or danfoss_fields.get("place")
             or vestas_fields.get("place")
             or oracle_fields.get("place")
-            or danfoss_fields.get("place")
             or demant_fields.get("place")
             or ji_fields.get("place")
             or html_fields.get("place")
             or "",
             "work_type": google_fields.get("work_type")
             or thehub_fields.get("work_type")
+            or djinni_fields.get("work_type")
+            or danfoss_fields.get("work_type")
             or vestas_fields.get("work_type")
             or oracle_fields.get("work_type")
-            or danfoss_fields.get("work_type")
             or demant_fields.get("work_type")
             or (wt if wt else "Unknown"),
             "position_link": normalized,
             "raw_text": google_fields.get("raw_text")
             or thehub_fields.get("raw_text")
+            or djinni_fields.get("raw_text")
+            or danfoss_fields.get("raw_text")
             or vestas_fields.get("raw_text")
             or oracle_fields.get("raw_text")
-            or danfoss_fields.get("raw_text")
             or demant_fields.get("raw_text")
             or ji_fields.get("raw_text")
             or html_fields.get("raw_text")
             or text[:2500],
             "source": google_fields.get("source")
             or thehub_fields.get("source")
+            or djinni_fields.get("source")
+            or danfoss_fields.get("source")
             or vestas_fields.get("source")
             or oracle_fields.get("source")
-            or danfoss_fields.get("source")
             or demant_fields.get("source")
             or _provider_from_link(normalized),
         }

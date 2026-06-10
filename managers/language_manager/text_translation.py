@@ -5,32 +5,10 @@ from typing import Optional
 
 from spejder.core import AppConfig
 
-try:
-    import sentencepiece as spm
-    from ctranslate2 import Translator
-    TRANSLATION_AVAILABLE = True
-except ImportError:
-    Translator = None
-    spm = None
-    TRANSLATION_AVAILABLE = False
-
-try:
-    import fasttext
-    FASTTEXT_AVAILABLE = True
-except ImportError:
-    fasttext = None
-    FASTTEXT_AVAILABLE = False
+from .detection import translation_source_language
+from .engines import get_translation_runtime
 
 logger = logging.getLogger(__name__)
-
-# Global singletons
-_language_checker_detector = None
-_translation_instance = None
-
-
-
-from .detection import is_danish_text
-from .engines import get_translation_runtime
 
 
 def normalize_translation_text(text: str) -> str:
@@ -81,11 +59,17 @@ def split_translation_chunks(text: str, max_chars: int = 500) -> list[str]:
 
 
 def translate_text_chunks_to_english(
-    chunks: list[str], runtime_profile: Optional[AppConfig] = None
+    chunks: list[str],
+    runtime_profile: Optional[AppConfig] = None,
+    source_lang: str = "da",
 ) -> list[str]:
-    runtime = get_translation_runtime(runtime_profile)
+    runtime = get_translation_runtime(runtime_profile, source_lang=source_lang)
     if runtime is None:
-        raise RuntimeError("translation model is not available")
+        logger.warning(
+            "translation model is not available for source language %s; keeping original text",
+            source_lang,
+        )
+        return [chunk for chunk in chunks if chunk.strip()]
     tokenizer, model, device = runtime
     translated_chunks: list[str] = []
     for chunk in chunks:
@@ -110,6 +94,7 @@ def translate_text_chunks_to_english(
 
 TEXT_TRANSLATION_CACHE: dict[str, str] = {}
 
+
 def translate_text_to_english_if_needed(
     text: str,
     runtime_profile: Optional[AppConfig] = None,
@@ -119,21 +104,33 @@ def translate_text_to_english_if_needed(
     if not source_text:
         return ""
 
-    cache_key = source_text
+    source_lang = translation_source_language(source_text, runtime_profile=runtime_profile)
+    if source_lang is None:
+        cache = translation_cache if translation_cache is not None else TEXT_TRANSLATION_CACHE
+        cache[source_text] = source_text
+        return source_text
+
+    if get_translation_runtime(runtime_profile, source_lang=source_lang) is None:
+        logger.warning(
+            "translation model is not available for source language %s; keeping original text",
+            source_lang,
+        )
+        cache = translation_cache if translation_cache is not None else TEXT_TRANSLATION_CACHE
+        cache_key = f"{source_lang}:{source_text}"
+        cache[cache_key] = source_text
+        return source_text
+
+    cache_key = f"{source_lang}:{source_text}"
     cache = translation_cache if translation_cache is not None else TEXT_TRANSLATION_CACHE
     if cache_key in cache:
         return cache[cache_key]
 
-    if not is_danish_text(source_text, runtime_profile=runtime_profile):
-        cache[cache_key] = source_text
-        return source_text
-
     chunks = split_translation_chunks(source_text)
-    translated_chunks = translate_text_chunks_to_english(chunks, runtime_profile=runtime_profile)
+    translated_chunks = translate_text_chunks_to_english(
+        chunks, runtime_profile=runtime_profile, source_lang=source_lang
+    )
     translated_text = "\n\n".join(translated_chunks).strip()
     if not translated_text:
         raise RuntimeError("text translation returned empty output")
     cache[cache_key] = translated_text
     return translated_text
-
-

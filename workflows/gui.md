@@ -16,6 +16,6 @@ Extracted workflow module. `gui.py` now focuses on server orchestration + depend
 - Keep mutable runtime state invocation-scoped for server orchestration concerns; dashboard mutable state is encapsulated in `DashboardRebuildQueue`.
 
 **Background sync:**
-The 7-step background sync pipeline now lives in `spejder/workflows/gui_sync.py` (`GuiSyncContext` + `run_inbox_sync`).
+The 7-step background sync pipeline now lives in `spejder/workflows/gui_sync.py` (`GuiSyncContext` + `run_inbox_sync`). `serve-gui` CLI startup validates the language checker and configured translation models via `COMMAND_INIT` before the server starts; optional Ukrainian MarianMT is not required unless `ukrainian_translation_model_path` is set.
 
 See `spejder/workflows.md` for the workflow-level summary.

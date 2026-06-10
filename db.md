@@ -6,7 +6,8 @@ Implements the Repository Pattern, acting as the strict single source of truth f
 **API:**
 - `init_db(db_path)`
 - `get_relevant_jobs(db_path, ...)`
-- `upsert_job(db_path, entry)`
+- `upsert_job(db_path, entry)` — re-ingesting an existing `position_link` merges empty `place`/`company` and longer `raw_text`
+- `set_job_place(db_path, job_id, place)`
 - `batch_update_and_delete_jobs(db_path, updates, deletes)`
 (And many more database query functions)
 
@@ -28,9 +29,12 @@ Extracted from `jobs.py`. The rest of the application (including business logic 
 - `_decode_mandrill_track_link`: unwraps Mandrill `track/click` URLs (base64 JSON payload → destination URL). Requires `base64` and `html.unescape`.
 - `_normalize_position_link`: canonical position URLs per provider. Career-alert additions:
   - **The Hub:** `https://thehub.io/jobs/{hex}` (12+ hex chars); Mandrill links decoded first.
+  - **Danfoss:** `jobs.danfoss.com/job/...` — strips query/fragment, keeps `scheme://netloc/path`.
   - **Vestas:** `careers.vestas.com/job/.../{numeric_id}` — strips query/fragment, keeps `scheme://netloc/path`.
   - **Oracle CX:** `*.fa.[a-z0-9]+.oraclecloud.com` with `/CandidateExperience/` and `/job/{id}` — strips `:443`/`:80`, canonical `https://{netloc}{path}`.
   - **Emerson Career Site:** same Oracle FA path shape on host `hdjq.fa.us2.oraclecloud.com` (`EMERSON_ORACLE_FA_HOST` in `utils.py`).
-- `_provider_from_link`: returns display source label (`The Hub`, `Vestas`, `Oracle CX`, `Emerson Career Site`, etc.). Emerson host is checked before the generic Oracle FA rule.
+- `_provider_from_link`: returns display source label (`The Hub`, `Vestas`, `Oracle CX`, `Emerson Career Site`, `Djinni`, etc.). Emerson host is checked before the generic Oracle FA rule.
+- `_is_djinni_position_link`: shared Djinni job URL check (`djinni.co/jobs/{numeric_id}`); used by `_is_job_link`, `_normalize_position_link`, and `_provider_from_link`.
+- `get_job_link` (`connection.py`): returns `position_link` row for a job id; lives next to `_connect` to avoid circular imports with `utils.py`.
 - `ensure_db` (`connection.py`): after source backfill from `_provider_from_link`, migrates existing Emerson Oracle FA rows — `source` → `Emerson Career Site` (when blank or `Oracle CX`), `company` → `Emerson` (when blank or `Emerson Career Site`).
 - Duplicate link-recognition patterns also live in `jobs/parsing/links.py` (`_is_job_link`) per project convention.

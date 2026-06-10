@@ -69,7 +69,7 @@ def build_dashboard_record(
         "source": row.get("source", "Unknown"),
         "company": row.get("company", ""),
         **title_fields,
-        "place": row.get("place", ""),
+        "place": title_fields.get("place", row.get("place", "")),
         "work_type": row.get("work_type", "Unknown"),
         "description": _fallback_description_text(row.get("description") or "", raw_text),
         "skills": _format_skills(cached_skills, limit=10),

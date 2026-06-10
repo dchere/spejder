@@ -6,9 +6,12 @@ from unittest.mock import MagicMock, patch
 from spejder.config import AppConfig
 from spejder.extractors.skill_extractor.antipattern_synthesis import (
     SYNTHESIS_PATTERN_COUNT,
+    SYNTHESIS_SAMPLE_MAX,
     _blocked_skills_for_synthesis,
     _merge_antipatterns,
     _remove_from_blocked_skills,
+    _rules_from_llm_output,
+    _sample_blocked_skills_for_synthesis,
     _synthesize_antipatterns_via_llm,
 )
 from spejder.extractors.skill_extractor.antipattern_sync import (
@@ -143,6 +146,49 @@ class SynthesizeAntipatternsViaLlmTest(unittest.TestCase):
         )
         prompt = llm.generate.call_args[0][0]
         self.assertIn("exactly 3", prompt)
+
+    def test_samples_large_blocked_lists_for_prompt(self):
+        blocked = [f"blocked phrase {i}" for i in range(SYNTHESIS_SAMPLE_MAX + 50)]
+        llm = MagicMock()
+        llm.generate.return_value = '{"rules": ["hiring narrative"]}'
+
+        _synthesize_antipatterns_via_llm(llm, blocked, pattern_count=1)
+
+        prompt = llm.generate.call_args[0][0]
+        self.assertNotIn("blocked phrase 100", prompt)
+        self.assertIn("blocked phrase 0", prompt)
+
+
+class RulesFromLlmOutputTest(unittest.TestCase):
+    def test_parses_json_array(self):
+        rules = _rules_from_llm_output(
+            'Here you go:\n["hiring narrative", "company fluff"]',
+            pattern_count=3,
+        )
+        self.assertEqual(rules, ["hiring narrative", "company fluff"])
+
+    def test_parses_alternate_object_keys(self):
+        rules = _rules_from_llm_output(
+            '{"antipatterns": ["pronoun fragments", "malformed text"]}',
+            pattern_count=3,
+        )
+        self.assertEqual(rules, ["pronoun fragments", "malformed text"])
+
+
+class SampleBlockedSkillsForSynthesisTest(unittest.TestCase):
+    def test_returns_all_when_small(self):
+        blocked = _blocked_samples(10)
+        sample, sampled = _sample_blocked_skills_for_synthesis(blocked)
+        self.assertEqual(sample, blocked)
+        self.assertFalse(sampled)
+
+    def test_spreads_sample_when_large(self):
+        blocked = [f"phrase-{i}" for i in range(100)]
+        sample, sampled = _sample_blocked_skills_for_synthesis(blocked, max_sample=10)
+        self.assertTrue(sampled)
+        self.assertEqual(len(sample), 10)
+        self.assertIn("phrase-0", sample)
+        self.assertIn("phrase-90", sample)
 
 
 class StableExtractedKeysTest(unittest.TestCase):

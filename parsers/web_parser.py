@@ -12,6 +12,25 @@ from spejder.managers.language_manager import (
 
 # pylint: skip-file
 
+
+def _extract_place_from_page_text(position_link: str, page_text: str) -> str:
+    link = (position_link or "").strip().lower()
+    text = " ".join((page_text or "").split())
+    if not text:
+        return ""
+
+    if "jobs.danfoss.com" in link:
+        match = re.search(
+            r"Job Location \(Short\):\s*(.+?)\s+Employment Type:",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            return match.group(1).strip()[:180]
+
+    return ""
+
+
 def _extract_position_page_text(
     position_link: str,
     runtime_profile: Optional[AppConfig] = None,

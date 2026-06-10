@@ -151,41 +151,6 @@ def _extract_demant_entries_by_link(html_text: str) -> dict[str, dict[str, str]]
     return by_link
 
 
-def _extract_danfoss_entries_by_link(html_text: str) -> dict[str, dict[str, str]]:
-    if not html_text:
-        return {}
-
-    soup = BeautifulSoup(html_text, "html.parser")
-    by_link: dict[str, dict[str, str]] = {}
-
-    for anchor in soup.find_all("a", href=True):
-        href = anchor.get("href") or ""
-        parsed = urlparse(href)
-        host = (parsed.netloc or "").lower()
-        path = (parsed.path or "").lower()
-        if "jobs.danfoss.com" not in host or "/job/" not in path:
-            continue
-
-        normalized = _normalize_position_link(href)
-        if not normalized:
-            continue
-
-        title = " ".join(anchor.get_text(" ", strip=True).split())
-        if not title:
-            continue
-
-        by_link[normalized] = {
-            "title": title[:180],
-            "company": "Danfoss",
-            "place": "",
-            "work_type": "Unknown",
-            "raw_text": title[:2500],
-            "source": "Danfoss",
-        }
-
-    return by_link
-
-
 def _extract_google_entries_by_link(html_text: str) -> dict[str, dict[str, str]]:
     if not html_text:
         return {}

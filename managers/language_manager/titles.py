@@ -1,52 +1,29 @@
 
-import re
-import sys
-import os
-import json
 import logging
-from typing import Optional
+import re
 from collections import Counter
+from typing import Optional
 
-import sys
-
-from spejder.core import load_profile, load_runtime_profile, AppConfig, DEFAULT_PROFILE_PATH
-from spejder.db.utils import TITLE_GARBAGE_MARKERS
+from spejder.core import AppConfig
 from spejder.db import set_job_title_english
+from spejder.db.utils import TITLE_GARBAGE_MARKERS
+from spejder.llm import LocalLLM
 
-
-try:
-    from ctranslate2 import Translator
-    import sentencepiece as spm
-    TRANSLATION_AVAILABLE = True
-except ImportError:
-    Translator = None
-    spm = None
-    TRANSLATION_AVAILABLE = False
-
-try:
-    import fasttext
-    FASTTEXT_AVAILABLE = True
-except ImportError:
-    fasttext = None
-    FASTTEXT_AVAILABLE = False
+from .detection import translation_source_language
+from .engines import get_translation_runtime
+from .text_translation import translate_text_to_english_if_needed
 
 logger = logging.getLogger(__name__)
 
-# Global singletons
-_language_checker_detector = None
-_translation_instance = None
 
-
-from .engines import get_translation_runtime
-from .detection import is_danish_text
-from spejder.llm import LocalLLM
 def normalize_title_text(text: str) -> str:
-
     t_clean = str(text or "").strip()
-    for m in TITLE_GARBAGE_MARKERS:
-        t_clean = t_clean.replace(m, " ")
-    # remove duplicate spaces
-    t_clean = re.sub(r'\\s+', ' ', t_clean)
+    low = t_clean.lower()
+    for marker in TITLE_GARBAGE_MARKERS:
+        if low.startswith(marker):
+            t_clean = t_clean[len(marker) :].lstrip(" :").strip()
+            low = t_clean.lower()
+    t_clean = re.sub(r"\s+", " ", t_clean)
     return t_clean.strip()
 
 
@@ -112,7 +89,7 @@ def is_plausible_translated_title(candidate: str, original: str) -> bool:
 
 def normalize_title_compare_key(text: str) -> str:
     compact = " ".join((text or "").split()).strip().lower()
-    compact = re.sub(r"[^a-z0-9]+", "", compact)
+    compact = re.sub(r"[^\w]+", "", compact, flags=re.UNICODE)
     return compact
 
 
@@ -131,10 +108,17 @@ def translate_title_to_english(
         return str(title_translation_cache.get(cache_key, title_clean) or title_clean)
 
     result = title_clean
-    if is_danish_text(title_clean, runtime_profile=runtime_profile):
-        runtime = get_translation_runtime(runtime_profile)
+    source_lang = translation_source_language(title_clean, runtime_profile=runtime_profile)
+    if source_lang is not None:
+        runtime = get_translation_runtime(runtime_profile, source_lang=source_lang)
         if runtime is None:
-            raise RuntimeError("title translation model is not available")
+            logger.warning(
+                "title translation model is not available for source language %s; keeping original title",
+                source_lang,
+            )
+            if title_translation_cache is not None:
+                title_translation_cache[cache_key] = result
+            return result
         tokenizer, model, device = runtime
         try:
             encoded = tokenizer(title_clean, return_tensors="pt", truncation=True)
@@ -204,14 +188,13 @@ def get_title_english_for_row(
             runtime_profile=runtime_profile,
             title_translation_cache=title_translation_cache,
         )
-    except Exception:
-        # Keep processing robust for malformed noisy titles.
+    except RuntimeError:
         try:
             title_english = translate_text_to_english_if_needed(
                 title_clean,
                 runtime_profile=runtime_profile,
             )
-        except Exception:
+        except RuntimeError:
             title_english = title_clean
 
     title_english = finalize_title_english(title_english, title_clean)
@@ -219,12 +202,9 @@ def get_title_english_for_row(
     if normalize_title_compare_key(persisted_title_english) == normalize_title_compare_key(
         title_clean
     ):
-        # Keep DB cache empty when no meaningful English translation exists.
         persisted_title_english = ""
     row["title_english"] = persisted_title_english or title_english
 
     if row_id > 0:
         set_job_title_english(db_path, row_id, persisted_title_english)
     return row["title_english"]
-
-

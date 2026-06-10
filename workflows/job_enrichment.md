@@ -5,7 +5,7 @@ Per-job text enrichment: translation, description generation, skill materializat
 
 **Submodules:**
 - `job_translation.py` — `make_translate_job_entry_for_storage`
-- `job_text_enrichment.py` — `_enrich_raw_text_with_position_page`, `_build_title_fields`
+- `job_text_enrichment.py` — `_enrich_raw_text_with_position_page`, `_build_title_fields`, `_resolve_title_and_place`
 - `job_descriptions.py` — description LLM generation, quality checks, `_generate_missing_descriptions_for_ingest`
 - `job_skills_materialize.py` — `materialize_job_skills`, `materialize_jobs_skills`, `materialize_relevant_and_applied_skills`
 - `job_easy_apply.py` — `_is_easy_apply_item`

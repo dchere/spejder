@@ -6,7 +6,8 @@ from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import parse_qs, unquote, urlparse
 from .connection import _connect
-from .utils import sanitize_job_title, _normalize_skill_name_key, _normalize_position_link, get_job_link, _provider_from_link
+from .connection import get_job_link
+from .utils import sanitize_job_title, _normalize_skill_name_key, _normalize_position_link, _provider_from_link
 
 def _skill_to_regex_simple(name: str) -> str:
     tokens = [re.escape(t) for t in re.findall(

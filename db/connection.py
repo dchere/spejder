@@ -6,7 +6,7 @@ import json
 from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import parse_qs, unquote, urlparse
-from spejder.db.utils import SQLITE_TIMEOUT_SECONDS, SQLITE_BUSY_TIMEOUT_MS, sanitize_job_title, _normalize_position_link, _provider_from_link, get_job_link
+from spejder.db.utils import SQLITE_TIMEOUT_SECONDS, SQLITE_BUSY_TIMEOUT_MS, sanitize_job_title, _normalize_position_link, _provider_from_link
 
 JOB_RETENTION_DAYS = 90
 
@@ -15,6 +15,16 @@ def _connect(db_path: str) -> sqlite3.Connection:
     conn.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
     conn.execute("PRAGMA journal_mode=WAL")
     return conn
+
+
+def get_job_link(db_path: str, job_id: int):
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT position_link FROM jobs WHERE id=?", (job_id,))
+        return cur.fetchone()
+    finally:
+        conn.close()
 
 
 def ensure_db(db_path: str):

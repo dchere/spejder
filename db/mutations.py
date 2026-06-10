@@ -6,7 +6,8 @@ from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import parse_qs, unquote, urlparse
 from .connection import _connect
-from .utils import sanitize_job_title, _normalize_position_link, get_job_link, _provider_from_link
+from .connection import get_job_link
+from .utils import sanitize_job_title, _normalize_position_link, _provider_from_link
 from .deduplication_utils import _cross_source_dedupe_key
 
 def upsert_job(db_path: str, job: dict) -> bool:
@@ -113,7 +114,69 @@ def upsert_job(db_path: str, job: dict) -> bool:
                 ),
             )
             conn.commit()
-        return is_new_record
+            return is_new_record
+
+        cur.execute(
+            """
+            SELECT id, company, title, place, work_type, raw_text
+            FROM jobs
+            WHERE position_link=?
+            LIMIT 1
+            """,
+            (position_link,),
+        )
+        existing = cur.fetchone()
+        if existing:
+            job_id = int(existing[0] or 0)
+            merged_company = str(existing[1] or "") or company
+            merged_title = sanitize_job_title(str(existing[2] or "") or title)
+            merged_place = str(existing[3] or "")
+            merged_work_type = str(existing[4] or "") or work_type
+            merged_raw = str(existing[5] or "")
+
+            provider_company = _provider_from_link(position_link)
+            if company and (
+                not merged_company
+                or (provider_company and provider_company == company and merged_company != company)
+            ):
+                merged_company = company
+            if title and (not merged_title or len(title) > len(merged_title)):
+                merged_title = sanitize_job_title(title)
+            if place and (not merged_place or merged_place.lower() == "unknown"):
+                merged_place = place
+            if work_type and (
+                not merged_work_type or merged_work_type.lower() == "unknown"
+            ):
+                merged_work_type = work_type
+            if len(raw_text) > len(merged_raw):
+                merged_raw = raw_text
+
+            if (
+                merged_company != str(existing[1] or "")
+                or merged_title != sanitize_job_title(str(existing[2] or ""))
+                or merged_place != str(existing[3] or "")
+                or merged_work_type != str(existing[4] or "")
+                or merged_raw != str(existing[5] or "")
+            ):
+                cur.execute(
+                    """
+                    UPDATE jobs
+                    SET source=?, company=?, title=?, place=?, work_type=?, raw_text=?, updated_at=?
+                    WHERE id=?
+                    """,
+                    (
+                        source,
+                        merged_company,
+                        merged_title,
+                        merged_place,
+                        merged_work_type or "Unknown",
+                        merged_raw,
+                        now,
+                        job_id,
+                    ),
+                )
+                conn.commit()
+        return False
     finally:
         conn.close()
 
@@ -138,6 +201,19 @@ def set_job_description(db_path: str, job_id: int, description: str):
         cur.execute(
             "UPDATE jobs SET description=?, updated_at=? WHERE id=?",
             (description, datetime.now(timezone.utc).isoformat(), job_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def set_job_place(db_path: str, job_id: int, place: str):
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE jobs SET place=?, updated_at=? WHERE id=?",
+            (str(place or "").strip(), datetime.now(timezone.utc).isoformat(), job_id),
         )
         conn.commit()
     finally:

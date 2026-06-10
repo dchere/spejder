@@ -7,7 +7,7 @@ Higher-level services coordinating config, HTML rendering, and language tooling.
 - `profile_manager.py` / `profile_manager.md` — profile defaults and persistence
 - `dashboard_manager.py` / `dashboard_manager.md` — interactive HTML dashboard generation
 - `language_manager/` / `language_manager.md` — detection, translation, title normalization
-  - `detection.py` — FastText Danish detection
+  - `detection.py` — FastText Danish and Ukrainian detection (`translation_source_language`)
   - `engines.py` — MarianMT / ctranslate2 runtime
   - `initialization.py` — CLI init hooks
   - `text_translation.py` — body translation

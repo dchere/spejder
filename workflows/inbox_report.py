@@ -142,18 +142,19 @@ def write_inbox_dashboard_report(
                 description = _fallback_description_text("", source_raw or raw_text)
                 if description:
                     set_job_description(db_path, row.get("id", 0), description)
+            title_fields = _build_title_fields(
+                db_path,
+                row,
+                runtime_profile=profile,
+                title_translation_cache=report_title_translation_cache,
+            )
             records.append(
                 {
                     "id": row.get("id", 0),
                     "source": row.get("source", "Unknown"),
                     "company": row.get("company", ""),
-                    **_build_title_fields(
-                        db_path,
-                        row,
-                        runtime_profile=profile,
-                        title_translation_cache=report_title_translation_cache,
-                    ),
-                    "place": row.get("place", ""),
+                    **title_fields,
+                    "place": title_fields.get("place", row.get("place", "")),
                     "work_type": row.get("work_type", "Unknown"),
                     "description": description,
                     "skills": skills,
@@ -187,18 +188,19 @@ def write_inbox_dashboard_report(
             limit=10,
             rescore=False,
         )
+        title_fields = _build_title_fields(
+            db_path,
+            row,
+            runtime_profile=profile,
+            title_translation_cache=report_title_translation_cache,
+        )
         applied_records.append(
             {
                 "id": row.get("id", 0),
                 "source": row.get("source", "Unknown"),
                 "company": row.get("company", ""),
-                **_build_title_fields(
-                    db_path,
-                    row,
-                    runtime_profile=profile,
-                    title_translation_cache=report_title_translation_cache,
-                ),
-                "place": row.get("place", ""),
+                **title_fields,
+                "place": title_fields.get("place", row.get("place", "")),
                 "work_type": row.get("work_type", "Unknown"),
                 "description": description,
                 "skills": skills,

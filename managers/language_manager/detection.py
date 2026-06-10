@@ -1,65 +1,77 @@
 
-import re
-import sys
-import os
-import json
 import logging
-from typing import Optional
+from typing import Literal, Optional, cast
 
-import sys
-
-from spejder.core import load_profile, load_runtime_profile, AppConfig, DEFAULT_PROFILE_PATH
+from spejder.core import AppConfig
 from spejder.managers.language_manager.engines import _get_language_checker_detector
-
-
-try:
-    from ctranslate2 import Translator
-    import sentencepiece as spm
-    TRANSLATION_AVAILABLE = True
-except ImportError:
-    Translator = None
-    spm = None
-    TRANSLATION_AVAILABLE = False
-
-try:
-    import fasttext
-    FASTTEXT_AVAILABLE = True
-except ImportError:
-    fasttext = None
-    FASTTEXT_AVAILABLE = False
+from .utils import (
+    _language_checker_letter_count,
+    _language_checker_min_letters,
+    _language_checker_threshold,
+)
 
 logger = logging.getLogger(__name__)
 
-# Global singletons
-_language_checker_detector = None
-_translation_instance = None
+TranslationSourceLanguage = Literal["da", "uk"]
+TRANSLATION_SOURCE_LANGUAGES = frozenset({"da", "uk"})
 
 
-from .utils import _language_checker_min_letters, _language_checker_letter_count, _language_checker_threshold, _language_checker_cache_key
-from .engines import language_checker_engine
-def is_danish_text(text: str, runtime_profile: Optional[AppConfig] = None) -> bool:
+def _top_language_label(
+    text: str, runtime_profile: Optional[AppConfig] = None
+) -> tuple[str, float]:
     sample = " ".join((text or "").split()).strip()
     if not sample:
-        return False
+        return "", 0.0
     if _language_checker_letter_count(sample) < _language_checker_min_letters(runtime_profile):
-        return False
+        return "", 0.0
 
     detector = _get_language_checker_detector(runtime_profile)
     if detector is None:
-        return False
+        return "", 0.0
 
     try:
         labels, probabilities = detector.predict(sample.replace("\n", " "), k=1)
     except Exception:
-        return False
+        return "", 0.0
 
     if not labels or not probabilities:
-        return False
+        return "", 0.0
 
     top_label = str(labels[0] or "").strip().lower()
+    if top_label.startswith("__label__"):
+        top_label = top_label[len("__label__") :]
     top_probability = float(probabilities[0] or 0.0)
-    return top_label == "__label__da" and top_probability >= _language_checker_threshold(
-        runtime_profile
+    return top_label, top_probability
+
+
+def _is_language_text(
+    text: str,
+    language_code: str,
+    runtime_profile: Optional[AppConfig] = None,
+) -> bool:
+    label, probability = _top_language_label(text, runtime_profile=runtime_profile)
+    if not label:
+        return False
+    return (
+        label == language_code
+        and probability >= _language_checker_threshold(runtime_profile)
     )
 
 
+def is_danish_text(text: str, runtime_profile: Optional[AppConfig] = None) -> bool:
+    return _is_language_text(text, "da", runtime_profile=runtime_profile)
+
+
+def is_ukrainian_text(text: str, runtime_profile: Optional[AppConfig] = None) -> bool:
+    return _is_language_text(text, "uk", runtime_profile=runtime_profile)
+
+
+def translation_source_language(
+    text: str, runtime_profile: Optional[AppConfig] = None
+) -> Optional[TranslationSourceLanguage]:
+    label, probability = _top_language_label(text, runtime_profile=runtime_profile)
+    if label not in TRANSLATION_SOURCE_LANGUAGES:
+        return None
+    if probability < _language_checker_threshold(runtime_profile):
+        return None
+    return cast(TranslationSourceLanguage, label)

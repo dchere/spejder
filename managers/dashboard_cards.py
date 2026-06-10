@@ -35,6 +35,7 @@ def _render_html_from_items(items, out_html: str, title: str):
         )
         card_class = "card easy-apply-card" if is_easy_apply else "card"
 
+        place_line = f"<p><strong>Place:</strong> {place}</p>" if place else ""
         cards.append(
             f"""
             <article class="{card_class}">
@@ -42,7 +43,7 @@ def _render_html_from_items(items, out_html: str, title: str):
                             {title_english_html}
                             <p><strong>Source:</strong> {source}</p>
                             <p><strong>Company:</strong> {company}</p>
-                            <p><strong>Place:</strong> {place}</p>
+                            {place_line}
                             <p><strong>Type:</strong> {work_type}</p>
                             <p><strong>Description:</strong> {description}</p>
                             <p><strong>Skills:</strong> <span class="skill-tags">{skills_html or '<span class="skills-empty">No skills extracted</span>'}</span></p>
@@ -127,6 +128,7 @@ def _build_job_cards(
             else ""
         )
 
+        place_line = f"<p><strong>Place:</strong> {place}</p>" if place else ""
         cards.append(
             f"""
             <article class="{card_class}" data-job-id="{job_id}">
@@ -135,7 +137,7 @@ def _build_job_cards(
                 {title_english_html}
                 <p><strong>Source:</strong> {source}</p>
                 <p><strong>Company:</strong> {company_html}</p>
-                <p><strong>Place:</strong> {place}</p>
+                {place_line}
                 <p><strong>Type:</strong> {work_type}</p>
                 <p><strong>Description:</strong> {description}</p>
                 {manual_status if is_applied else ""}

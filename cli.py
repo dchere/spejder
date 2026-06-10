@@ -22,6 +22,7 @@ from spejder.workflows import (
 )
 
 _FULL_INIT = frozenset({"language_checker", "translation", "llm"})
+_TRANSLATION_INIT = frozenset({"language_checker", "translation"})
 _LLM_ONLY_INIT = frozenset({"llm"})
 COMMAND_INIT = {
     "process_inbox": _FULL_INIT,
@@ -29,6 +30,7 @@ COMMAND_INIT = {
     "summarize_folder": _FULL_INIT,
     "refresh_descriptions": _FULL_INIT,
     "sync_user_skills": _FULL_INIT,
+    "serve_gui": _TRANSLATION_INIT,
     "sync_antipatterns": _LLM_ONLY_INIT,
 }
 

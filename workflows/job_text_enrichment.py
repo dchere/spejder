@@ -1,3 +1,4 @@
+import re
 from typing import Optional
 
 from spejder.config import AppConfig
@@ -8,8 +9,27 @@ from spejder.managers.language_manager import (
 from spejder.managers.language_manager import (
     translate_text_to_english_if_needed as _translate_text_to_english_if_needed,
 )
-from spejder.parsers.web_parser import _append_page_context_to_raw_text, _get_position_page_context
+from spejder.parsers.web_parser import (
+    _append_page_context_to_raw_text,
+    _extract_place_from_page_text,
+    _get_position_page_context,
+)
 from spejder.workflows.text_prepend import _prepend_summary_to_raw_text, _prepend_title_to_raw_text
+
+
+def _resolve_title_and_place(title: str, place: str) -> tuple[str, str]:
+    title_clean = str(title or "").strip()
+    place_clean = str(place or "").strip()
+    if place_clean and place_clean.lower() != "unknown":
+        return title_clean, place_clean
+
+    match = re.match(r"^(?P<title>.+?)\s*-\s*(?P<place>.+)$", title_clean)
+    if match:
+        parsed_title = (match.group("title") or "").strip()
+        parsed_place = (match.group("place") or "").strip()
+        if parsed_title and parsed_place:
+            return parsed_title, parsed_place
+    return title_clean, place_clean
 
 
 def _enrich_raw_text_with_position_page(
@@ -44,6 +64,16 @@ def _enrich_raw_text_with_position_page(
         runtime_profile=runtime_profile,
         page_context_cache=page_context_cache,
     )
+    place_hint = _extract_place_from_page_text(link, page_context)
+    existing_place = str(row.get("place", "") or "").strip()
+    if place_hint and (not existing_place or existing_place.lower() == "unknown"):
+        row["place"] = place_hint
+        job_id = int(row.get("id", 0) or 0)
+        if job_id:
+            from spejder.db import set_job_place
+
+            set_job_place(db_path, job_id, place_hint)
+
     merged = _append_page_context_to_raw_text(raw, link, page_context)
     if merged:
         row["raw_text"] = merged
@@ -57,12 +87,20 @@ def _build_title_fields(
     runtime_profile: Optional[AppConfig] = None,
     title_translation_cache: Optional[dict] = None,
 ) -> dict:
+    title, place = _resolve_title_and_place(
+        str(row.get("title", "") or ""),
+        str(row.get("place", "") or ""),
+    )
+    row_for_title = dict(row)
+    row_for_title["title"] = title
+    row_for_title["place"] = place
     return {
-        "title": str(row.get("title", "") or ""),
+        "title": title,
         "title_english": _get_title_english_for_row(
             db_path,
-            row,
+            row_for_title,
             runtime_profile=runtime_profile,
             title_translation_cache=title_translation_cache,
         ),
+        "place": place,
     }

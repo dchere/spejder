@@ -65,6 +65,12 @@ class CommandInitTests(unittest.TestCase):
     def test_sync_user_skills_requires_llm(self):
         self.assertIn("llm", COMMAND_INIT["sync_user_skills"])
 
+    def test_serve_gui_requires_translation_not_llm(self):
+        required = COMMAND_INIT["serve_gui"]
+        self.assertIn("language_checker", required)
+        self.assertIn("translation", required)
+        self.assertNotIn("llm", required)
+
 
 class ProfilePathFromArgsTests(unittest.TestCase):
     def test_uses_profile_when_set(self):
@@ -116,6 +122,21 @@ class CliMainInitTests(unittest.TestCase):
 
             self.assertEqual(len(captured), 1)
             self.assertIs(captured[0]._llm, fake_llm)
+
+    def test_serve_gui_runs_translation_init_not_llm(self):
+        captured = []
+
+        def capture_gui(args):
+            captured.append(args)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            mock_llm = _run_main_with_mocks(
+                ["serve-gui", "--profile", "./profile.json", "--no-open"],
+                tmp,
+                extra_patches=[("spejder.cli.cmd_serve_gui", {"side_effect": capture_gui})],
+            )
+            mock_llm.assert_not_called()
+            self.assertEqual(len(captured), 1)
 
     def test_process_inbox_does_not_set_llm_on_args(self):
         captured = []

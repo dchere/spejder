@@ -1,15 +1,15 @@
 
-import re
-import sys
-import os
-import json
 import logging
 from typing import Optional
 
-import sys
-
-from spejder.core import load_profile, load_runtime_profile, AppConfig, DEFAULT_PROFILE_PATH
-from spejder.managers.language_manager.utils import _language_checker_model_path, _translation_model_path, _language_checker_cache_key, _translation_model_looks_valid, language_checker_engine
+from spejder.core import AppConfig
+from spejder.managers.language_manager.utils import (
+    _language_checker_model_path,
+    _language_checker_cache_key,
+    _translation_model_looks_valid,
+    _translation_model_path_for_language,
+    language_checker_engine,
+)
 
 
 try:
@@ -38,10 +38,7 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# Global singletons
 LANGUAGE_CHECKER_DETECTORS = {}
-_language_checker_detector = None
-_translation_instance = None
 TRANSLATION_MODELS = {}
 
 
@@ -80,8 +77,9 @@ def _get_language_checker_detector(runtime_profile: Optional[AppConfig]) -> Opti
 
 def get_translation_runtime(
     runtime_profile: Optional[AppConfig],
+    source_lang: str = "da",
 ) -> Optional[tuple[object, object, str]]:
-    model_path = _translation_model_path(runtime_profile)
+    model_path = _translation_model_path_for_language(runtime_profile, source_lang)
     if (
         not model_path
         or not _translation_model_looks_valid(model_path)
