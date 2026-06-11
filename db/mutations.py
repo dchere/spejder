@@ -10,6 +10,9 @@ from .connection import get_job_link
 from .utils import sanitize_job_title, _normalize_position_link, _provider_from_link
 from .deduplication_utils import _cross_source_dedupe_key
 
+_INTERVIEW_FIELDS_CLEAR = "on_interview=0, interview_stopped=0, company_feedback=NULL"
+
+
 def upsert_job(db_path: str, job: dict) -> bool:
     now = datetime.now(timezone.utc).isoformat()
     conn = _connect(db_path)
@@ -285,22 +288,36 @@ def set_job_feedback(db_path: str, job_id: int, signal: str) -> bool:
     conn = _connect(db_path)
     try:
         cur = conn.cursor()
-        applied = 0 if normalized == "not relevant" else None
-        cur.execute(
-            """
-            UPDATE jobs
-            SET relevant=?, category=?, relevance_reason=?, applied=COALESCE(?, applied), updated_at=?
-            WHERE id=?
-            """,
-            (
-                relevant,
-                normalized,
-                f"manual_feedback={normalized}",
-                applied,
-                now,
-                int(job_id),
-            ),
-        )
+        if normalized == "not relevant":
+            cur.execute(
+                f"""
+                UPDATE jobs
+                SET relevant=?, category=?, relevance_reason=?, applied=0, {_INTERVIEW_FIELDS_CLEAR}, updated_at=?
+                WHERE id=?
+                """,
+                (
+                    relevant,
+                    normalized,
+                    f"manual_feedback={normalized}",
+                    now,
+                    int(job_id),
+                ),
+            )
+        else:
+            cur.execute(
+                """
+                UPDATE jobs
+                SET relevant=?, category=?, relevance_reason=?, updated_at=?
+                WHERE id=?
+                """,
+                (
+                    relevant,
+                    normalized,
+                    f"manual_feedback={normalized}",
+                    now,
+                    int(job_id),
+                ),
+            )
         conn.commit()
         return cur.rowcount > 0
     finally:
@@ -313,10 +330,20 @@ def set_job_viewed(db_path: str, job_id: int, viewed: bool) -> bool:
     conn = _connect(db_path)
     try:
         cur = conn.cursor()
-        cur.execute(
-            "UPDATE jobs SET viewed=?, applied=CASE WHEN ?=0 THEN 0 ELSE applied END, updated_at=? WHERE id=?",
-            (viewed_int, viewed_int, now, int(job_id)),
-        )
+        if viewed_int == 0:
+            cur.execute(
+                f"""
+                UPDATE jobs
+                SET viewed=0, applied=0, {_INTERVIEW_FIELDS_CLEAR}, updated_at=?
+                WHERE id=?
+                """,
+                (now, int(job_id)),
+            )
+        else:
+            cur.execute(
+                "UPDATE jobs SET viewed=1, updated_at=? WHERE id=?",
+                (now, int(job_id)),
+            )
         conn.commit()
         return cur.rowcount > 0
     finally:
@@ -340,7 +367,11 @@ def set_job_applied(db_path: str, job_id: int, applied: bool) -> bool:
             )
         else:
             cur.execute(
-                "UPDATE jobs SET applied=0, updated_at=? WHERE id=?",
+                f"""
+                UPDATE jobs
+                SET applied=0, {_INTERVIEW_FIELDS_CLEAR}, updated_at=?
+                WHERE id=?
+                """,
                 (now, int(job_id)),
             )
         conn.commit()
@@ -348,6 +379,75 @@ def set_job_applied(db_path: str, job_id: int, applied: bool) -> bool:
     finally:
         conn.close()
 
+
+def set_job_on_interview(db_path: str, job_id: int, on_interview: bool) -> bool:
+    now = datetime.now(timezone.utc).isoformat()
+    on_interview_int = 1 if on_interview else 0
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        if on_interview_int == 1:
+            cur.execute(
+                """
+                UPDATE jobs
+                SET on_interview=1, interview_stopped=0, updated_at=?
+                WHERE id=? AND applied=1
+                """,
+                (now, int(job_id)),
+            )
+        else:
+            cur.execute(
+                "UPDATE jobs SET on_interview=0, updated_at=? WHERE id=?",
+                (now, int(job_id)),
+            )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def set_job_interview_stopped(db_path: str, job_id: int, stopped: bool) -> bool:
+    now = datetime.now(timezone.utc).isoformat()
+    stopped_int = 1 if stopped else 0
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        if stopped_int == 1:
+            cur.execute(
+                """
+                UPDATE jobs
+                SET interview_stopped=1, on_interview=0, updated_at=?
+                WHERE id=? AND applied=1
+                """,
+                (now, int(job_id)),
+            )
+        else:
+            cur.execute(
+                "UPDATE jobs SET interview_stopped=0, updated_at=? WHERE id=?",
+                (now, int(job_id)),
+            )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def set_job_company_feedback(db_path: str, job_id: int, feedback: str) -> bool:
+    now = datetime.now(timezone.utc).isoformat()
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE jobs SET company_feedback=?, updated_at=?
+            WHERE id=? AND applied=1 AND interview_stopped=1
+            """,
+            (feedback, now, int(job_id)),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
 
 
 def update_jobs_relevance(db_path: str, updates: list[tuple[int, float, str, int, str]], prune_irrelevant: bool = False):
@@ -399,10 +499,17 @@ def batch_update_and_delete_jobs(db_path: str, updates: list[tuple], deletes: li
         cur = conn.cursor()
         for u in updates:
             # (company, title, place, work_type, raw_text, viewed, applied, updated_at, id)
-            cur.execute(
-                "UPDATE jobs SET company=?, title=?, place=?, work_type=?, raw_text=?, viewed=?, applied=?, updated_at=? WHERE id=?",
-                u
-            )
+            applied = int(u[6] or 0)
+            if applied == 0:
+                cur.execute(
+                    f"UPDATE jobs SET company=?, title=?, place=?, work_type=?, raw_text=?, viewed=?, applied=?, {_INTERVIEW_FIELDS_CLEAR}, updated_at=? WHERE id=?",
+                    u,
+                )
+            else:
+                cur.execute(
+                    "UPDATE jobs SET company=?, title=?, place=?, work_type=?, raw_text=?, viewed=?, applied=?, updated_at=? WHERE id=?",
+                    u,
+                )
         for rid in deletes:
             cur.execute("DELETE FROM jobs WHERE id=?", (rid,))
         conn.commit()

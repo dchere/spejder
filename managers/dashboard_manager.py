@@ -21,7 +21,25 @@ __all__ = [
 def _render_company_dashboard_html(company_name: str, company_items: list[dict]) -> str:
     company_label = (company_name or "").strip() or "Unknown company"
     safe_company_label = html_lib.escape(company_label)
-    applied_items = [item for item in company_items if int(item.get("applied", 0) or 0) == 1]
+    applied_items = [
+        item
+        for item in company_items
+        if int(item.get("applied", 0) or 0) == 1
+        and int(item.get("on_interview", 0) or 0) == 0
+        and int(item.get("interview_stopped", 0) or 0) == 0
+    ]
+    interview_items = [
+        item
+        for item in company_items
+        if int(item.get("applied", 0) or 0) == 1
+        and int(item.get("on_interview", 0) or 0) == 1
+    ]
+    stopped_items = [
+        item
+        for item in company_items
+        if int(item.get("applied", 0) or 0) == 1
+        and int(item.get("interview_stopped", 0) or 0) == 1
+    ]
     relevant_items = [
         item
         for item in company_items
@@ -38,6 +56,8 @@ def _render_company_dashboard_html(company_name: str, company_items: list[dict])
     relevant_items = _sort_positions_unviewed_then_score(relevant_items)
     not_relevant_items = _sort_positions_unviewed_then_score(not_relevant_items)
     applied_items = _sort_applied_positions(applied_items)
+    interview_items = _sort_applied_positions(interview_items)
+    stopped_items = _sort_applied_positions(stopped_items)
 
     relevant_cards = _build_job_cards(relevant_items, company_links=False, skill_buttons=False)
     not_relevant_cards = _build_job_cards(
@@ -45,7 +65,15 @@ def _render_company_dashboard_html(company_name: str, company_items: list[dict])
         company_links=False,
         skill_buttons=False,
     )
-    applied_cards = _build_job_cards(applied_items, company_links=False, skill_buttons=False)
+    applied_cards = _build_job_cards(
+        applied_items, company_links=False, skill_buttons=False, card_panel="applied"
+    )
+    interview_cards = _build_job_cards(
+        interview_items, company_links=False, skill_buttons=False, card_panel="interview"
+    )
+    stopped_cards = _build_job_cards(
+        stopped_items, company_links=False, skill_buttons=False, card_panel="stopped"
+    )
 
     template = jinja_env.get_template("company_dashboard.html")
     return template.render(
@@ -55,10 +83,13 @@ def _render_company_dashboard_html(company_name: str, company_items: list[dict])
         len_relevant_items=len(relevant_items),
         len_not_relevant_items=len(not_relevant_items),
         len_applied_items=len(applied_items),
+        len_interview_items=len(interview_items),
+        len_stopped_items=len(stopped_items),
         relevant_cards=relevant_cards,
         not_relevant_cards=not_relevant_cards,
         applied_cards=applied_cards,
-        # Fallback empty string if not passed
+        interview_cards=interview_cards,
+        stopped_cards=stopped_cards,
         skills_table_html=locals().get("skills_table_html", ""),
         len_skills_items=0
     )
@@ -76,11 +107,15 @@ def _render_html_dashboard(
     report_max_not_relevant_positions: int = 7,
     relevant_total_count: Optional[int] = None,
     not_relevant_total_count: Optional[int] = None,
+    interview_items: Optional[list[dict]] = None,
+    stopped_items: Optional[list[dict]] = None,
 ):
     os.makedirs(os.path.dirname(os.path.abspath(out_html)), exist_ok=True)
     relevant_items = _sort_positions_unviewed_then_score(relevant_items)
     not_relevant_items = _sort_positions_unviewed_then_score(not_relevant_items)
     applied_items = _sort_applied_positions(applied_items)
+    interview_items = _sort_applied_positions(interview_items or [])
+    stopped_items = _sort_applied_positions(stopped_items or [])
 
     if relevant_total_count is None:
         relevant_total_count = len(relevant_items)
@@ -89,10 +124,14 @@ def _render_html_dashboard(
     relevant_items = list(relevant_items)[: max(1, int(report_max_relevant_positions or 7))]
     not_relevant_items = list(not_relevant_items)[: max(1, int(report_max_not_relevant_positions or 7))]
     applied_items = list(applied_items)
+    interview_items = list(interview_items)
+    stopped_items = list(stopped_items)
 
     relevant_cards = _build_job_cards(relevant_items)
     not_relevant_cards = _build_job_cards(not_relevant_items)
-    applied_cards = _build_job_cards(applied_items)
+    applied_cards = _build_job_cards(applied_items, card_panel="applied")
+    interview_cards = _build_job_cards(interview_items, card_panel="interview")
+    stopped_cards = _build_job_cards(stopped_items, card_panel="stopped")
     skills_items = skills_items or []
 
     skills_rows = []
@@ -142,12 +181,31 @@ def _render_html_dashboard(
     )
 
     template = jinja_env.get_template("dashboard.html")
-    content = template.render(title=html_lib.escape(title), relevant_total_count=relevant_total_count, not_relevant_total_count=not_relevant_total_count, viewed_total=viewed_total, len_relevant_items=len(relevant_items), len_not_relevant_items=len(not_relevant_items), len_applied_items=len(applied_items), len_skills_items=len(skills_items) if skills_items else 0, relevant_cards=relevant_cards, not_relevant_cards=not_relevant_cards, applied_cards=applied_cards, skills_table_html=skills_table_html)
+    content = template.render(
+        title=html_lib.escape(title),
+        relevant_total_count=relevant_total_count,
+        not_relevant_total_count=not_relevant_total_count,
+        viewed_total=viewed_total,
+        len_relevant_items=len(relevant_items),
+        len_not_relevant_items=len(not_relevant_items),
+        len_applied_items=len(applied_items),
+        len_interview_items=len(interview_items),
+        len_stopped_items=len(stopped_items),
+        len_skills_items=len(skills_items) if skills_items else 0,
+        relevant_cards=relevant_cards,
+        not_relevant_cards=not_relevant_cards,
+        applied_cards=applied_cards,
+        interview_cards=interview_cards,
+        stopped_cards=stopped_cards,
+        skills_table_html=skills_table_html,
+    )
 
     with open(out_html, "w", encoding="utf-8") as f:
         f.write(content)
 
     print(
         f"Wrote HTML dashboard: {out_html} "
-        f"(relevant={len(relevant_items)}, not_relevant={len(not_relevant_items)}, applied={len(applied_items)}, viewed={int(viewed_total)})"
+        f"(relevant={len(relevant_items)}, not_relevant={len(not_relevant_items)}, "
+        f"applied={len(applied_items)}, interview={len(interview_items)}, "
+        f"stopped={len(stopped_items)}, viewed={int(viewed_total)})"
     )

@@ -5,7 +5,7 @@ from typing import Optional
 
 from spejder.config import AppConfig
 from spejder.db import (
-    get_applied_jobs,
+    get_all_applied_jobs,
     get_job_skills,
     get_jobs_by_category,
     upsert_skill_pattern,
@@ -24,7 +24,7 @@ def _learn_skill_patterns_from_positions(
     progress: bool = False,
     progress_label: str = "Skill pattern learning",
 ) -> dict:
-    applied_rows = get_applied_jobs(db_path, limit=0)
+    applied_rows = get_all_applied_jobs(db_path, limit=0)
     relevant_rows = get_jobs_by_category(db_path, "relevant", limit=0, unviewed_only=False)
 
     rows = []

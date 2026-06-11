@@ -16,6 +16,10 @@ Extracted from `jobs.py`. The rest of the application (including business logic 
 
 **Query modules (`queries.py` facade):**
 - `queries_listings.py` — category/company/applied listings and viewed counts
+  - `get_applied_jobs()` — `applied=1` and not on interview/stopped (Applied tab)
+  - `get_all_applied_jobs()` — all `applied=1` rows (skill learning, enrichment, raw-text)
+  - `get_interview_jobs()` — `applied=1 AND on_interview=1`
+  - `get_stopped_interview_jobs()` — `applied=1 AND interview_stopped=1`
 - `queries_refresh.py` — description refresh and scoring candidate rows
 - `queries_signals.py` — dedupe, merge, and suggestion queries
 - `queries_rows.py` — shared SQL row → dict mappers
@@ -37,4 +41,13 @@ Extracted from `jobs.py`. The rest of the application (including business logic 
 - `_is_djinni_position_link`: shared Djinni job URL check (`djinni.co/jobs/{numeric_id}`); used by `_is_job_link`, `_normalize_position_link`, and `_provider_from_link`.
 - `get_job_link` (`connection.py`): returns `position_link` row for a job id; lives next to `_connect` to avoid circular imports with `utils.py`.
 - `ensure_db` (`connection.py`): after source backfill from `_provider_from_link`, migrates existing Emerson Oracle FA rows — `source` → `Emerson Career Site` (when blank or `Oracle CX`), `company` → `Emerson` (when blank or `Emerson Career Site`).
+
+**Interview stage columns (`jobs` table):**
+- `on_interview INTEGER DEFAULT 0` — mutually exclusive with `interview_stopped`; only settable when `applied=1`
+- `interview_stopped INTEGER DEFAULT 0` — clears `on_interview` when set; only settable when `applied=1`
+- `company_feedback TEXT` — free-text notes on stopped cards; only writable when `interview_stopped=1`
+- `set_job_applied(False)`, `set_job_viewed(False)`, `set_job_feedback("not relevant")`, and `batch_update_and_delete_jobs` update tuples with `applied=0` all clear interview fields via shared `_INTERVIEW_FIELDS_CLEAR` (`on_interview=0`, `interview_stopped=0`, `company_feedback=NULL`) alongside `applied=0`
+- `set_job_interview_stopped(False)` (unstop) clears only `interview_stopped`; preserves `company_feedback`
+- Mutations: `set_job_on_interview`, `set_job_interview_stopped`, `set_job_company_feedback`
+- Legacy `description_raw` → `jobs_new` migration copies `on_interview`, `interview_stopped`, and `company_feedback` when source columns exist
 - Duplicate link-recognition patterns also live in `jobs/parsing/links.py` (`_is_job_link`) per project convention.

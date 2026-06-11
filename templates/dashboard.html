@@ -33,6 +33,12 @@
             .relevant-wrap { font-size: 13px; color: #333; display: inline-flex; gap: 5px; align-items: center; }
             .viewed-wrap { font-size: 13px; color: #333; display: inline-flex; gap: 5px; align-items: center; }
             .applied-wrap { font-size: 13px; color: #333; display: inline-flex; gap: 5px; align-items: center; }
+            .interview-wrap { font-size: 13px; color: #333; display: inline-flex; gap: 5px; align-items: center; }
+            .stopped-wrap { font-size: 13px; color: #333; display: inline-flex; gap: 5px; align-items: center; }
+            .company-feedback-input { margin: 8px 0; padding: 8px; border: 1px dashed #d8c7ee; border-radius: 8px; background: #faf7ff; }
+            .company-feedback-input p { margin: 0 0 6px 0; font-size: 12px; color: #4a2d6d; }
+            .company-feedback-text { width: 100%; min-height: 80px; resize: vertical; border: 1px solid #d8c7ee; border-radius: 6px; padding: 8px; font-size: 12px; box-sizing: border-box; }
+            .company-feedback-btn { margin-top: 8px; border: 1px solid #6f42c1; color: #6f42c1; background: #fff; border-radius: 6px; padding: 6px 10px; cursor: pointer; }
             .feedback-status { font-size: 12px; color: #555; }
             a { color: #0a58ca; word-break: break-all; }
             .hidden { display: none; }
@@ -52,22 +58,31 @@
             <button id="btn-relevant" class="mode-btn active" type="button" data-total="{{ relevant_total_count }}">Relevant ({{ len_relevant_items }}/{{ relevant_total_count }})</button>
             <button id="btn-not-relevant" class="mode-btn" type="button" data-total="{{ not_relevant_total_count }}">Not relevant ({{ len_not_relevant_items }}/{{ not_relevant_total_count }})</button>
             <button id="btn-applied" class="mode-btn" type="button">Applied ({{ len_applied_items }})</button>
+            <button id="btn-interview" class="mode-btn" type="button">Interview ({{ len_interview_items }})</button>
+            <button id="btn-stopped" class="mode-btn" type="button">Stopped ({{ len_stopped_items }})</button>
             <button id="btn-skills" class="mode-btn" type="button">Skills ({{ len_skills_items }})</button>
         </div>
         <section id="panel-relevant" class="grid">{{ relevant_cards }}</section>
         <section id="panel-not-relevant" class="grid hidden">{{ not_relevant_cards }}</section>
         <section id="panel-applied" class="grid hidden">{{ applied_cards }}</section>
+        <section id="panel-interview" class="grid hidden">{{ interview_cards }}</section>
+        <section id="panel-stopped" class="grid hidden">{{ stopped_cards }}</section>
         <section id="panel-skills" class="skills-wrap hidden">{{ skills_table_html }}</section>
 
         <script>
             const btnRelevant = document.getElementById('btn-relevant');
             const btnNotRelevant = document.getElementById('btn-not-relevant');
             const btnApplied = document.getElementById('btn-applied');
+            const btnInterview = document.getElementById('btn-interview');
+            const btnStopped = document.getElementById('btn-stopped');
             const btnSkills = document.getElementById('btn-skills');
             const panelRelevant = document.getElementById('panel-relevant');
             const panelNotRelevant = document.getElementById('panel-not-relevant');
             const panelApplied = document.getElementById('panel-applied');
+            const panelInterview = document.getElementById('panel-interview');
+            const panelStopped = document.getElementById('panel-stopped');
             const panelSkills = document.getElementById('panel-skills');
+            const appliedStagePanels = [panelApplied, panelInterview, panelStopped];
 
             function apiUrl(path) {
                 if (window.location.protocol === 'file:') {
@@ -103,30 +118,100 @@
                 const relevantCount = panelRelevant.querySelectorAll('.card').length;
                 const notRelevantCount = panelNotRelevant.querySelectorAll('.card').length;
                 const appliedCount = panelApplied.querySelectorAll('.card').length;
+                const interviewCount = panelInterview.querySelectorAll('.card').length;
+                const stoppedCount = panelStopped.querySelectorAll('.card').length;
                 const skillsCount = panelSkills.querySelectorAll('tbody tr').length;
                 const relevantTotal = Number.parseInt(btnRelevant.dataset.total || String(relevantCount), 10) || relevantCount;
                 const notRelevantTotal = Number.parseInt(btnNotRelevant.dataset.total || String(notRelevantCount), 10) || notRelevantCount;
                 btnRelevant.textContent = `Relevant (${relevantCount}/${relevantTotal})`;
                 btnNotRelevant.textContent = `Not relevant (${notRelevantCount}/${notRelevantTotal})`;
                 btnApplied.textContent = `Applied (${appliedCount})`;
+                btnInterview.textContent = `Interview (${interviewCount})`;
+                btnStopped.textContent = `Stopped (${stoppedCount})`;
                 btnSkills.textContent = `Skills (${skillsCount})`;
                 ensureEmptyState(panelRelevant);
                 ensureEmptyState(panelNotRelevant);
                 ensureEmptyState(panelApplied);
+                ensureEmptyState(panelInterview);
+                ensureEmptyState(panelStopped);
+            }
+
+            function appliedStagePanel(card) {
+                const onInterview = card.querySelector('.interview-wrap input')?.checked;
+                const stopped = card.querySelector('.stopped-wrap input')?.checked;
+                if (onInterview) return panelInterview;
+                if (stopped) return panelStopped;
+                return panelApplied;
+            }
+
+            function moveCardToAppliedStage(card) {
+                const targetPanel = appliedStagePanel(card);
+                if (card.parentElement !== targetPanel) targetPanel.prepend(card);
+                syncAppliedStageUI(card);
+            }
+
+            function ensureCompanyFeedbackUI(card) {
+                if (!card) return;
+                const saved = card.querySelector('.company-feedback-text')?.value
+                    || card.getAttribute('data-company-feedback')
+                    || '';
+                if (card.querySelector('.company-feedback-input')) {
+                    const existing = card.querySelector('.company-feedback-text');
+                    if (existing && saved && !existing.value) existing.value = saved;
+                    return;
+                }
+                const jobId = card.getAttribute('data-job-id');
+                const block = document.createElement('div');
+                block.className = 'company-feedback-input';
+                block.innerHTML = `
+                    <p><strong>Company feedback</strong></p>
+                    <textarea class="company-feedback-text" placeholder="Notes from the company..."></textarea>
+                    <div><button type="button" class="company-feedback-btn" onclick="saveCompanyFeedback(${jobId}, this)">Save feedback</button></div>
+                `.trim();
+                const textarea = block.querySelector('.company-feedback-text');
+                if (textarea && saved) textarea.value = saved;
+                const skillsLine = card.querySelector('.skill-tags')?.closest('p');
+                if (skillsLine) {
+                    skillsLine.before(block);
+                } else {
+                    const feedbackDiv = card.querySelector('.feedback');
+                    if (feedbackDiv) feedbackDiv.before(block);
+                }
+            }
+
+            function removeCompanyFeedbackUI(card) {
+                card?.querySelector('.company-feedback-input')?.remove();
+            }
+
+            function syncAppliedStageUI(card) {
+                if (!card) return;
+                const stopped = card.querySelector('.stopped-wrap input')?.checked;
+                if (stopped) ensureCompanyFeedbackUI(card);
+                else removeCompanyFeedbackUI(card);
+            }
+
+            function removeCardFromAppliedStages(card) {
+                if (appliedStagePanels.includes(card.parentElement)) card.remove();
             }
 
             function setMode(mode) {
                 const isRelevant = mode === 'relevant';
                 const isNotRelevant = mode === 'not relevant';
                 const isApplied = mode === 'applied';
+                const isInterview = mode === 'interview';
+                const isStopped = mode === 'stopped';
                 const isSkills = mode === 'skills';
                 panelRelevant.classList.toggle('hidden', !isRelevant);
                 panelNotRelevant.classList.toggle('hidden', !isNotRelevant);
                 panelApplied.classList.toggle('hidden', !isApplied);
+                panelInterview.classList.toggle('hidden', !isInterview);
+                panelStopped.classList.toggle('hidden', !isStopped);
                 panelSkills.classList.toggle('hidden', !isSkills);
                 btnRelevant.classList.toggle('active', isRelevant);
                 btnNotRelevant.classList.toggle('active', isNotRelevant);
                 btnApplied.classList.toggle('active', isApplied);
+                btnInterview.classList.toggle('active', isInterview);
+                btnStopped.classList.toggle('active', isStopped);
                 btnSkills.classList.toggle('active', isSkills);
             }
 
@@ -157,6 +242,8 @@
             btnRelevant.addEventListener('click', () => setMode('relevant'));
             btnNotRelevant.addEventListener('click', () => setMode('not relevant'));
             btnApplied.addEventListener('click', () => setMode('applied'));
+            btnInterview.addEventListener('click', () => setMode('interview'));
+            btnStopped.addEventListener('click', () => setMode('stopped'));
             btnSkills.addEventListener('click', () => setMode('skills'));
 
             async function setUserSkill(skillKey, hasSkill, inputEl) {
@@ -262,6 +349,11 @@
                     if (signal === 'not relevant') {
                         const appliedCheckbox = card ? card.querySelector('.applied-wrap input') : null;
                         if (appliedCheckbox) appliedCheckbox.checked = false;
+                        const interviewCheckbox = card ? card.querySelector('.interview-wrap input') : null;
+                        const stoppedCheckbox = card ? card.querySelector('.stopped-wrap input') : null;
+                        if (interviewCheckbox) interviewCheckbox.checked = false;
+                        if (stoppedCheckbox) stoppedCheckbox.checked = false;
+                        if (card) removeCompanyFeedbackUI(card);
                     }
                     const viewedCheckbox = card ? card.querySelector('.viewed-wrap input') : null;
                     let isViewed = viewedCheckbox ? viewedCheckbox.checked : false;
@@ -308,10 +400,14 @@
                     }
                     if (viewed) {
                         if (card) bumpPanelTotal(card.parentElement, -1);
-                        if (card && card.parentElement !== panelApplied) card.remove();
+                        if (card && !appliedStagePanels.includes(card.parentElement)) card.remove();
                     } else {
                         const appliedCheckbox = card ? card.querySelector('.applied-wrap input') : null;
                         if (appliedCheckbox) appliedCheckbox.checked = false;
+                        const interviewCheckbox = card ? card.querySelector('.interview-wrap input') : null;
+                        const stoppedCheckbox = card ? card.querySelector('.stopped-wrap input') : null;
+                        if (interviewCheckbox) interviewCheckbox.checked = false;
+                        if (stoppedCheckbox) stoppedCheckbox.checked = false;
                         const relevantCheckbox = card ? card.querySelector('.relevant-wrap input') : null;
                         const targetPanel = relevantCheckbox && relevantCheckbox.checked ? panelRelevant : panelNotRelevant;
                         bumpPanelTotal(targetPanel, 1);
@@ -343,13 +439,24 @@
                     if (card) {
                         const relevantCheckbox = card.querySelector('.relevant-wrap input');
                         const viewedCheckbox = card.querySelector('.viewed-wrap input');
+                        const interviewCheckbox = card.querySelector('.interview-wrap input');
+                        const stoppedCheckbox = card.querySelector('.stopped-wrap input');
                         if (applied) {
                             if (relevantCheckbox) relevantCheckbox.checked = true;
                             if (viewedCheckbox) viewedCheckbox.checked = true;
-                            bumpPanelTotal(card.parentElement, -1);
-                            if (card.parentElement !== panelApplied) panelApplied.prepend(card);
-                        } else if (card.parentElement === panelApplied) {
-                            card.remove();
+                            if (appliedStagePanels.includes(card.parentElement)) {
+                                moveCardToAppliedStage(card);
+                            } else {
+                                bumpPanelTotal(card.parentElement, -1);
+                                moveCardToAppliedStage(card);
+                            }
+                        } else {
+                            if (interviewCheckbox) interviewCheckbox.checked = false;
+                            if (stoppedCheckbox) stoppedCheckbox.checked = false;
+                            removeCompanyFeedbackUI(card);
+                            removeCardFromAppliedStages(card);
+                            const targetPanel = relevantCheckbox && relevantCheckbox.checked ? panelRelevant : panelNotRelevant;
+                            if (card.parentElement !== targetPanel) targetPanel.prepend(card);
                         }
                     }
                     if (statusEl) statusEl.textContent = `Saved: ${applied ? 'applied' : 'not applied'}`;
@@ -357,6 +464,85 @@
                 } catch (err) {
                     if (statusEl) statusEl.textContent = `Error: ${err.message}. Start: python -m spejder.cli serve-gui`;
                     inputEl.checked = !applied;
+                }
+            }
+
+            async function setOnInterview(jobId, onInterview, inputEl) {
+                const card = inputEl.closest('.card');
+                const statusEl = card ? card.querySelector('.feedback-status') : null;
+                if (statusEl) statusEl.textContent = 'Saving...';
+                try {
+                    const response = await fetch(apiUrl('/api/interview'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ job_id: jobId, on_interview: onInterview })
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || 'Request failed');
+                    }
+                    if (card) {
+                        const stoppedCheckbox = card.querySelector('.stopped-wrap input');
+                        if (onInterview && stoppedCheckbox) stoppedCheckbox.checked = false;
+                        moveCardToAppliedStage(card);
+                    }
+                    if (statusEl) statusEl.textContent = `Saved: ${onInterview ? 'on interview' : 'not on interview'}`;
+                    refreshCounts();
+                } catch (err) {
+                    if (statusEl) statusEl.textContent = `Error: ${err.message}. Start: python -m spejder.cli serve-gui`;
+                    inputEl.checked = !onInterview;
+                }
+            }
+
+            async function setInterviewStopped(jobId, stopped, inputEl) {
+                const card = inputEl.closest('.card');
+                const statusEl = card ? card.querySelector('.feedback-status') : null;
+                if (statusEl) statusEl.textContent = 'Saving...';
+                try {
+                    const response = await fetch(apiUrl('/api/interview/stopped'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ job_id: jobId, stopped })
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || 'Request failed');
+                    }
+                    if (card) {
+                        const interviewCheckbox = card.querySelector('.interview-wrap input');
+                        if (stopped && interviewCheckbox) interviewCheckbox.checked = false;
+                        moveCardToAppliedStage(card);
+                    }
+                    if (statusEl) statusEl.textContent = `Saved: ${stopped ? 'stopped' : 'not stopped'}`;
+                    refreshCounts();
+                } catch (err) {
+                    if (statusEl) statusEl.textContent = `Error: ${err.message}. Start: python -m spejder.cli serve-gui`;
+                    inputEl.checked = !stopped;
+                }
+            }
+
+            async function saveCompanyFeedback(jobId, btnEl) {
+                const card = btnEl.closest('.card');
+                const statusEl = card ? card.querySelector('.feedback-status') : null;
+                const inputEl = card ? card.querySelector('.company-feedback-text') : null;
+                const feedback = inputEl ? inputEl.value : '';
+                btnEl.disabled = true;
+                if (statusEl) statusEl.textContent = 'Saving...';
+                try {
+                    const response = await fetch(apiUrl('/api/interview/feedback'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ job_id: jobId, feedback })
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || 'Request failed');
+                    }
+                    if (statusEl) statusEl.textContent = 'Saved: company feedback';
+                } catch (err) {
+                    if (statusEl) statusEl.textContent = `Error: ${err.message}`;
+                } finally {
+                    btnEl.disabled = false;
                 }
             }
 
@@ -389,8 +575,8 @@
                         manualStatusEl.classList.remove('todo');
                         manualStatusEl.classList.add('done');
                     }
-                    if (card && card.parentElement === panelApplied) {
-                        panelApplied.appendChild(card);
+                    if (card && appliedStagePanels.includes(card.parentElement)) {
+                        card.parentElement.appendChild(card);
                     }
                     if (statusEl) statusEl.textContent = 'Saved: full text appended';
                 } catch (err) {
@@ -403,6 +589,9 @@
             window.setRelevant = setRelevant;
             window.setViewed = setViewed;
             window.setApplied = setApplied;
+            window.setOnInterview = setOnInterview;
+            window.setInterviewStopped = setInterviewStopped;
+            window.saveCompanyFeedback = saveCompanyFeedback;
             window.setUserSkill = setUserSkill;
             window.setLearnSkill = setLearnSkill;
             window.openSkillsForSkill = openSkillsForSkill;

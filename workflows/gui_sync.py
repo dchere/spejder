@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Callable, Optional, Protocol
 
 from spejder.config import AppConfig
 from spejder.core import load_runtime_profile
-from spejder.db import get_applied_jobs, get_jobs_by_category, get_jobs_for_description_refresh
+from spejder.db import get_all_applied_jobs, get_jobs_by_category, get_jobs_for_description_refresh
 from spejder.extractors.skill_extractor import (
     _learn_skill_patterns_from_positions,
     should_sync_skill_antipatterns,
@@ -157,7 +157,7 @@ def run_inbox_sync(context: GuiSyncContext) -> None:
         not_relevant_rows = get_jobs_by_category(
             context.db_path, "not relevant", limit=0, unviewed_only=True
         )
-        applied_rows = get_applied_jobs(context.db_path, limit=0)
+        applied_rows = get_all_applied_jobs(context.db_path, limit=0)
         skill_rows = []
         seen_job_ids = set()
         for row in relevant_rows + not_relevant_rows + applied_rows:

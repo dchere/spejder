@@ -4,7 +4,7 @@ from typing import Optional
 
 from spejder.config import AppConfig
 from spejder.db import (
-    get_applied_jobs,
+    get_all_applied_jobs,
     get_jobs_by_category,
     get_viewed_jobs_count,
     set_job_description,
@@ -170,9 +170,10 @@ def write_inbox_dashboard_report(
             )
         report_data[cat] = records
 
-    applied_rows = get_applied_jobs(db_path, limit=0)
     applied_records = []
-    for row in applied_rows:
+    interview_records = []
+    stopped_records = []
+    for row in get_all_applied_jobs(db_path, limit=0):
         summary = _summary_for_display(
             row.get("summary", ""),
             row.get("raw_text", ""),
@@ -194,26 +195,33 @@ def write_inbox_dashboard_report(
             runtime_profile=profile,
             title_translation_cache=report_title_translation_cache,
         )
-        applied_records.append(
-            {
-                "id": row.get("id", 0),
-                "source": row.get("source", "Unknown"),
-                "company": row.get("company", ""),
-                **title_fields,
-                "place": title_fields.get("place", row.get("place", "")),
-                "work_type": row.get("work_type", "Unknown"),
-                "description": description,
-                "skills": skills,
-                "position_link": row.get("position_link", ""),
-                "raw_text": raw_text,
-                "relevance_score": row.get("relevance_score", 0),
-                "relevance_reason": row.get("relevance_reason", ""),
-                "summary": summary,
-                "category": row.get("category", "relevant"),
-                "viewed": row.get("viewed", 1),
-                "applied": row.get("applied", 1),
-            }
-        )
+        record = {
+            "id": row.get("id", 0),
+            "source": row.get("source", "Unknown"),
+            "company": row.get("company", ""),
+            **title_fields,
+            "place": title_fields.get("place", row.get("place", "")),
+            "work_type": row.get("work_type", "Unknown"),
+            "description": description,
+            "skills": skills,
+            "position_link": row.get("position_link", ""),
+            "raw_text": raw_text,
+            "relevance_score": row.get("relevance_score", 0),
+            "relevance_reason": row.get("relevance_reason", ""),
+            "summary": summary,
+            "category": row.get("category", "relevant"),
+            "viewed": row.get("viewed", 1),
+            "applied": row.get("applied", 1),
+            "on_interview": int(row.get("on_interview", 0) or 0),
+            "interview_stopped": int(row.get("interview_stopped", 0) or 0),
+            "company_feedback": row.get("company_feedback", "") or "",
+        }
+        if record["interview_stopped"]:
+            stopped_records.append(record)
+        elif record["on_interview"]:
+            interview_records.append(record)
+        else:
+            applied_records.append(record)
 
     dashboard_path = os.path.join(report_dir, "report.html")
     _render_html_dashboard(
@@ -226,6 +234,8 @@ def write_inbox_dashboard_report(
         skills_items=_build_skills_tab_items(db_path, profile),
         report_max_relevant_positions=_report_max_relevant_positions(profile),
         report_max_not_relevant_positions=_report_max_not_relevant_positions(profile),
+        interview_items=interview_records,
+        stopped_items=stopped_records,
     )
     print(f"Report written: {dashboard_path}")
     return dashboard_path

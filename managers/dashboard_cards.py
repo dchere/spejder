@@ -2,8 +2,8 @@
 
 import html as html_lib
 import os
+from typing import Optional
 
-import spejder.workflows
 from spejder.core import MANUAL_APPLIED_RAW_MARKER
 from spejder.extractors.skill_extractor import _normalize_skill_name
 
@@ -11,6 +11,8 @@ from .dashboard_templates import jinja_env
 
 
 def _render_html_from_items(items, out_html: str, title: str):
+    import spejder.workflows
+
     os.makedirs(os.path.dirname(os.path.abspath(out_html)), exist_ok=True)
 
     cards = []
@@ -64,7 +66,10 @@ def _build_job_cards(
     items,
     company_links: bool = True,
     skill_buttons: bool = True,
+    card_panel: Optional[str] = None,
 ):
+    import spejder.workflows
+
     cards = []
     for item in items:
         job_id = int(item.get("id", 0) or 0)
@@ -110,6 +115,15 @@ def _build_job_cards(
         )
         card_class = "card easy-apply-card" if is_easy_apply else "card"
         is_applied = int(item.get("applied", 0) or 0) == 1
+        on_interview = int(item.get("on_interview", 0) or 0) == 1
+        interview_stopped = int(item.get("interview_stopped", 0) or 0) == 1
+        raw_company_feedback = str(item.get("company_feedback", "") or "").strip()
+        company_feedback = html_lib.escape(raw_company_feedback)
+        company_feedback_attr = (
+            f' data-company-feedback="{html_lib.escape(raw_company_feedback, quote=True)}"'
+            if raw_company_feedback
+            else ""
+        )
         has_manual_applied_text = MANUAL_APPLIED_RAW_MARKER in str(item.get("raw_text", ""))
         manual_status = (
             '<span class="manual-status done">Manual full text: added</span>'
@@ -127,11 +141,26 @@ def _build_job_cards(
             if is_applied and not has_manual_applied_text
             else ""
         )
+        interview_controls = ""
+        if card_panel in ("applied", "interview", "stopped") or is_applied:
+            interview_controls = f"""
+                    <label class="interview-wrap"><input type="checkbox" {"checked" if on_interview else ""} onchange="setOnInterview({job_id}, this.checked, this)"/> On interview</label>
+                    <label class="stopped-wrap"><input type="checkbox" {"checked" if interview_stopped else ""} onchange="setInterviewStopped({job_id}, this.checked, this)"/> Stopped</label>
+            """.strip()
+        feedback_controls = ""
+        if card_panel == "stopped":
+            feedback_controls = f"""
+            <div class="company-feedback-input">
+                <p><strong>Company feedback</strong></p>
+                <textarea class="company-feedback-text" placeholder="Notes from the company...">{company_feedback}</textarea>
+                <div><button type="button" class="company-feedback-btn" onclick="saveCompanyFeedback({job_id}, this)">Save feedback</button></div>
+            </div>
+            """.strip()
 
         place_line = f"<p><strong>Place:</strong> {place}</p>" if place else ""
         cards.append(
             f"""
-            <article class="{card_class}" data-job-id="{job_id}">
+            <article class="{card_class}" data-job-id="{job_id}"{company_feedback_attr}>
                 <span class="relevance-score" title="Relevance score">{relevance_score:.2f}</span>
                 <p><strong>Title:</strong> <a href="{safe_link}" target="_blank" rel="noopener noreferrer">{role}</a> {easy_apply_badge}</p>
                 {title_english_html}
@@ -142,11 +171,13 @@ def _build_job_cards(
                 <p><strong>Description:</strong> {description}</p>
                 {manual_status if is_applied else ""}
                 {manual_controls}
+                {feedback_controls}
                 <p><strong>Skills:</strong> <span class="skill-tags">{skills_html or '<span class="skills-empty">No skills extracted</span>'}</span></p>
                 <div class="feedback">
                     <label class="relevant-wrap"><input type="checkbox" {"checked" if str(item.get("category", "")).strip().lower() == "relevant" else ""} onchange="setRelevant({job_id}, this.checked, this)"/> Relevant</label>
                     <label class="viewed-wrap"><input type="checkbox" {"checked" if int(item.get("viewed", 0) or 0) == 1 else ""} onchange="setViewed({job_id}, this.checked, this)"/> Viewed</label>
                     <label class="applied-wrap"><input type="checkbox" {"checked" if int(item.get("applied", 0) or 0) == 1 else ""} onchange="setApplied({job_id}, this.checked, this)"/> Applied</label>
+                    {interview_controls}
                     <span class="feedback-status"></span>
                 </div>
             </article>

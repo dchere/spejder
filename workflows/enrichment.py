@@ -4,7 +4,7 @@ from spejder.core import DEFAULT_PROFILE_PATH, load_runtime_profile
 from spejder.db.connection import ensure_db
 from spejder.db.mutations import set_job_description
 from spejder.db.queries import (
-    get_applied_jobs,
+    get_all_applied_jobs,
     get_jobs_by_category,
     get_jobs_for_description_refresh,
     get_viewed_jobs_count,
@@ -183,9 +183,10 @@ def refresh_descriptions(profile: str = None, db: str = None, model: str = "", s
                 )
             report_data[cat] = records
 
-        applied_rows = get_applied_jobs(db_path, limit=0)
         applied_records = []
-        for row in applied_rows:
+        interview_records = []
+        stopped_records = []
+        for row in get_all_applied_jobs(db_path, limit=0):
             skills, raw_text = materialize_job_skills(
                 db_path,
                 row,
@@ -196,36 +197,43 @@ def refresh_descriptions(profile: str = None, db: str = None, model: str = "", s
                 limit=10,
                 rescore=False,
             )
-            applied_records.append(
-                {
-                    "id": row.get("id", 0),
-                    "source": row.get("source", "Unknown"),
-                    "company": row.get("company", ""),
-                    **_build_title_fields(
-                        db_path,
-                        row,
-                        runtime_profile=runtime_profile,
-                        title_translation_cache=title_translation_cache,
-                    ),
-                    "place": row.get("place", ""),
-                    "work_type": row.get("work_type", "Unknown"),
-                    "description": _fallback_description_text(
-                        row.get("description") or "", raw_text or row.get("raw_text") or ""
-                    ),
-                    "skills": skills,
-                    "position_link": row.get("position_link", ""),
-                    "raw_text": raw_text,
-                    "relevance_score": row.get("relevance_score", 0),
-                    "relevance_reason": row.get("relevance_reason", ""),
-                    "summary": _summary_for_display(
-                        row.get("summary", ""),
-                        raw_text or row.get("raw_text") or "",
-                    ),
-                    "category": row.get("category", "relevant"),
-                    "viewed": row.get("viewed", 1),
-                    "applied": row.get("applied", 1),
-                }
-            )
+            record = {
+                "id": row.get("id", 0),
+                "source": row.get("source", "Unknown"),
+                "company": row.get("company", ""),
+                **_build_title_fields(
+                    db_path,
+                    row,
+                    runtime_profile=runtime_profile,
+                    title_translation_cache=title_translation_cache,
+                ),
+                "place": row.get("place", ""),
+                "work_type": row.get("work_type", "Unknown"),
+                "description": _fallback_description_text(
+                    row.get("description") or "", raw_text or row.get("raw_text") or ""
+                ),
+                "skills": skills,
+                "position_link": row.get("position_link", ""),
+                "raw_text": raw_text,
+                "relevance_score": row.get("relevance_score", 0),
+                "relevance_reason": row.get("relevance_reason", ""),
+                "summary": _summary_for_display(
+                    row.get("summary", ""),
+                    raw_text or row.get("raw_text") or "",
+                ),
+                "category": row.get("category", "relevant"),
+                "viewed": row.get("viewed", 1),
+                "applied": row.get("applied", 1),
+                "on_interview": int(row.get("on_interview", 0) or 0),
+                "interview_stopped": int(row.get("interview_stopped", 0) or 0),
+                "company_feedback": row.get("company_feedback", "") or "",
+            }
+            if record["interview_stopped"]:
+                stopped_records.append(record)
+            elif record["on_interview"]:
+                interview_records.append(record)
+            else:
+                applied_records.append(record)
 
         dashboard_path = os.path.join(report_dir, "report.html")
         _render_html_dashboard(
@@ -238,6 +246,8 @@ def refresh_descriptions(profile: str = None, db: str = None, model: str = "", s
             skills_items=_build_skills_tab_items(db_path, runtime_profile),
             report_max_relevant_positions=_report_max_relevant_positions(runtime_profile),
             report_max_not_relevant_positions=_report_max_not_relevant_positions(runtime_profile),
+            interview_items=interview_records,
+            stopped_items=stopped_records,
         )
         print(f"Report written: {dashboard_path}")
 

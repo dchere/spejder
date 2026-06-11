@@ -6,14 +6,17 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .db import (
+from spejder.db import (
     append_applied_job_raw_text,
     clear_job_skills_for_job,
     delete_skill_from_db,
-    get_applied_jobs,
+    get_all_applied_jobs,
     get_jobs_by_company,
     set_job_applied,
+    set_job_company_feedback,
     set_job_feedback,
+    set_job_interview_stopped,
+    set_job_on_interview,
     set_job_viewed,
 )
 from .extractors.skill_extractor import _normalize_skill_name
@@ -78,7 +81,57 @@ def create_app(
         learning_info = {"queued": req.applied} if req.applied else None
         if req.applied:
             queue_dashboard_rebuild(reason=f"applied to job {req.job_id}")
+        else:
+            queue_dashboard_rebuild(reason=f"unapplied job {req.job_id}")
         return {"ok": True, "job_id": req.job_id, "applied": req.applied, "profile_learning": learning_info}
+
+    class InterviewRequest(BaseModel):
+        job_id: int = 0
+        on_interview: bool
+
+    @app.post("/api/interview")
+    def api_interview(req: InterviewRequest):
+        saved = set_job_on_interview(db_path, req.job_id, req.on_interview)
+        if not saved:
+            return JSONResponse(
+                status_code=400,
+                content={"ok": False, "error": "job not found or not applied"},
+            )
+        print(f"API: Set on_interview={req.on_interview} for job_id={req.job_id}")
+        queue_dashboard_rebuild(reason=f"interview {'on' if req.on_interview else 'off'} job {req.job_id}")
+        return {"ok": True, "job_id": req.job_id, "on_interview": req.on_interview}
+
+    class InterviewStoppedRequest(BaseModel):
+        job_id: int = 0
+        stopped: bool
+
+    @app.post("/api/interview/stopped")
+    def api_interview_stopped(req: InterviewStoppedRequest):
+        saved = set_job_interview_stopped(db_path, req.job_id, req.stopped)
+        if not saved:
+            return JSONResponse(
+                status_code=400,
+                content={"ok": False, "error": "job not found or not applied"},
+            )
+        print(f"API: Set interview_stopped={req.stopped} for job_id={req.job_id}")
+        queue_dashboard_rebuild(reason=f"interview stopped {'on' if req.stopped else 'off'} job {req.job_id}")
+        return {"ok": True, "job_id": req.job_id, "stopped": req.stopped}
+
+    class InterviewFeedbackRequest(BaseModel):
+        job_id: int = 0
+        feedback: str
+
+    @app.post("/api/interview/feedback")
+    def api_interview_feedback(req: InterviewFeedbackRequest):
+        saved = set_job_company_feedback(db_path, req.job_id, req.feedback.strip())
+        if not saved:
+            return JSONResponse(
+                status_code=400,
+                content={"ok": False, "error": "job not found, not applied, or not stopped"},
+            )
+        print(f"API: Set company_feedback for job_id={req.job_id}")
+        queue_dashboard_rebuild(reason=f"company feedback job {req.job_id}")
+        return {"ok": True, "job_id": req.job_id, "feedback": req.feedback.strip()}
 
     class ViewedRequest(BaseModel):
         job_id: int = 0
@@ -111,7 +164,7 @@ def create_app(
         clear_job_skills_for_job(db_path, req.job_id)
         llm_for_manual = LocalLLM(model_path=model_path, n_ctx=int(runtime_profile.n_ctx), verbose=cli_verbose) if model_path else None
 
-        applied_rows = get_applied_jobs(db_path, limit=0)
+        applied_rows = get_all_applied_jobs(db_path, limit=0)
         target_row = next((r for r in applied_rows if int(r.get("id", 0) or 0) == req.job_id), None)
 
         if target_row is not None:

@@ -1,7 +1,7 @@
 from typing import Optional
 
 from spejder.config import AppConfig
-from spejder.db import get_applied_jobs, get_jobs_by_category
+from spejder.db import get_all_applied_jobs, get_jobs_by_category
 from spejder.extractors.skill_extractor import _get_or_extract_job_skills
 from spejder.llm import LocalLLM
 from spejder.workflows.job_text_enrichment import _enrich_raw_text_with_position_page
@@ -93,7 +93,7 @@ def materialize_jobs_skills(
 def _collect_relevant_and_applied_rows(db_path: str) -> list[dict]:
     rows: list[dict] = []
     seen_ids: set[int] = set()
-    for row in get_applied_jobs(db_path, limit=0):
+    for row in get_all_applied_jobs(db_path, limit=0):
         rid = int(row.get("id", 0) or 0)
         if rid and rid not in seen_ids:
             seen_ids.add(rid)

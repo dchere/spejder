@@ -5,9 +5,11 @@ from typing import Optional
 from spejder.config import AppConfig
 from spejder.db import (
     get_applied_jobs,
+    get_interview_jobs,
     get_job_skills,
     get_jobs_by_category,
     get_jobs_count_by_category,
+    get_stopped_interview_jobs,
     get_viewed_jobs_count,
 )
 from spejder.extractors.skill_extractor import _build_skills_tab_items, _format_skills
@@ -81,6 +83,9 @@ def build_dashboard_record(
         "category": row.get("category", default_category),
         "viewed": row.get("viewed", default_viewed),
         "applied": row.get("applied", default_applied),
+        "on_interview": int(row.get("on_interview", 0) or 0),
+        "interview_stopped": int(row.get("interview_stopped", 0) or 0),
+        "company_feedback": row.get("company_feedback", "") or "",
     }
 
 
@@ -190,10 +195,14 @@ class DashboardRebuildQueue:
                         ]
 
                     refreshed_applied_rows = get_applied_jobs(self.db_path, limit=0)
+                    refreshed_interview_rows = get_interview_jobs(self.db_path, limit=0)
+                    refreshed_stopped_rows = get_stopped_interview_jobs(self.db_path, limit=0)
                     if should_log_rebuild:
                         print(
                             "Dashboard rebuild: collecting applied "
-                            f"({len(refreshed_applied_rows)} rows)"
+                            f"({len(refreshed_applied_rows)} rows), interview "
+                            f"({len(refreshed_interview_rows)} rows), stopped "
+                            f"({len(refreshed_stopped_rows)} rows)"
                         )
                     refreshed_applied_records = [
                         build_dashboard_record(
@@ -207,6 +216,32 @@ class DashboardRebuildQueue:
                             translate_title=False,
                         )
                         for row in refreshed_applied_rows
+                    ]
+                    refreshed_interview_records = [
+                        build_dashboard_record(
+                            self.db_path,
+                            self.runtime_profile,
+                            self._title_translation_cache,
+                            row,
+                            default_category="relevant",
+                            default_viewed=1,
+                            default_applied=1,
+                            translate_title=False,
+                        )
+                        for row in refreshed_interview_rows
+                    ]
+                    refreshed_stopped_records = [
+                        build_dashboard_record(
+                            self.db_path,
+                            self.runtime_profile,
+                            self._title_translation_cache,
+                            row,
+                            default_category="relevant",
+                            default_viewed=1,
+                            default_applied=1,
+                            translate_title=False,
+                        )
+                        for row in refreshed_stopped_rows
                     ]
 
                     _render_html_dashboard(
@@ -225,6 +260,8 @@ class DashboardRebuildQueue:
                         ),
                         relevant_total_count=category_totals.get("relevant", 0),
                         not_relevant_total_count=category_totals.get("not relevant", 0),
+                        interview_items=refreshed_interview_records,
+                        stopped_items=refreshed_stopped_records,
                     )
                 if should_log_rebuild and not reason.startswith("new record"):
                     print(f"Dashboard rebuild: done ({reason})")

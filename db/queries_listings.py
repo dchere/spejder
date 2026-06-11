@@ -2,6 +2,12 @@ from .connection import _connect
 from .queries_rows import _map_applied_job_row, _map_company_job_row, _map_full_job_row
 from .utils import _provider_from_link
 
+_JOB_SELECT_COLS = (
+    "id, source, company, title, title_english, place, work_type, position_link, raw_text, "
+    "relevance_score, relevance_reason, summary, viewed, applied, on_interview, interview_stopped, "
+    "company_feedback, description"
+)
+
 
 def get_relevant_jobs(db_path: str, limit: int = 0) -> list[dict]:
     conn = _connect(db_path)
@@ -37,10 +43,7 @@ def get_jobs_by_category(
     conn = _connect(db_path)
     try:
         cur = conn.cursor()
-        q = (
-            "SELECT id, source, company, title, title_english, place, work_type, position_link, raw_text, relevance_score, relevance_reason, summary, viewed, applied, description "
-            "FROM jobs WHERE category=?"
-        )
+        q = f"SELECT {_JOB_SELECT_COLS} FROM jobs WHERE category=?"
         params = [category]
         if unviewed_only:
             q += " AND viewed=0"
@@ -85,10 +88,7 @@ def get_jobs_by_category_paged(
     conn = _connect(db_path)
     try:
         cur = conn.cursor()
-        q = (
-            "SELECT id, source, company, title, title_english, place, work_type, position_link, raw_text, relevance_score, relevance_reason, summary, viewed, applied, description "
-            "FROM jobs WHERE category=?"
-        )
+        q = f"SELECT {_JOB_SELECT_COLS} FROM jobs WHERE category=?"
         params: list = [category]
         if unviewed_only:
             q += " AND viewed=0"
@@ -110,7 +110,7 @@ def get_jobs_by_company(db_path: str, company: str, limit: int = 0) -> list[dict
     try:
         cur = conn.cursor()
         q = (
-            "SELECT id, source, company, title, title_english, place, work_type, position_link, raw_text, relevance_score, relevance_reason, summary, viewed, applied, description, category "
+            f"SELECT {_JOB_SELECT_COLS}, category "
             "FROM jobs WHERE LOWER(TRIM(COALESCE(company, '')))=LOWER(TRIM(?)) "
             "ORDER BY applied DESC, relevance_score DESC, updated_at DESC"
         )
@@ -130,8 +130,66 @@ def get_applied_jobs(db_path: str, limit: int = 0) -> list[dict]:
     try:
         cur = conn.cursor()
         q = (
-            "SELECT id, source, company, title, title_english, place, work_type, position_link, raw_text, relevance_score, relevance_reason, summary, viewed, applied, description, category "
+            f"SELECT {_JOB_SELECT_COLS}, category "
+            "FROM jobs WHERE applied=1 AND on_interview=0 AND interview_stopped=0 "
+            "ORDER BY updated_at DESC"
+        )
+        params: list = []
+        if limit and limit > 0:
+            q += " LIMIT ?"
+            params.append(int(limit))
+        cur.execute(q, params)
+        rows = cur.fetchall()
+        return [_map_applied_job_row(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_all_applied_jobs(db_path: str, limit: int = 0) -> list[dict]:
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        q = (
+            f"SELECT {_JOB_SELECT_COLS}, category "
             "FROM jobs WHERE applied=1 ORDER BY updated_at DESC"
+        )
+        params: list = []
+        if limit and limit > 0:
+            q += " LIMIT ?"
+            params.append(int(limit))
+        cur.execute(q, params)
+        rows = cur.fetchall()
+        return [_map_applied_job_row(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_interview_jobs(db_path: str, limit: int = 0) -> list[dict]:
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        q = (
+            f"SELECT {_JOB_SELECT_COLS}, category "
+            "FROM jobs WHERE applied=1 AND on_interview=1 ORDER BY updated_at DESC"
+        )
+        params: list = []
+        if limit and limit > 0:
+            q += " LIMIT ?"
+            params.append(int(limit))
+        cur.execute(q, params)
+        rows = cur.fetchall()
+        return [_map_applied_job_row(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_stopped_interview_jobs(db_path: str, limit: int = 0) -> list[dict]:
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        q = (
+            f"SELECT {_JOB_SELECT_COLS}, category "
+            "FROM jobs WHERE applied=1 AND interview_stopped=1 ORDER BY updated_at DESC"
         )
         params: list = []
         if limit and limit > 0:

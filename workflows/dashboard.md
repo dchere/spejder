@@ -5,9 +5,9 @@ Dashboard extraction module for GUI workflows. Owns dashboard record shaping, mi
 
 **API:**
 - `coalesce_rebuild_reasons(reasons: list[str]) -> str` — pure helper; returns the last reason with a queued-count suffix when multiple are pending (e.g. `"third (+2 queued)"`). Returns `""` for an empty list.
-- `build_dashboard_record(…, translate_title: bool = True)` — when `True` (default) calls `_build_title_fields` to translate/cache the title; pass `False` to read `title`/`title_english` directly from the row (used for applied-jobs where titles are already stored in English).
+- `build_dashboard_record(…, translate_title: bool = True)` — when `True` (default) calls `_build_title_fields` to translate/cache the title; pass `False` to read `title`/`title_english` directly from the row (used for applied-jobs where titles are already stored in English). Includes `on_interview`, `interview_stopped`, and `company_feedback` on dashboard records.
 - `populate_missing_dashboard_skills`
-- `DashboardRebuildQueue` (`queue`, `start_worker`, `rebuild`)
+- `DashboardRebuildQueue` (`queue`, `start_worker`, `rebuild`) — rebuild loads three applied-stage subsets (`get_applied_jobs`, `get_interview_jobs`, `get_stopped_interview_jobs`) and passes them to `_render_html_dashboard` as Applied / Interview / Stopped tabs.
 
 **Constraints:**
 - Use explicit imports only.

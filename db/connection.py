@@ -55,6 +55,9 @@ def ensure_db(db_path: str):
                         description TEXT,
                         viewed INTEGER DEFAULT 0,
                         applied INTEGER DEFAULT 0,
+                        on_interview INTEGER DEFAULT 0,
+                        interview_stopped INTEGER DEFAULT 0,
+                        company_feedback TEXT,
                         relevance_score REAL DEFAULT 0,
                         relevant INTEGER DEFAULT 0,
                         category TEXT DEFAULT 'not relevant',
@@ -107,6 +110,12 @@ def ensure_db(db_path: str):
                 cur.execute("ALTER TABLE jobs ADD COLUMN viewed INTEGER DEFAULT 0")
             if "applied" not in cols:
                 cur.execute("ALTER TABLE jobs ADD COLUMN applied INTEGER DEFAULT 0")
+            if "on_interview" not in cols:
+                cur.execute("ALTER TABLE jobs ADD COLUMN on_interview INTEGER DEFAULT 0")
+            if "interview_stopped" not in cols:
+                cur.execute("ALTER TABLE jobs ADD COLUMN interview_stopped INTEGER DEFAULT 0")
+            if "company_feedback" not in cols:
+                cur.execute("ALTER TABLE jobs ADD COLUMN company_feedback TEXT")
             if "source" not in cols:
                 cur.execute("ALTER TABLE jobs ADD COLUMN source TEXT")
             if "description" not in cols:
@@ -132,6 +141,9 @@ def ensure_db(db_path: str):
                         description TEXT,
                         viewed INTEGER DEFAULT 0,
                         applied INTEGER DEFAULT 0,
+                        on_interview INTEGER DEFAULT 0,
+                        interview_stopped INTEGER DEFAULT 0,
+                        company_feedback TEXT,
                         relevance_score REAL DEFAULT 0,
                         relevant INTEGER DEFAULT 0,
                         category TEXT DEFAULT 'not relevant',
@@ -142,10 +154,13 @@ def ensure_db(db_path: str):
                     )
                     """
                 )
+                on_interview_sel = "on_interview" if "on_interview" in cols else "0"
+                interview_stopped_sel = "interview_stopped" if "interview_stopped" in cols else "0"
+                company_feedback_sel = "company_feedback" if "company_feedback" in cols else "NULL"
                 cur.execute(
-                    """
+                    f"""
                     INSERT OR IGNORE INTO jobs_new
-                        (id, source, company, title, title_english, place, work_type, position_link, raw_text, description, viewed, applied, relevance_score, relevant, category, relevance_reason, summary, created_at, updated_at)
+                        (id, source, company, title, title_english, place, work_type, position_link, raw_text, description, viewed, applied, on_interview, interview_stopped, company_feedback, relevance_score, relevant, category, relevance_reason, summary, created_at, updated_at)
                     SELECT
                         id,
                         source,
@@ -159,6 +174,9 @@ def ensure_db(db_path: str):
                         description,
                         viewed,
                         applied,
+                        {on_interview_sel},
+                        {interview_stopped_sel},
+                        {company_feedback_sel},
                         relevance_score,
                         relevant,
                         category,
@@ -187,6 +205,9 @@ def ensure_db(db_path: str):
                 description TEXT,
                 viewed INTEGER DEFAULT 0,
                 applied INTEGER DEFAULT 0,
+                on_interview INTEGER DEFAULT 0,
+                interview_stopped INTEGER DEFAULT 0,
+                company_feedback TEXT,
                 relevance_score REAL DEFAULT 0,
                 relevant INTEGER DEFAULT 0,
                 category TEXT DEFAULT 'not relevant',
@@ -197,6 +218,15 @@ def ensure_db(db_path: str):
             )
             """
         )
+
+        cur.execute("PRAGMA table_info(jobs)")
+        cols = {row[1] for row in cur.fetchall()}
+        if "on_interview" not in cols:
+            cur.execute("ALTER TABLE jobs ADD COLUMN on_interview INTEGER DEFAULT 0")
+        if "interview_stopped" not in cols:
+            cur.execute("ALTER TABLE jobs ADD COLUMN interview_stopped INTEGER DEFAULT 0")
+        if "company_feedback" not in cols:
+            cur.execute("ALTER TABLE jobs ADD COLUMN company_feedback TEXT")
 
         cur.execute(
             """
@@ -279,6 +309,8 @@ def ensure_db(db_path: str):
         )
         cur.execute("UPDATE jobs SET viewed=0 WHERE viewed IS NULL")
         cur.execute("UPDATE jobs SET applied=0 WHERE applied IS NULL")
+        cur.execute("UPDATE jobs SET on_interview=0 WHERE on_interview IS NULL")
+        cur.execute("UPDATE jobs SET interview_stopped=0 WHERE interview_stopped IS NULL")
         cur.execute("UPDATE jobs SET source='' WHERE source IS NULL")
         cur.execute("UPDATE jobs SET description='' WHERE description IS NULL")
 

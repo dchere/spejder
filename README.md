@@ -12,7 +12,7 @@
 - Persist known skill patterns in DB (`skill_patterns` table) and update them from applied/relevant positions.
 - Learn missing skills from applied jobs and write suggestions to `profile.json`.
 - Clean obviously invalid extracted skills from the SQLite skill catalog and block them in `profile.json`.
-- Render `outbox/report.html` with three views: unviewed relevant jobs, unviewed not relevant jobs, and applied jobs.
+- Render `outbox/report.html` with six views: unviewed relevant jobs, unviewed not relevant jobs, applied jobs, interview-stage jobs, stopped interview jobs, and skills.
 - Detect LinkedIn `Easy Apply` from existing text, highlight those cards in the dashboard, and apply a relevance bonus.
 - Serve the dashboard with feedback endpoints for `Relevant`, `Viewed`, and `Applied` actions.
 - Learn additional profile keywords from labeled jobs and write them back to `profile.json`.
@@ -80,6 +80,9 @@ Open `http://127.0.0.1:8765/report.html`.
 - `Relevant` and `Not relevant` tabs show only unviewed jobs.
 - Marking a job as `Viewed` removes it from those tabs.
 - Marking a job as `Applied` moves it into the `Applied` tab and also marks it as relevant and viewed.
+- Applied jobs can be moved to `Interview` (on interview) or `Stopped` (process ended); the two flags are mutually exclusive. Cards live in one applied-stage panel at a time.
+- Stopped cards support free-text `Company feedback` saved via the dashboard.
+- Unmarking `Applied`, unmarking `Viewed`, or marking `Not relevant` clears interview/stopped state and company feedback (same DB clear path as unapply).
 - Feedback writes are applied to DB immediately; `report.html` regeneration is queued and runs in background.
 - When `serve-gui` starts, it also performs a background inbox sync, cross-source dedupe, relevance scoring, and missing-description generation.
 - If the requested port is busy, the server automatically tries the next ports up to 20 times.
@@ -159,6 +162,9 @@ API endpoints:
 - `POST /api/feedback` with `job_id` and `signal` (`relevant` or `not relevant`)
 - `POST /api/viewed` with `job_id` and `viewed` (`true` or `false`)
 - `POST /api/applied` with `job_id` and `applied` (`true` or `false`)
+- `POST /api/interview` with `job_id` and `on_interview` (`true` or `false`)
+- `POST /api/interview/stopped` with `job_id` and `stopped` (`true` or `false`)
+- `POST /api/interview/feedback` with `job_id` and `feedback` (string)
 
 ### `refresh-descriptions`
 
@@ -290,6 +296,9 @@ Main fields in the `jobs` table include:
 - `summary`
 - `viewed`
 - `applied`
+- `on_interview`
+- `interview_stopped`
+- `company_feedback`
 - `created_at`
 - `updated_at`
 
