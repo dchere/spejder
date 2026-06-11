@@ -7,8 +7,6 @@ from typing import Optional
 from spejder.core import AppConfig
 
 from .translation_config import (
-    configured_translation_slots,
-    primary_translation_slot,
     translation_model_path_for_language as _translation_model_path_for_language,
 )
 

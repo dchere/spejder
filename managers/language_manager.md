@@ -13,10 +13,10 @@ Currently encapsulates the heavy logic for NLP. Could be refactored further into
 
 **Detection:**
 - FastText `lid.176` (`language_checker_model_path`) predicts the top language label.
-- `translation_source_language` returns `"da"` or `"uk"` when confidence ≥ `language_checker_threshold`; other languages pass through untranslated.
+- `translation_source_language` returns a configured source language code when FastText confidence ≥ `language_checker_threshold`; other languages pass through untranslated.
 
 **Translation models (profile):**
-- `language_translation_model_1/2/3` + `language_translation_source_1/2/3` — up to three MarianMT source→English models bound to FastText language codes (slot 1 is required for init)
+- `language_translation_model_1/2/3` + `language_translation_source_1/2/3` — up to three MarianMT source→English models bound to FastText language codes (init requires at least one valid pair; each model path must have a paired source; duplicate source codes are rejected)
 - `get_translation_runtime(..., source_lang)` loads and caches the model for the detected source language when that language has a configured slot
 
 **Runtime Notes:**

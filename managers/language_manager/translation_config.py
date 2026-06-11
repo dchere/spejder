@@ -13,6 +13,37 @@ def _translation_slot_fields(slot_index: int) -> tuple[str, str]:
     )
 
 
+def translation_slot_configuration_errors(
+    runtime_profile: Optional[AppConfig],
+) -> list[str]:
+    profile = runtime_profile or AppConfig()
+    errors: list[str] = []
+    seen_sources: set[str] = set()
+
+    for slot_index in range(1, TRANSLATION_MODEL_SLOT_COUNT + 1):
+        model_key, source_key = _translation_slot_fields(slot_index)
+        source = str(getattr(profile, source_key, "") or "").strip().lower()
+        model_path = str(getattr(profile, model_key, "") or "").strip()
+
+        if model_path and not source:
+            errors.append(
+                f"language_translation_model_{slot_index} is configured but "
+                f"language_translation_source_{slot_index} is missing"
+            )
+            continue
+        if not model_path or not source:
+            continue
+
+        if source in seen_sources:
+            errors.append(
+                f"duplicate translation source '{source}' "
+                f"(language_translation_source_{slot_index})"
+            )
+        seen_sources.add(source)
+
+    return errors
+
+
 def configured_translation_slots(
     runtime_profile: Optional[AppConfig],
 ) -> list[tuple[str, str]]:
@@ -22,11 +53,10 @@ def configured_translation_slots(
         model_key, source_key = _translation_slot_fields(slot_index)
         source = str(getattr(profile, source_key, "") or "").strip().lower()
         model_path = str(getattr(profile, model_key, "") or "").strip()
-        if not model_path:
+        if not model_path or not source:
             continue
         model_path = os.path.abspath(os.path.expanduser(model_path))
-        if source:
-            slots.append((source, model_path))
+        slots.append((source, model_path))
     return slots
 
 

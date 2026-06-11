@@ -114,6 +114,29 @@ class InitializeLanguageCheckerOrExitTest(unittest.TestCase):
 
 
 class InitializeTranslationOrExitTest(unittest.TestCase):
+    def test_initialize_translation_or_exit_rejects_model_without_source(self):
+        from spejder.managers.language_manager.initialization import (
+            initialize_translation_or_exit,
+        )
+
+        profile = AppConfig(
+            language_translation_model_1="/fake/translation-model",
+            language_translation_source_1="",
+        )
+
+        with (
+            patch(
+                "spejder.managers.language_manager.initialization.load_profile",
+                return_value=profile,
+            ),
+            patch(
+                "spejder.managers.language_manager.initialization.os.path.isfile",
+                return_value=True,
+            ),
+        ):
+            with self.assertRaises(SystemExit):
+                initialize_translation_or_exit("/fake/profile.json")
+
     def test_initialize_translation_or_exit_happy_path(self):
         from spejder.managers.language_manager.initialization import (
             initialize_translation_or_exit,

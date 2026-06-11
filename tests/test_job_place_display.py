@@ -2,8 +2,14 @@
 
 import unittest
 
+from spejder.jobs.parsing.platforms import _extract_jobindex_entries_by_link
 from spejder.parsers.web_parser import _extract_place_from_page_text
 from spejder.workflows.job_text_enrichment import _resolve_title_and_place
+
+JOBINDEX_EGAA_TITLE = (
+    "Social- og sundhedsassistent søges som fast afløservikar til nattevagter "
+    "hos en lille dreng på 3 år i Aarhus (Egå)"
+)
 
 
 class ResolveTitleAndPlaceTests(unittest.TestCase):
@@ -22,6 +28,33 @@ class ResolveTitleAndPlaceTests(unittest.TestCase):
         )
         self.assertEqual(title, "Senior Engineer - Reynosa, MEX")
         self.assertEqual(place, "Copenhagen")
+
+    def test_does_not_split_hyphenated_role_prefix(self):
+        title, place = _resolve_title_and_place(JOBINDEX_EGAA_TITLE, "")
+        self.assertEqual(place, "Aarhus (Egå)")
+        self.assertNotIn("sundhedsassistent", place)
+        self.assertTrue(title.startswith("Social- og"))
+
+    def test_extracts_trailing_i_city_suffix(self):
+        title, place = _resolve_title_and_place(
+            "Plejehjemsassistent søges til aftenhold i Odense",
+            "",
+        )
+        self.assertEqual(title, "Plejehjemsassistent søges til aftenhold")
+        self.assertEqual(place, "Odense")
+
+
+class JobindexPlaceExtractionTests(unittest.TestCase):
+    def test_jobindex_extracts_place_from_title_suffix(self):
+        html = f"""<table><tr><td>
+<a href="https://www.jobindex.dk/jobannonce/r13854231">{JOBINDEX_EGAA_TITLE}</a>
+Attrives
+8250 Egå
+PUBLISHED: 10-06-2026
+</td></tr></table>"""
+        entries = _extract_jobindex_entries_by_link(html)
+        entry = entries["https://www.jobindex.dk/jobannonce/r13854231"]
+        self.assertEqual(entry["place"], "Aarhus (Egå)")
 
 
 class DanfossPlaceExtractionTests(unittest.TestCase):

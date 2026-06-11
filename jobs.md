@@ -45,4 +45,6 @@ Vestas and Danfoss career-alert emails share the Oracle Jobs2Web template (`agen
 
 **Merge order in `core.extract_job_entries`:** platform-specific fields from Google → The Hub → Djinni → Danfoss → Vestas → Oracle CX → Demant → Jobindex → generic HTML (only fills fields not already set by a platform extractor), then `_provider_from_link` as fallback source. The links loop uses the same priority when building entries from `doc["links"]`.
 
+**Jobindex title place:** Titles ending with `i City (District)` (e.g. `… i Aarhus (Egå)`) yield `place` via `split_title_trailing_i_place` in `parsing/utils.py`. Display/report resolution (`_resolve_title_and_place`) uses spaced ` - ` only — not bare hyphens in compounds like `Social- og`.
+
 **Import policy:** `jobs/` and `jobs/parsing/` use explicit imports only (no `from spejder.db import *`). Each parsing submodule imports only the DB helpers it needs.

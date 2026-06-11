@@ -1,7 +1,7 @@
-import re
 from typing import Optional
 
 from spejder.config import AppConfig
+from spejder.jobs.parsing.utils import split_title_trailing_i_place
 from spejder.llm import LocalLLM
 from spejder.managers.language_manager import (
     get_title_english_for_row as _get_title_english_for_row,
@@ -23,12 +23,16 @@ def _resolve_title_and_place(title: str, place: str) -> tuple[str, str]:
     if place_clean and place_clean.lower() != "unknown":
         return title_clean, place_clean
 
-    match = re.match(r"^(?P<title>.+?)\s*-\s*(?P<place>.+)$", title_clean)
-    if match:
-        parsed_title = (match.group("title") or "").strip()
-        parsed_place = (match.group("place") or "").strip()
-        if parsed_title and parsed_place:
-            return parsed_title, parsed_place
+    if " - " in title_clean:
+        maybe_title, maybe_place = title_clean.rsplit(" - ", 1)
+        maybe_title = maybe_title.strip()
+        maybe_place = maybe_place.strip()
+        if maybe_title and maybe_place:
+            return maybe_title, maybe_place
+
+    parsed_title, parsed_place = split_title_trailing_i_place(title_clean)
+    if parsed_place:
+        return parsed_title, parsed_place
     return title_clean, place_clean
 
 

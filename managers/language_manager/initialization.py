@@ -25,7 +25,10 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-from .translation_config import configured_translation_slots, primary_translation_slot
+from .translation_config import (
+    configured_translation_slots,
+    translation_slot_configuration_errors,
+)
 from .utils import (
     _language_checker_model_path,
     _language_checker_model_looks_valid,
@@ -195,16 +198,15 @@ def initialize_translation_or_exit(profile_path: str) -> None:
     if not runtime_profile and profile_path is None:
         runtime_profile = load_profile(DEFAULT_PROFILE_PATH)
 
+    config_errors = translation_slot_configuration_errors(runtime_profile)
+    if config_errors:
+        _fail_translation_init(config_errors[0])
+
     slots = configured_translation_slots(runtime_profile)
     if not slots:
         _fail_translation_init(
-            "language_translation_model_1 and language_translation_source_1 are not configured in profile"
-        )
-
-    primary_source, primary_model = primary_translation_slot(runtime_profile)
-    if not primary_source or not primary_model:
-        _fail_translation_init(
-            "language_translation_model_1 requires language_translation_source_1"
+            "at least one paired language_translation_model_N and "
+            "language_translation_source_N must be configured in profile"
         )
 
     if MarianTokenizer is None or MarianMTModel is None or torch is None:

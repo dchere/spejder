@@ -15,7 +15,7 @@ Replaces the old dictionary-based profile system (`FALLBACK_DEFAULT_PROFILE`). A
 - `language_checker_model_path` — FastText lid model (shared for Danish and Ukrainian detection)
 - `language_translation_model_1/2/3` — MarianMT model directories for non-English source languages
 - `language_translation_source_1/2/3` — FastText ISO 639-1 source language codes paired with each model slot (e.g. `da`, `uk`, `fr`)
-- Legacy `translation_model_path`, `danish_translation_model_path`, and `ukrainian_translation_model_path` migrate into slots 1–2 on load
+- Legacy `translation_model_path`, `danish_translation_model_path`, and `ukrainian_translation_model_path` migrate into slots 1–2 on load (Danish → slot 1, Ukrainian → slot 2; Ukrainian-only legacy profiles therefore use slot 2)
 
 **Dependencies:**
 - `pydantic`, `json`, `os`

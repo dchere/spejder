@@ -5,6 +5,8 @@ from bs4 import BeautifulSoup
 
 from spejder.db import _extract_jobindex_id, _normalize_position_link, _provider_from_link
 
+from .utils import split_title_trailing_i_place
+
 
 def _extract_jobindex_entries_by_link(html_text: str) -> dict[str, dict[str, str]]:
     if not html_text:
@@ -76,6 +78,8 @@ def _extract_jobindex_entries_by_link(html_text: str) -> dict[str, dict[str, str
             )
             if m_place:
                 place = m_place.group(1).strip(" -|:")[:180]
+            if not place:
+                _, place = split_title_trailing_i_place(title)
 
         m_desc = re.search(
             r"settings\s*\)\s*(.*?)\s*PUBLISHED\s*:", compact, flags=re.IGNORECASE
