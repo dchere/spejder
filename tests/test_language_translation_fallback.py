@@ -14,8 +14,8 @@ from spejder.managers.language_manager.titles import translate_title_to_english
 class TranslationFallbackTests(unittest.TestCase):
     def _profile(self) -> AppConfig:
         return AppConfig(
-            danish_translation_model_path="/fake/opus-mt-da-en",
-            ukrainian_translation_model_path="",
+            language_translation_model_1="/fake/opus-mt-da-en",
+            language_translation_source_1="da",
             language_checker_engine="fasttext",
             language_checker_model_path="/fake/lid.176.ftz",
             language_checker_threshold=0.8,

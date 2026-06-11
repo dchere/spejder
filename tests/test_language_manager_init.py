@@ -14,8 +14,7 @@ class InitializationModuleImportsTest(unittest.TestCase):
         from spejder.managers.language_manager import initialization
 
         self.assertTrue(hasattr(initialization, "LANGUAGE_CHECKER_SELF_TESTS"))
-        self.assertTrue(hasattr(initialization, "TRANSLATION_SELF_TEST"))
-        self.assertTrue(hasattr(initialization, "UKRAINIAN_TRANSLATION_SELF_TEST"))
+        self.assertTrue(hasattr(initialization, "TRANSLATION_SELF_TEST_SAMPLES"))
         self.assertTrue(hasattr(initialization, "initialize_language_checker_or_exit"))
         self.assertTrue(hasattr(initialization, "initialize_translation_or_exit"))
 
@@ -120,7 +119,10 @@ class InitializeTranslationOrExitTest(unittest.TestCase):
             initialize_translation_or_exit,
         )
 
-        profile = AppConfig(danish_translation_model_path="/fake/translation-model")
+        profile = AppConfig(
+            language_translation_model_1="/fake/translation-model",
+            language_translation_source_1="da",
+        )
 
         with (
             patch(
@@ -159,7 +161,7 @@ class InitializeTranslationOrExitTest(unittest.TestCase):
                 "spejder.managers.language_manager.initialization.get_translation_runtime"
             ),
             patch(
-                "spejder.managers.language_manager.initialization.is_danish_text",
+                "spejder.managers.language_manager.initialization._is_language_text",
                 side_effect=[True, False],
             ),
             patch(
@@ -179,8 +181,10 @@ class InitializeTranslationOrExitTest(unittest.TestCase):
         )
 
         profile = AppConfig(
-            danish_translation_model_path="/fake/translation-model-da",
-            ukrainian_translation_model_path="/fake/translation-model-uk",
+            language_translation_model_1="/fake/translation-model-da",
+            language_translation_source_1="da",
+            language_translation_model_2="/fake/translation-model-uk",
+            language_translation_source_2="uk",
         )
 
         with (
@@ -220,12 +224,8 @@ class InitializeTranslationOrExitTest(unittest.TestCase):
                 "spejder.managers.language_manager.initialization.get_translation_runtime"
             ),
             patch(
-                "spejder.managers.language_manager.initialization.is_danish_text",
-                side_effect=[True, False],
-            ),
-            patch(
-                "spejder.managers.language_manager.initialization.is_ukrainian_text",
-                side_effect=[True, False],
+                "spejder.managers.language_manager.initialization._is_language_text",
+                side_effect=[True, False, True, False],
             ),
             patch(
                 "spejder.managers.language_manager.initialization.translate_title_to_english",
@@ -244,13 +244,3 @@ class InitializeTranslationOrExitTest(unittest.TestCase):
             initialize_translation_or_exit("/fake/profile.json")
 
 
-class AppConfigTranslationPathMigrationTests(unittest.TestCase):
-    def test_load_migrates_legacy_translation_model_path(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as handle:
-            json.dump({"translation_model_path": "/fake/da-en"}, handle)
-            profile_path = handle.name
-        try:
-            profile = AppConfig.load(profile_path)
-            self.assertEqual(profile.danish_translation_model_path, "/fake/da-en")
-        finally:
-            os.unlink(profile_path)

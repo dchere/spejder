@@ -6,6 +6,12 @@ from typing import Optional
 
 from spejder.core import AppConfig
 
+from .translation_config import (
+    configured_translation_slots,
+    primary_translation_slot,
+    translation_model_path_for_language as _translation_model_path_for_language,
+)
+
 try:
     from ctranslate2 import Translator
     import sentencepiece as spm
@@ -38,26 +44,6 @@ def _language_checker_model_path(runtime_profile: Optional[AppConfig]) -> str:
     profile = runtime_profile or {}
     value = str(profile.language_checker_model_path or "")
     return os.path.abspath(os.path.expanduser(value.strip())) if value.strip() else ""
-
-
-def _danish_translation_model_path(runtime_profile: Optional[AppConfig]) -> str:
-    profile = runtime_profile or {}
-    value = str(profile.danish_translation_model_path or "")
-    return os.path.abspath(os.path.expanduser(value.strip())) if value.strip() else ""
-
-
-def _ukrainian_translation_model_path(runtime_profile: Optional[AppConfig]) -> str:
-    profile = runtime_profile or {}
-    value = str(profile.ukrainian_translation_model_path or "")
-    return os.path.abspath(os.path.expanduser(value.strip())) if value.strip() else ""
-
-
-def _translation_model_path_for_language(
-    runtime_profile: Optional[AppConfig], source_lang: str
-) -> str:
-    if source_lang == "uk":
-        return _ukrainian_translation_model_path(runtime_profile)
-    return _danish_translation_model_path(runtime_profile)
 
 
 def _language_checker_threshold(runtime_profile: Optional[AppConfig]) -> float:

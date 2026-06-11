@@ -23,8 +23,12 @@ class AppConfig(BaseModel):
     default_db: str = "./jobs.db"
     default_report_dir: str = "./outbox"
     default_model: str = ""
-    danish_translation_model_path: str = ""
-    ukrainian_translation_model_path: str = ""
+    language_translation_model_1: str = ""
+    language_translation_source_1: str = ""
+    language_translation_model_2: str = ""
+    language_translation_source_2: str = ""
+    language_translation_model_3: str = ""
+    language_translation_source_3: str = ""
 
     language_checker_engine: str = "fasttext"
     language_checker_model_path: str = ""
@@ -79,11 +83,7 @@ class AppConfig(BaseModel):
             data["report_max_relevant_positions"] = data["report_max_positions"]
             data["report_max_not_relevant_positions"] = data["report_max_positions"]
 
-        # Backward compatibility for translation_model_path → danish_translation_model_path
-        if "translation_model_path" in data:
-            if "danish_translation_model_path" not in data:
-                data["danish_translation_model_path"] = data["translation_model_path"]
-            del data["translation_model_path"]
+        _migrate_translation_model_fields(data)
 
         return cls(**data)
 
@@ -92,6 +92,25 @@ class AppConfig(BaseModel):
             profile_path = _default_profile_file_path()
         with open(profile_path, "w", encoding="utf-8") as f:
             json.dump(self.model_dump(), f, indent=2, ensure_ascii=False)
+
+def _migrate_translation_model_fields(data: dict) -> None:
+    if "translation_model_path" in data:
+        if "danish_translation_model_path" not in data:
+            data["danish_translation_model_path"] = data["translation_model_path"]
+        del data["translation_model_path"]
+
+    legacy_slots = (
+        ("danish_translation_model_path", "language_translation_model_1", "language_translation_source_1", "da"),
+        ("ukrainian_translation_model_path", "language_translation_model_2", "language_translation_source_2", "uk"),
+    )
+    for legacy_path_key, model_key, source_key, default_source in legacy_slots:
+        legacy_path = str(data.get(legacy_path_key, "") or "").strip()
+        if legacy_path and not str(data.get(model_key, "") or "").strip():
+            data[model_key] = legacy_path
+            if not str(data.get(source_key, "") or "").strip():
+                data[source_key] = default_source
+        data.pop(legacy_path_key, None)
+
 
 def load_profile(profile_path: str = None) -> AppConfig:
     return AppConfig.load(profile_path)

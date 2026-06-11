@@ -1,9 +1,10 @@
 
 import logging
-from typing import Literal, Optional, cast
+from typing import Optional
 
 from spejder.core import AppConfig
 from spejder.managers.language_manager.engines import _get_language_checker_detector
+from .translation_config import configured_translation_source_languages
 from .utils import (
     _language_checker_letter_count,
     _language_checker_min_letters,
@@ -11,9 +12,6 @@ from .utils import (
 )
 
 logger = logging.getLogger(__name__)
-
-TranslationSourceLanguage = Literal["da", "uk"]
-TRANSLATION_SOURCE_LANGUAGES = frozenset({"da", "uk"})
 
 
 def _top_language_label(
@@ -68,10 +66,11 @@ def is_ukrainian_text(text: str, runtime_profile: Optional[AppConfig] = None) ->
 
 def translation_source_language(
     text: str, runtime_profile: Optional[AppConfig] = None
-) -> Optional[TranslationSourceLanguage]:
+) -> Optional[str]:
     label, probability = _top_language_label(text, runtime_profile=runtime_profile)
-    if label not in TRANSLATION_SOURCE_LANGUAGES:
+    configured_sources = configured_translation_source_languages(runtime_profile)
+    if label not in configured_sources:
         return None
     if probability < _language_checker_threshold(runtime_profile):
         return None
-    return cast(TranslationSourceLanguage, label)
+    return label

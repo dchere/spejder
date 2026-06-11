@@ -18,6 +18,10 @@ class LanguageDetectionTest(unittest.TestCase):
             language_checker_model_path="/fake/lid.176.ftz",
             language_checker_threshold=0.8,
             language_checker_min_letters=4,
+            language_translation_model_1="/fake/opus-mt-da-en",
+            language_translation_source_1="da",
+            language_translation_model_2="/fake/opus-mt-uk-en",
+            language_translation_source_2="uk",
         )
 
     def _mock_detector(self, label: str, probability: float):
