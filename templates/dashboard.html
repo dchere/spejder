@@ -26,8 +26,11 @@
             .manual-status.todo { color: #6b5a00; background: #fff8db; border: 1px solid #e4d08a; }
             .applied-manual-input { margin: 8px 0; padding: 8px; border: 1px dashed #c7d5ee; border-radius: 8px; background: #f7fbff; }
             .applied-manual-input p { margin: 0 0 6px 0; font-size: 12px; color: #1f3a6d; }
-            .raw-append-input { width: 100%; min-height: 120px; resize: vertical; border: 1px solid #c9d6f0; border-radius: 6px; padding: 8px; font-size: 12px; font-family: monospace; box-sizing: border-box; }
-            .raw-append-btn { margin-top: 8px; border: 1px solid #0a58ca; color: #0a58ca; background: #fff; border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+            .cover-letter-section { display: block; margin: 8px 0; }
+            .cover-letter-wrap { display: block; margin: 0 0 6px 0; font-size: 12px; font-weight: 700; }
+            .raw-append-input, .cover-letter-text { width: 100%; min-height: 120px; resize: vertical; border: 1px solid #c9d6f0; border-radius: 6px; padding: 8px; font-size: 12px; font-family: monospace; box-sizing: border-box; }
+            .raw-append-btn, .cover-letter-btn { margin-top: 8px; border: 1px solid #0a58ca; color: #0a58ca; background: #fff; border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+            .raw-append-btn:disabled, .cover-letter-btn:disabled { opacity: 0.55; cursor: not-allowed; }
             .relevance-score { position: absolute; top: 8px; right: 10px; font-size: 11px; color: #9aa0a6; }
             .feedback { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
             .relevant-wrap { font-size: 13px; color: #333; display: inline-flex; gap: 5px; align-items: center; }
@@ -550,7 +553,6 @@
                 const card = btnEl.closest('.card');
                 const statusEl = card ? card.querySelector('.feedback-status') : null;
                 const inputEl = card ? card.querySelector('.raw-append-input') : null;
-                const manualStatusEl = card ? card.querySelector('.manual-status') : null;
                 const text = inputEl ? inputEl.value : '';
                 if (!text || !text.trim()) {
                     if (statusEl) statusEl.textContent = 'Enter description text first';
@@ -558,7 +560,7 @@
                 }
 
                 btnEl.disabled = true;
-                if (statusEl) statusEl.textContent = 'Appending...';
+                if (statusEl) statusEl.textContent = '';
                 try {
                     const response = await fetch(apiUrl('/api/applied/raw-text'), {
                         method: 'POST',
@@ -569,19 +571,73 @@
                     if (!response.ok || !data.ok) {
                         throw new Error(data.error || 'Request failed');
                     }
-                    if (inputEl) inputEl.value = '';
-                    if (manualStatusEl) {
-                        manualStatusEl.textContent = 'Manual full text: added';
-                        manualStatusEl.classList.remove('todo');
-                        manualStatusEl.classList.add('done');
-                    }
-                    if (card && appliedStagePanels.includes(card.parentElement)) {
-                        card.parentElement.appendChild(card);
-                    }
-                    if (statusEl) statusEl.textContent = 'Saved: full text appended';
+                    if (statusEl) statusEl.textContent = '';
                 } catch (err) {
                     if (statusEl) statusEl.textContent = `Error: ${err.message}`;
-                } finally {
+                    btnEl.disabled = false;
+                }
+            }
+
+            async function setCoverLetterRequested(jobId, requested, inputEl) {
+                const card = inputEl.closest('.card');
+                const statusEl = card ? card.querySelector('.feedback-status') : null;
+                if (statusEl) statusEl.textContent = '';
+                try {
+                    const response = await fetch(apiUrl('/api/applied/cover-letter/request'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ job_id: jobId, requested })
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || 'Request failed');
+                    }
+                    let inputBlock = card ? card.querySelector('.cover-letter-input') : null;
+                    if (requested) {
+                        if (!inputBlock && card) {
+                            const section = card.querySelector('.cover-letter-section');
+                            inputBlock = document.createElement('div');
+                            inputBlock.className = 'applied-manual-input cover-letter-input';
+                            inputBlock.innerHTML = '<textarea class="cover-letter-text" placeholder="Paste cover letter here..."></textarea><div><button type="button" class="cover-letter-btn" onclick="saveCoverLetter(' + jobId + ', this)">Save</button></div>';
+                            if (section) {
+                                section.appendChild(inputBlock);
+                            }
+                        }
+                    } else if (inputBlock) {
+                        inputBlock.remove();
+                    }
+                    if (statusEl) statusEl.textContent = '';
+                } catch (err) {
+                    inputEl.checked = !requested;
+                    if (statusEl) statusEl.textContent = `Error: ${err.message}. Start: python -m spejder.cli serve-gui`;
+                }
+            }
+
+            async function saveCoverLetter(jobId, btnEl) {
+                const card = btnEl.closest('.card');
+                const statusEl = card ? card.querySelector('.feedback-status') : null;
+                const inputEl = card ? card.querySelector('.cover-letter-text') : null;
+                const text = inputEl ? inputEl.value : '';
+                if (!text || !text.trim()) {
+                    if (statusEl) statusEl.textContent = 'Enter cover letter text first';
+                    return;
+                }
+
+                btnEl.disabled = true;
+                if (statusEl) statusEl.textContent = '';
+                try {
+                    const response = await fetch(apiUrl('/api/applied/cover-letter'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ job_id: jobId, text })
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || 'Request failed');
+                    }
+                    if (statusEl) statusEl.textContent = '';
+                } catch (err) {
+                    if (statusEl) statusEl.textContent = `Error: ${err.message}. Start: python -m spejder.cli serve-gui`;
                     btnEl.disabled = false;
                 }
             }
@@ -599,6 +655,8 @@
             window.blockSkill = blockSkill;
             window.deleteSkill = deleteSkill;
             window.appendAppliedRawText = appendAppliedRawText;
+            window.setCoverLetterRequested = setCoverLetterRequested;
+            window.saveCoverLetter = saveCoverLetter;
             refreshCounts();
         </script>
     </body>

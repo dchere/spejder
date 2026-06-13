@@ -227,6 +227,10 @@ def ensure_db(db_path: str):
             cur.execute("ALTER TABLE jobs ADD COLUMN interview_stopped INTEGER DEFAULT 0")
         if "company_feedback" not in cols:
             cur.execute("ALTER TABLE jobs ADD COLUMN company_feedback TEXT")
+        if "cover_letter" not in cols:
+            cur.execute("ALTER TABLE jobs ADD COLUMN cover_letter TEXT")
+        if "cover_letter_requested" not in cols:
+            cur.execute("ALTER TABLE jobs ADD COLUMN cover_letter_requested INTEGER DEFAULT 0")
 
         cur.execute(
             """
@@ -313,6 +317,7 @@ def ensure_db(db_path: str):
         cur.execute("UPDATE jobs SET interview_stopped=0 WHERE interview_stopped IS NULL")
         cur.execute("UPDATE jobs SET source='' WHERE source IS NULL")
         cur.execute("UPDATE jobs SET description='' WHERE description IS NULL")
+        cur.execute("UPDATE jobs SET cover_letter_requested=0 WHERE cover_letter_requested IS NULL")
 
         cur.execute("SELECT id, title, title_english FROM jobs")
         for rid, title, title_english in cur.fetchall():

@@ -46,8 +46,13 @@ Extracted from `jobs.py`. The rest of the application (including business logic 
 - `on_interview INTEGER DEFAULT 0` — mutually exclusive with `interview_stopped`; only settable when `applied=1`
 - `interview_stopped INTEGER DEFAULT 0` — clears `on_interview` when set; only settable when `applied=1`
 - `company_feedback TEXT` — free-text notes on stopped cards; only writable when `interview_stopped=1`
-- `set_job_applied(False)`, `set_job_viewed(False)`, `set_job_feedback("not relevant")`, and `batch_update_and_delete_jobs` update tuples with `applied=0` all clear interview fields via shared `_INTERVIEW_FIELDS_CLEAR` (`on_interview=0`, `interview_stopped=0`, `company_feedback=NULL`) alongside `applied=0`
+- `set_job_applied(False)`, `set_job_viewed(False)`, `set_job_feedback("not relevant")`, and `batch_update_and_delete_jobs` update tuples with `applied=0` all clear interview fields via shared `_INTERVIEW_FIELDS_CLEAR` (`on_interview=0`, `interview_stopped=0`, `company_feedback=NULL`, `cover_letter=NULL`, `cover_letter_requested=0`) alongside `applied=0`
 - `set_job_interview_stopped(False)` (unstop) clears only `interview_stopped`; preserves `company_feedback`
 - Mutations: `set_job_on_interview`, `set_job_interview_stopped`, `set_job_company_feedback`
 - Legacy `description_raw` → `jobs_new` migration copies `on_interview`, `interview_stopped`, and `company_feedback` when source columns exist
 - Duplicate link-recognition patterns also live in `jobs/parsing/links.py` (`_is_job_link`) per project convention.
+
+**Cover letter columns (`jobs` table):**
+- `cover_letter TEXT` — saved cover letter text for an applied job; one-time write via `set_job_cover_letter`
+- `cover_letter_requested INTEGER DEFAULT 0` — user checked “Cover letter” on the applied card; toggled via `set_job_cover_letter_requested` until text is saved
+- Cleared with `_INTERVIEW_FIELDS_CLEAR` when `applied=0`

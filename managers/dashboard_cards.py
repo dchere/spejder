@@ -141,6 +141,33 @@ def _build_job_cards(
             if is_applied and not has_manual_applied_text
             else ""
         )
+        cover_letter_saved = bool(str(item.get("cover_letter", "") or "").strip())
+        cover_letter_requested = int(item.get("cover_letter_requested", 0) or 0) == 1
+        cover_letter_controls = ""
+        if is_applied:
+            if cover_letter_saved:
+                cover_letter_controls = (
+                    '<div class="cover-letter-section">'
+                    '<label class="cover-letter-wrap">'
+                    '<input type="checkbox" checked disabled /> Cover letter</label>'
+                    '</div>'
+                )
+            else:
+                cover_letter_input = ""
+                if cover_letter_requested:
+                    cover_letter_input = f"""
+                    <div class="applied-manual-input cover-letter-input">
+                        <textarea class="cover-letter-text" placeholder="Paste cover letter here..."></textarea>
+                        <div><button type="button" class="cover-letter-btn" onclick="saveCoverLetter({job_id}, this)">Save</button></div>
+                    </div>
+                    """.strip()
+                checked_attr = "checked" if cover_letter_requested else ""
+                cover_letter_controls = f"""
+                <div class="cover-letter-section">
+                <label class="cover-letter-wrap"><input type="checkbox" {checked_attr} onchange="setCoverLetterRequested({job_id}, this.checked, this)"/> Cover letter</label>
+                {cover_letter_input}
+                </div>
+                """.strip()
         interview_controls = ""
         if card_panel in ("applied", "interview", "stopped") or is_applied:
             interview_controls = f"""
@@ -171,6 +198,7 @@ def _build_job_cards(
                 <p><strong>Description:</strong> {description}</p>
                 {manual_status if is_applied else ""}
                 {manual_controls}
+                {cover_letter_controls}
                 {feedback_controls}
                 <p><strong>Skills:</strong> <span class="skill-tags">{skills_html or '<span class="skills-empty">No skills extracted</span>'}</span></p>
                 <div class="feedback">

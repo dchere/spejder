@@ -10,7 +10,10 @@ from .connection import get_job_link
 from .utils import sanitize_job_title, _normalize_position_link, _provider_from_link
 from .deduplication_utils import _cross_source_dedupe_key
 
-_INTERVIEW_FIELDS_CLEAR = "on_interview=0, interview_stopped=0, company_feedback=NULL"
+_INTERVIEW_FIELDS_CLEAR = (
+    "on_interview=0, interview_stopped=0, company_feedback=NULL, "
+    "cover_letter=NULL, cover_letter_requested=0"
+)
 
 
 def upsert_job(db_path: str, job: dict) -> bool:
@@ -270,6 +273,65 @@ def append_applied_job_raw_text(
         cur.execute(
             "UPDATE jobs SET raw_text=?, updated_at=? WHERE id=?",
             (merged, datetime.now(timezone.utc).isoformat(), int(job_id)),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def set_job_cover_letter_requested(db_path: str, job_id: int, requested: bool) -> bool:
+    requested_int = 1 if requested else 0
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT applied, cover_letter FROM jobs WHERE id=?",
+            (int(job_id),),
+        )
+        row = cur.fetchone()
+        if not row:
+            return False
+        if int(row[0] or 0) != 1:
+            return False
+        if str(row[1] or "").strip():
+            return False
+
+        cur.execute(
+            "UPDATE jobs SET cover_letter_requested=?, updated_at=? WHERE id=?",
+            (requested_int, datetime.now(timezone.utc).isoformat(), int(job_id)),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def set_job_cover_letter(db_path: str, job_id: int, text: str) -> bool:
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return False
+
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT applied, cover_letter_requested, cover_letter FROM jobs WHERE id=?",
+            (int(job_id),),
+        )
+        row = cur.fetchone()
+        if not row:
+            return False
+        if int(row[0] or 0) != 1:
+            return False
+        if int(row[1] or 0) != 1:
+            return False
+        if str(row[2] or "").strip():
+            return True
+
+        cur.execute(
+            "UPDATE jobs SET cover_letter=?, updated_at=? WHERE id=?",
+            (cleaned, datetime.now(timezone.utc).isoformat(), int(job_id)),
         )
         conn.commit()
         return cur.rowcount > 0

@@ -37,6 +37,8 @@ class DbQueriesTest(unittest.TestCase):
             0,
             "",
             "desc",
+            "",
+            0,
         )
         mapped = _map_full_job_row(row, "relevant")
         self.assertEqual(mapped["id"], 1)
@@ -45,6 +47,8 @@ class DbQueriesTest(unittest.TestCase):
         self.assertEqual(mapped["on_interview"], 0)
         self.assertEqual(mapped["interview_stopped"], 0)
         self.assertEqual(mapped["company_feedback"], "")
+        self.assertEqual(mapped["cover_letter"], "")
+        self.assertEqual(mapped["cover_letter_requested"], 0)
 
 
 if __name__ == "__main__":

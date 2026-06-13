@@ -5,7 +5,7 @@ from .utils import _provider_from_link
 _JOB_SELECT_COLS = (
     "id, source, company, title, title_english, place, work_type, position_link, raw_text, "
     "relevance_score, relevance_reason, summary, viewed, applied, on_interview, interview_stopped, "
-    "company_feedback, description"
+    "company_feedback, description, cover_letter, cover_letter_requested"
 )
 
 

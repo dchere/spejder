@@ -14,6 +14,8 @@ from spejder.db import (
     get_jobs_by_company,
     set_job_applied,
     set_job_company_feedback,
+    set_job_cover_letter,
+    set_job_cover_letter_requested,
     set_job_feedback,
     set_job_interview_stopped,
     set_job_on_interview,
@@ -179,6 +181,50 @@ def create_app(
             queue_dashboard_rebuild(reason=f"manual raw text job {req.job_id}")
 
         return {"ok": True, "job_id": req.job_id, "signal": "applied_raw_text_added", "profile_learning": None}
+
+    class CoverLetterRequestToggle(BaseModel):
+        job_id: int = 0
+        requested: bool
+
+    @app.post("/api/applied/cover-letter/request")
+    def api_applied_cover_letter_request(req: CoverLetterRequestToggle):
+        saved = set_job_cover_letter_requested(db_path, req.job_id, req.requested)
+        print(
+            f"API: set_job_cover_letter_requested job_id={req.job_id} "
+            f"requested={req.requested} saved={saved}"
+        )
+        if not saved:
+            return JSONResponse(
+                status_code=400,
+                content={"ok": False, "error": "job not found, not applied, or cover letter already saved"},
+            )
+        queue_dashboard_rebuild(
+            reason=f"cover letter requested={'on' if req.requested else 'off'} job {req.job_id}"
+        )
+        return {"ok": True, "job_id": req.job_id, "requested": req.requested}
+
+    class CoverLetterSaveRequest(BaseModel):
+        job_id: int = 0
+        text: str
+
+    @app.post("/api/applied/cover-letter")
+    def api_applied_cover_letter(req: CoverLetterSaveRequest):
+        text = req.text.strip()
+        if not text:
+            return JSONResponse(status_code=400, content={"ok": False, "error": "text is required"})
+
+        saved = set_job_cover_letter(db_path, req.job_id, text)
+        print(f"API: set_job_cover_letter job_id={req.job_id} saved={saved}")
+        if not saved:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "ok": False,
+                    "error": "job not found, not applied, cover letter not requested, or already saved",
+                },
+            )
+        queue_dashboard_rebuild(reason=f"cover letter job {req.job_id}")
+        return {"ok": True, "job_id": req.job_id, "signal": "cover_letter_saved"}
 
     class SkillUserRequest(BaseModel):
         skill: str

@@ -86,6 +86,8 @@ def build_dashboard_record(
         "on_interview": int(row.get("on_interview", 0) or 0),
         "interview_stopped": int(row.get("interview_stopped", 0) or 0),
         "company_feedback": row.get("company_feedback", "") or "",
+        "cover_letter": row.get("cover_letter", "") or "",
+        "cover_letter_requested": int(row.get("cover_letter_requested", 0) or 0),
     }
 
 
