@@ -18,7 +18,7 @@
 - Learn additional profile keywords from labeled jobs and write them back to `profile.json`.
 - Translate non-English job titles to English using the local LLM for consistent display in the dashboard.
 - Allow pasting a full position description for applied jobs via the dashboard to trigger re-summarization and re-scoring with the LLM.
-- Block or delete skills from the dashboard; blocked skills are persisted in `profile.json` under `blocked_skills`.
+- Block or delete skills from the dashboard; blocked skills are persisted in `profile.json` under `blocked_skills` and removed from SQLite (`skill_patterns` + `job_skills` links).
 - Provide a per-company filtered view at `/company.html?name=<company>` linked from dashboard cards.
 - Delete processed inbox files automatically after successful ingestion.
 
@@ -314,7 +314,7 @@ Default profile values are stored in `spejder/default_profile.json`. Runtime loa
 In `profile.json`:
 
 - `user_skills`: your editable skill list used for scoring.
-- `blocked_skills`: skills hidden from the Skills tab and filtered out from extracted skill results.
+- `blocked_skills`: skills hidden from the Skills tab and filtered out from extracted skill results; blocking also deletes matching rows from SQLite `skill_patterns` and `job_skills`.
 - `skill_extraction_antipatterns`: LLM-synthesized rules injected into the job skill extraction prompt.
 - `skill_antipattern_synthesis_count`: antipattern rules to synthesize per sync (default `3`).
 - `skill_antipattern_validation_runs`: stable extraction runs per validation step (default `3`).

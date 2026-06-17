@@ -335,3 +335,27 @@ def delete_skill_from_db(db_path: str, skill_name: str) -> dict[str, int]:
         conn.close()
 
 
+def cleanup_blocked_skills_from_db(db_path: str, blocked_skills: list[str]) -> dict[str, int]:
+    """Delete blocked skills from skill_patterns and job_skills; dedupe by normalized name key."""
+    seen_keys: set[str] = set()
+    skills_processed = 0
+    skill_rows_deleted = 0
+    job_skill_links_deleted = 0
+
+    for skill in blocked_skills or []:
+        key = _normalize_skill_name_key(str(skill))
+        if not key or key in seen_keys:
+            continue
+        seen_keys.add(key)
+        skills_processed += 1
+        deleted = delete_skill_from_db(db_path, skill)
+        skill_rows_deleted += int(deleted.get("skill_rows_deleted", 0))
+        job_skill_links_deleted += int(deleted.get("job_skill_links_deleted", 0))
+
+    return {
+        "skills_processed": skills_processed,
+        "skill_rows_deleted": skill_rows_deleted,
+        "job_skill_links_deleted": job_skill_links_deleted,
+    }
+
+

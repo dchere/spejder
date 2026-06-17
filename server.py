@@ -272,8 +272,9 @@ def create_app(
         block_info = _block_skill_in_profile(runtime_profile, skill)
         persist_runtime_profile()
         reload_runtime_profile()
+        db_deleted = delete_skill_from_db(db_path, skill)
         queue_dashboard_rebuild(reason=f"skill blocked {skill}")
-        return {"ok": True, "skill": skill, "block_info": block_info}
+        return {"ok": True, "skill": skill, "block_info": block_info, "db_deleted": db_deleted}
 
     class SkillDeleteRequest(BaseModel):
         skill: str

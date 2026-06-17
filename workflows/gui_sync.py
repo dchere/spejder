@@ -5,7 +5,12 @@ from typing import TYPE_CHECKING, Callable, Optional, Protocol
 
 from spejder.config import AppConfig
 from spejder.core import load_runtime_profile
-from spejder.db import get_all_applied_jobs, get_jobs_by_category, get_jobs_for_description_refresh
+from spejder.db import (
+    cleanup_blocked_skills_from_db,
+    get_all_applied_jobs,
+    get_jobs_by_category,
+    get_jobs_for_description_refresh,
+)
 from spejder.extractors.skill_extractor import (
     _learn_skill_patterns_from_positions,
     should_sync_skill_antipatterns,
@@ -150,6 +155,22 @@ def run_inbox_sync(context: GuiSyncContext) -> None:
             context.db_path, context.runtime_profile, prune_irrelevant=False
         )
         print(f"Background sync: relevance scored (total={total}, relevant={relevant_count})")
+
+        blocked_cleanup = cleanup_blocked_skills_from_db(
+            context.db_path,
+            list(context.runtime_profile.blocked_skills or []),
+        )
+        print(
+            "Background sync: blocked-skills cleanup "
+            f"(processed={blocked_cleanup.get('skills_processed', 0)}, "
+            f"links_deleted={blocked_cleanup.get('job_skill_links_deleted', 0)}, "
+            f"patterns_deleted={blocked_cleanup.get('skill_rows_deleted', 0)})"
+        )
+        if (
+            blocked_cleanup.get("job_skill_links_deleted", 0) > 0
+            or blocked_cleanup.get("skill_rows_deleted", 0) > 0
+        ):
+            context.queue_dashboard_rebuild(reason="blocked skills db cleanup")
 
         relevant_rows = get_jobs_by_category(
             context.db_path, "relevant", limit=0, unviewed_only=True

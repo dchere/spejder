@@ -7,14 +7,15 @@ Background inbox synchronization pipeline extracted from `gui.py`, preserving ex
 - `GuiSyncContext` (frozen dataclass carrying paths, runtime config, and callbacks)
 - `run_inbox_sync(context: GuiSyncContext) -> None`
 
-**Pipeline (7 steps):**
+**Pipeline (8 steps):**
 1. Ingest inbox input (or detect missing-description backfill mode)
 2. Delete processed inbox files
 3. Run company+title position deduplication (`merge_duplicate_positions`)
 4. Queue dashboard rebuild (ingest + dedupe snapshot)
 5. Apply relevance scoring
-6. Materialize missing skills, generate missing descriptions, learn skill patterns
-7. Optionally run async antipattern sync (daemon thread). Skipped runs log `skip_reason` and do **not** reload the profile or queue a dashboard rebuild; successful **commits** (`committed=True`) do both.
+6. Clean blocked skills from SQLite (`cleanup_blocked_skills_from_db` on `runtime_profile.blocked_skills`); queue rebuild only when rows or links were deleted
+7. Materialize missing skills, generate missing descriptions, learn skill patterns
+8. Optionally run async antipattern sync (daemon thread). Skipped runs log `skip_reason` and do **not** reload the profile or queue a dashboard rebuild; successful **commits** (`committed=True`) do both.
 
 **Constraints:**
 - No wildcard imports (`import *`) anywhere under `spejder/`; keep imports explicit.

@@ -9,6 +9,8 @@ Implements the Repository Pattern, acting as the strict single source of truth f
 - `upsert_job(db_path, entry)` — re-ingesting an existing `position_link` merges empty `place`/`company` and longer `raw_text`; a new URL with matching normalized company+title updates the **oldest** matching row instead of inserting
 - `set_job_place(db_path, job_id, place)`
 - `batch_update_and_delete_jobs(db_path, updates, deletes)`
+- `delete_skill_from_db(db_path, skill_name)` — removes `skill_patterns` rows and all `job_skills` links for one normalized skill key
+- `cleanup_blocked_skills_from_db(db_path, blocked_skills)` — dedupes blocked skill names via `_normalize_skill_name_key`, delegates each to `delete_skill_from_db`, returns aggregated `{skills_processed, skill_rows_deleted, job_skill_links_deleted}`
 (And many more database query functions)
 
 **Context:**
