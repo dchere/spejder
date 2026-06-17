@@ -1,4 +1,15 @@
-from .deduplication import (_normalize_title_key, _normalize_company_key, _cross_source_dedupe_key, _canonical_source_rank, merge_cross_source_duplicates)
+from .deduplication import (
+    merge_duplicate_positions,
+    merge_cross_source_duplicates,
+)
+from spejder.db.deduplication_utils import (
+    _normalize_title_key,
+    _normalize_company_key,
+    _position_dedupe_key,
+    _cross_source_dedupe_key,
+    _merge_raw_text,
+    _merge_duplicate_into_keeper,
+)
 from .suggestions import (_suggest_keywords_from_labeled_jobs, _suggest_missing_skills_from_applied_jobs, _normalize_skill_name_key, _unique_keywords)
 from .profile import (load_profile, update_profile_from_db_signals)
 from .parsing import (_work_type_from_html_for_link, _infer_work_type_from_text, _parse_card_text_fields, _parse_anchor_fragments, _extract_html_entries_by_link, first_non_empty, extract_company_title, _is_job_link, _has_easy_apply_signal, _has_linkedin_public_easy_apply, _is_linkedin_reference_position_link, _is_linkedin_boilerplate_entry, _extract_entries_from_text, _extract_jobindex_entries_by_link, _extract_demant_entries_by_link, _extract_danfoss_entries_by_link, _extract_google_entries_by_link, extract_job_entries)

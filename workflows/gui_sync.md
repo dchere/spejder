@@ -10,7 +10,7 @@ Background inbox synchronization pipeline extracted from `gui.py`, preserving ex
 **Pipeline (7 steps):**
 1. Ingest inbox input (or detect missing-description backfill mode)
 2. Delete processed inbox files
-3. Run cross-source deduplication
+3. Run company+title position deduplication (`merge_duplicate_positions`)
 4. Queue dashboard rebuild (ingest + dedupe snapshot)
 5. Apply relevance scoring
 6. Materialize missing skills, generate missing descriptions, learn skill patterns

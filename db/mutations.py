@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from .connection import _connect
 from .connection import get_job_link
 from .utils import sanitize_job_title, _normalize_position_link, _provider_from_link
-from .deduplication_utils import _cross_source_dedupe_key
+from .deduplication_utils import _keeper_sort_key, _merge_duplicate_into_keeper, _position_dedupe_key
 
 _INTERVIEW_FIELDS_CLEAR = (
     "on_interview=0, interview_stopped=0, company_feedback=NULL, "
@@ -34,68 +34,65 @@ def upsert_job(db_path: str, job: dict) -> bool:
         is_new_record = cur.fetchone() is None
 
         if is_new_record:
-            dedupe_key = _cross_source_dedupe_key(source, company, title)
+            dedupe_key = _position_dedupe_key(company, title)
             if dedupe_key:
                 cur.execute(
                     """
-                    SELECT id, source, company, title, title_english, place, work_type, raw_text, viewed, applied, position_link
+                    SELECT id, source, company, title, title_english, place, work_type, raw_text, viewed, applied, position_link, created_at
                     FROM jobs
                     """
                 )
+                matches = []
                 for row in cur.fetchall():
-                    existing_id = int(row[0] or 0)
-                    existing_source = str(row[1] or "").strip() or _provider_from_link(
-                        str(row[10] or "")
-                    )
-                    existing_key = _cross_source_dedupe_key(
-                        existing_source,
-                        str(row[2] or ""),
-                        str(row[3] or ""),
-                    )
+                    existing_key = _position_dedupe_key(str(row[2] or ""), str(row[3] or ""))
                     if existing_key != dedupe_key:
                         continue
+                    matches.append({
+                        "id": int(row[0] or 0),
+                        "source": str(row[1] or "").strip() or _provider_from_link(str(row[10] or "")),
+                        "company": str(row[2] or ""),
+                        "title": str(row[3] or ""),
+                        "place": str(row[5] or ""),
+                        "work_type": str(row[6] or ""),
+                        "raw_text": str(row[7] or ""),
+                        "viewed": int(row[8] or 0),
+                        "applied": int(row[9] or 0),
+                        "position_link": str(row[10] or ""),
+                        "created_at": str(row[11] or ""),
+                    })
 
-                    merged_company = str(row[2] or "") or company
-                    merged_title = sanitize_job_title(str(row[3] or "") or title)
-                    merged_place = str(row[5] or "")
-                    merged_work_type = str(row[6] or "")
-                    merged_raw = str(row[7] or "")
-                    merged_viewed = int(row[8] or 0)
-                    merged_applied = int(row[9] or 0)
-
-                    if not merged_company and company:
-                        merged_company = company
-                    if not merged_title and title:
-                        merged_title = title
-                    if (not merged_place or merged_place.lower() == "unknown") and place:
-                        merged_place = place
-                    if (
-                        not merged_work_type
-                        or merged_work_type.lower() == "unknown"
-                    ) and work_type:
-                        merged_work_type = work_type
-                    if len(raw_text) > len(merged_raw):
-                        merged_raw = raw_text
+                if matches:
+                    matches.sort(key=_keeper_sort_key)
+                    keeper = dict(matches[0])
+                    incoming = {
+                        "company": company,
+                        "title": title,
+                        "place": place,
+                        "work_type": work_type,
+                        "raw_text": raw_text,
+                        "viewed": 0,
+                        "applied": 0,
+                    }
+                    _merge_duplicate_into_keeper(keeper, incoming)
 
                     cur.execute(
                         """
                         UPDATE jobs
-                        SET source=?, company=?, title=?, title_english=?, place=?, work_type=?, raw_text=?,
+                        SET company=?, title=?, title_english=?, place=?, work_type=?, raw_text=?,
                             viewed=?, applied=?, updated_at=?
                         WHERE id=?
                         """,
                         (
-                            source or existing_source,
-                            merged_company,
-                            sanitize_job_title(merged_title),
+                            keeper["company"],
+                            sanitize_job_title(keeper["title"]),
                             "",
-                            merged_place,
-                            merged_work_type or "Unknown",
-                            merged_raw,
-                            merged_viewed,
-                            merged_applied,
+                            keeper["place"],
+                            keeper["work_type"] or "Unknown",
+                            keeper["raw_text"],
+                            keeper["viewed"],
+                            keeper["applied"],
                             now,
-                            existing_id,
+                            keeper["id"],
                         ),
                     )
                     conn.commit()

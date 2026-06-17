@@ -29,7 +29,7 @@ Core orchestration for CLI commands, GUI background sync, and heavy multi-step p
 | `job_skills_materialize.py` | Skill extraction materialization batches |
 | `job_easy_apply.py` | LinkedIn easy-apply detection |
 | `report_workflow.py` | CLI link reports + JSONL HTML export |
-| `deduplication.py` | Cross-source dedupe wrapper |
+| `deduplication.py` | Company+title position dedupe wrapper |
 | `enrichment.py` | `refresh-descriptions` command |
 | `text_prepend.py` | Summary validity checks + title/summary raw-text prepend |
 | `formatting.py` | Dashboard title HTML line rendering |
@@ -44,7 +44,7 @@ Core orchestration for CLI commands, GUI background sync, and heavy multi-step p
 **GUI background sync** (`run_inbox_sync` in `gui_sync.py`):
 1. Ingest inbox (or backfill missing descriptions)
 2. Delete processed inbox files
-3. Cross-source dedupe
+3. Company+title position dedupe
 4. Queue dashboard rebuild
 5. Relevance scoring
 6. Skill materialization, description generation, skill-pattern learning

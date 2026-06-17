@@ -84,7 +84,7 @@ Open `http://127.0.0.1:8765/report.html`.
 - Stopped cards support free-text `Company feedback` saved via the dashboard.
 - Unmarking `Applied`, unmarking `Viewed`, or marking `Not relevant` clears interview/stopped state and company feedback (same DB clear path as unapply).
 - Feedback writes are applied to DB immediately; `report.html` regeneration is queued and runs in background.
-- When `serve-gui` starts, it also performs a background inbox sync, cross-source dedupe, relevance scoring, and missing-description generation.
+- When `serve-gui` starts, it also performs a background inbox sync, position deduplication (company+title), relevance scoring, and missing-description generation.
 - If the requested port is busy, the server automatically tries the next ports up to 20 times.
 - Clicking a company name opens a `/company.html` view filtered to that company's jobs.
 - Applied jobs have a "Paste full description" form that feeds the full text to the LLM, regenerating the summary, description, and skill tags.
@@ -240,7 +240,7 @@ Runs automatically at the end of GUI background sync when blocked skills grow en
 
 ### `dedupe-jobs`
 
-Run cross-source job deduplication on demand (e.g. after manual DB edits).
+Run company+title position deduplication on demand (e.g. after manual DB edits).
 
 ```bash
 python3 -m spejder.cli dedupe-jobs \
@@ -252,8 +252,9 @@ Options: `--profile`, `--db`.
 
 Notes:
 
-- This merges matching LinkedIn and Jobindex entries into a single record.
-- `serve-gui` background sync also runs cross-source dedupe after ingest and before relevance scoring; use this command for a standalone full-table pass.
+- Merges rows with the same normalized company and title across **all sources**; keeps the oldest row (`created_at`, then lowest `id`).
+- Dissimilar duplicate `raw_text` snippets are appended under `[DEDUPE_SNIPPET]`; similar text (&gt;= 85%) is not duplicated.
+- `serve-gui` background sync also runs this pass after ingest and before relevance scoring; use this command for a standalone full-table pass.
 
 ### `init-profile`
 

@@ -43,7 +43,7 @@ def get_all_jobs_for_dedupe(db_path: str) -> list[tuple]:
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT id, source, company, title, place, work_type, position_link, raw_text, viewed, applied
+            SELECT id, source, company, title, place, work_type, position_link, raw_text, viewed, applied, created_at
             FROM jobs
             """
         )

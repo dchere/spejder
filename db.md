@@ -6,7 +6,7 @@ Implements the Repository Pattern, acting as the strict single source of truth f
 **API:**
 - `init_db(db_path)`
 - `get_relevant_jobs(db_path, ...)`
-- `upsert_job(db_path, entry)` — re-ingesting an existing `position_link` merges empty `place`/`company` and longer `raw_text`
+- `upsert_job(db_path, entry)` — re-ingesting an existing `position_link` merges empty `place`/`company` and longer `raw_text`; a new URL with matching normalized company+title updates the **oldest** matching row instead of inserting
 - `set_job_place(db_path, job_id, place)`
 - `batch_update_and_delete_jobs(db_path, updates, deletes)`
 (And many more database query functions)
@@ -28,6 +28,10 @@ Extracted from `jobs.py`. The rest of the application (including business logic 
 
 **Dependencies:**
 - `sqlite3`, `spejder.config`
+
+**Position deduplication (`deduplication_utils.py`):**
+- `_position_dedupe_key(company, title)` — normalized `company|title` key for all sources
+- `_merge_duplicate_into_keeper`, `_merge_raw_text` — shared merge rules used by `upsert_job` and `jobs/deduplication.merge_duplicate_positions`
 
 **Link normalization (`utils.py`):**
 - `_decode_mandrill_track_link`: unwraps Mandrill `track/click` URLs (base64 JSON payload → destination URL). Requires `base64` and `html.unescape`.

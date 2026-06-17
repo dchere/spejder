@@ -1,6 +1,6 @@
 from spejder.core import DEFAULT_PROFILE_PATH, load_runtime_profile
 from spejder.db import ensure_db
-from spejder.jobs import merge_cross_source_duplicates
+from spejder.jobs import merge_duplicate_positions
 
 
 def run_cross_source_dedupe(
@@ -9,7 +9,7 @@ def run_cross_source_dedupe(
     log_prefix: str = "Job dedupe complete",
     include_db: bool = False,
 ) -> dict[str, int]:
-    result = merge_cross_source_duplicates(db_path)
+    result = merge_duplicate_positions(db_path)
     db_suffix = f", db={db_path}" if include_db else ""
     print(
         f"{log_prefix}: "

@@ -9,7 +9,7 @@ from spejder.workflows.deduplication import dedupe_jobs, run_cross_source_dedupe
 
 
 class RunCrossSourceDedupeTest(unittest.TestCase):
-    @patch("spejder.workflows.deduplication.merge_cross_source_duplicates")
+    @patch("spejder.workflows.deduplication.merge_duplicate_positions")
     def test_passthrough_and_stdout(self, mock_merge):
         mock_merge.return_value = {
             "groups_merged": 2,
@@ -31,7 +31,7 @@ class RunCrossSourceDedupeTest(unittest.TestCase):
 
 
 class DedupeJobsCLITest(unittest.TestCase):
-    @patch("spejder.workflows.deduplication.merge_cross_source_duplicates")
+    @patch("spejder.workflows.deduplication.merge_duplicate_positions")
     @patch("spejder.workflows.deduplication.ensure_db")
     @patch("spejder.workflows.deduplication.load_runtime_profile")
     def test_prints_job_dedupe_complete_with_db(self, mock_profile, mock_ensure, mock_merge):
