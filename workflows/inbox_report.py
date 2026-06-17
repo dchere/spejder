@@ -104,7 +104,7 @@ def write_inbox_dashboard_report(
             )
             description = row.get("description") or ""
             source_raw = row.get("raw_text", "") or ""
-            skills, raw_text = materialize_job_skills(
+            skills, raw_text, _ = materialize_job_skills(
                 db_path,
                 row,
                 llm=llm,
@@ -179,7 +179,7 @@ def write_inbox_dashboard_report(
             row.get("raw_text", ""),
         )
         description = row.get("description") or ""
-        skills, raw_text = materialize_job_skills(
+        skills, raw_text, _ = materialize_job_skills(
             db_path,
             row,
             llm=llm,

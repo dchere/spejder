@@ -1,7 +1,8 @@
 from typing import Optional
 
 from .connection import _connect
-from .queries_rows import _map_refresh_job_row
+from .queries_listings import _JOB_SELECT_COLS
+from .queries_rows import _map_full_job_row, _map_refresh_job_row
 from .utils import _normalize_position_link, _provider_from_link
 
 
@@ -64,6 +65,20 @@ def get_jobs_for_description_refresh(
         cur.execute(q, params)
         rows = cur.fetchall()
         return [_map_refresh_job_row(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_jobs_for_active_rescore(db_path: str) -> list[dict]:
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            f"SELECT {_JOB_SELECT_COLS}, category FROM jobs WHERE "
+            "applied=1 OR on_interview=1 OR interview_stopped=1 OR COALESCE(viewed, 0)=0"
+        )
+        rows = cur.fetchall()
+        return [_map_full_job_row(r[:-1], r[-1] or "") for r in rows]
     finally:
         conn.close()
 

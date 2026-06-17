@@ -1,8 +1,9 @@
 from typing import Optional
 
 from spejder.config import AppConfig
-from spejder.db import get_all_applied_jobs, get_jobs_by_category
+from spejder.db import get_jobs_for_active_rescore
 from spejder.extractors.skill_extractor import _get_or_extract_job_skills
+from spejder.jobs.scoring import job_in_active_rescore_scope, rescore_job_by_id
 from spejder.llm import LocalLLM
 from spejder.workflows.job_text_enrichment import _enrich_raw_text_with_position_page
 
@@ -17,8 +18,9 @@ def materialize_job_skills(
     title_translation_cache: Optional[dict] = None,
     limit: int = 10,
     rescore: bool = False,
-) -> tuple[str, str]:
-    """Enrich job text, extract skills, persist to job_skills. Returns (skills_text, enriched_raw)."""
+    first_materialize: bool = False,
+) -> tuple[str, str, bool]:
+    """Enrich job text, extract skills, persist to job_skills. Returns (skills_text, enriched_raw, skills_changed)."""
     job_id = int(row.get("id", 0) or 0)
     raw_text = _enrich_raw_text_with_position_page(
         db_path,
@@ -28,7 +30,7 @@ def materialize_job_skills(
         runtime_profile=runtime_profile,
         title_translation_cache=title_translation_cache,
     )
-    skills_text = _get_or_extract_job_skills(
+    skills_text, skills_changed = _get_or_extract_job_skills(
         db_path,
         job_id,
         raw_text,
@@ -38,11 +40,15 @@ def materialize_job_skills(
         page_context_cache=page_context_cache,
         limit=limit,
     )
-    if rescore and job_id and runtime_profile is not None and skills_text:
-        from spejder.jobs.scoring import rescore_job_by_id
-
+    if (
+        rescore
+        and job_id
+        and runtime_profile is not None
+        and job_in_active_rescore_scope(row)
+        and (skills_changed or first_materialize)
+    ):
         rescore_job_by_id(db_path, runtime_profile, job_id)
-    return skills_text, raw_text
+    return skills_text, raw_text, skills_changed
 
 
 def materialize_jobs_skills(
@@ -73,7 +79,8 @@ def materialize_jobs_skills(
         if skip_cached and get_job_skills(db_path, job_id):
             continue
 
-        skills_text, _ = materialize_job_skills(
+        had_cache = bool(get_job_skills(db_path, job_id))
+        skills_text, _, skills_changed = materialize_job_skills(
             db_path,
             row,
             llm=llm,
@@ -82,8 +89,9 @@ def materialize_jobs_skills(
             title_translation_cache=title_translation_cache,
             limit=limit,
             rescore=rescore,
+            first_materialize=not had_cache,
         )
-        if skills_text:
+        if skills_text or skills_changed:
             updated += 1
         if progress_label and (idx % 25 == 0 or idx == total):
             print(f"{progress_label}: checked={idx}/{total}, updated={updated}")
@@ -91,20 +99,7 @@ def materialize_jobs_skills(
 
 
 def _collect_relevant_and_applied_rows(db_path: str) -> list[dict]:
-    rows: list[dict] = []
-    seen_ids: set[int] = set()
-    for row in get_all_applied_jobs(db_path, limit=0):
-        rid = int(row.get("id", 0) or 0)
-        if rid and rid not in seen_ids:
-            seen_ids.add(rid)
-            rows.append(row)
-    for cat in ("relevant", "not relevant"):
-        for row in get_jobs_by_category(db_path, cat, limit=0, unviewed_only=True):
-            rid = int(row.get("id", 0) or 0)
-            if rid and rid not in seen_ids:
-                seen_ids.add(rid)
-                rows.append(row)
-    return rows
+    return get_jobs_for_active_rescore(db_path)
 
 
 def materialize_relevant_and_applied_skills(

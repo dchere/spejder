@@ -148,20 +148,38 @@ def migrate_profile_skill_patterns_to_db(
     return {"seed_count": int(seed_count), "inserted": int(inserted)}
 
 
-def set_job_skills(db_path: str, job_id: int, skill_names: list[str]) -> None:
-    """Persist the extracted skill list for a job as links to skill_patterns rows."""
-    if not job_id or not skill_names:
-        return
+def replace_job_skills(db_path: str, job_id: int, skill_names: list[str]) -> bool:
+    """Replace job skill links with skill_names. Returns True when links changed."""
+    if not job_id:
+        return False
+
+    incoming_keys: set[str] = set()
+    cleaned_names: list[str] = []
+    for name in skill_names or []:
+        name = (name or "").strip()
+        if not name:
+            continue
+        key = _normalize_skill_name_key(name)
+        if not key or key in incoming_keys:
+            continue
+        incoming_keys.add(key)
+        cleaned_names.append(name)
+
+    current_keys = {
+        _normalize_skill_name_key(s)
+        for s in get_job_skills(db_path, job_id)
+        if _normalize_skill_name_key(s)
+    }
+    if incoming_keys == current_keys:
+        return False
+
     now = datetime.now(timezone.utc).isoformat()
     conn = _connect(db_path)
     try:
         cur = conn.cursor()
-        for name in skill_names:
-            name = (name or "").strip()
-            if not name:
-                continue
+        cur.execute("DELETE FROM job_skills WHERE job_id=?", (int(job_id),))
+        for name in cleaned_names:
             key = _normalize_skill_name_key(name)
-            # Ensure the skill_pattern row exists (source='detected', no weight bump here)
             cur.execute(
                 """
                 INSERT INTO skill_patterns (name, name_key, pattern, source, occurrences, weight, enabled, created_at, updated_at)
@@ -178,8 +196,14 @@ def set_job_skills(db_path: str, job_id: int, skill_names: list[str]) -> None:
                     (job_id, row[0]),
                 )
         conn.commit()
+        return True
     finally:
         conn.close()
+
+
+def set_job_skills(db_path: str, job_id: int, skill_names: list[str]) -> None:
+    """Persist the extracted skill list for a job as links to skill_patterns rows."""
+    replace_job_skills(db_path, job_id, skill_names)
 
 
 def get_job_skills(db_path: str, job_id: int) -> list[str]:
@@ -302,11 +326,15 @@ def count_job_links_for_skills(db_path: str, skill_names: list[str]) -> dict[str
     return result
 
 
-def delete_skill_from_db(db_path: str, skill_name: str) -> dict[str, int]:
+def delete_skill_from_db(db_path: str, skill_name: str) -> dict:
     """Delete a skill from skill_patterns and all job links by normalized name key."""
     key = _normalize_skill_name_key(skill_name)
     if not key:
-        return {"skill_rows_deleted": 0, "job_skill_links_deleted": 0}
+        return {
+            "skill_rows_deleted": 0,
+            "job_skill_links_deleted": 0,
+            "affected_job_ids": [],
+        }
 
     conn = _connect(db_path)
     try:
@@ -314,10 +342,19 @@ def delete_skill_from_db(db_path: str, skill_name: str) -> dict[str, int]:
         cur.execute("SELECT id FROM skill_patterns WHERE name_key=?", (key,))
         skill_ids = [int(r[0]) for r in cur.fetchall()]
         if not skill_ids:
-            return {"skill_rows_deleted": 0, "job_skill_links_deleted": 0}
+            return {
+                "skill_rows_deleted": 0,
+                "job_skill_links_deleted": 0,
+                "affected_job_ids": [],
+            }
 
+        affected_job_ids: set[int] = set()
         links_deleted = 0
         for skill_id in skill_ids:
+            cur.execute("SELECT DISTINCT job_id FROM job_skills WHERE skill_id=?", (skill_id,))
+            for row in cur.fetchall():
+                if row and row[0]:
+                    affected_job_ids.add(int(row[0]))
             cur.execute("DELETE FROM job_skills WHERE skill_id=?", (skill_id,))
             links_deleted += int(cur.rowcount or 0)
 
@@ -330,17 +367,19 @@ def delete_skill_from_db(db_path: str, skill_name: str) -> dict[str, int]:
         return {
             "skill_rows_deleted": int(skill_rows_deleted),
             "job_skill_links_deleted": int(links_deleted),
+            "affected_job_ids": sorted(affected_job_ids),
         }
     finally:
         conn.close()
 
 
-def cleanup_blocked_skills_from_db(db_path: str, blocked_skills: list[str]) -> dict[str, int]:
+def cleanup_blocked_skills_from_db(db_path: str, blocked_skills: list[str]) -> dict:
     """Delete blocked skills from skill_patterns and job_skills; dedupe by normalized name key."""
     seen_keys: set[str] = set()
     skills_processed = 0
     skill_rows_deleted = 0
     job_skill_links_deleted = 0
+    affected_job_ids: set[int] = set()
 
     for skill in blocked_skills or []:
         key = _normalize_skill_name_key(str(skill))
@@ -351,11 +390,14 @@ def cleanup_blocked_skills_from_db(db_path: str, blocked_skills: list[str]) -> d
         deleted = delete_skill_from_db(db_path, skill)
         skill_rows_deleted += int(deleted.get("skill_rows_deleted", 0))
         job_skill_links_deleted += int(deleted.get("job_skill_links_deleted", 0))
+        for job_id in deleted.get("affected_job_ids", []):
+            affected_job_ids.add(int(job_id))
 
     return {
         "skills_processed": skills_processed,
         "skill_rows_deleted": skill_rows_deleted,
         "job_skill_links_deleted": job_skill_links_deleted,
+        "affected_job_ids": sorted(affected_job_ids),
     }
 
 

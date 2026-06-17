@@ -9,8 +9,9 @@ Implements the Repository Pattern, acting as the strict single source of truth f
 - `upsert_job(db_path, entry)` — re-ingesting an existing `position_link` merges empty `place`/`company` and longer `raw_text`; a new URL with matching normalized company+title updates the **oldest** matching row instead of inserting
 - `set_job_place(db_path, job_id, place)`
 - `batch_update_and_delete_jobs(db_path, updates, deletes)`
-- `delete_skill_from_db(db_path, skill_name)` — removes `skill_patterns` rows and all `job_skills` links for one normalized skill key
-- `cleanup_blocked_skills_from_db(db_path, blocked_skills)` — dedupes blocked skill names via `_normalize_skill_name_key`, delegates each to `delete_skill_from_db`, returns aggregated `{skills_processed, skill_rows_deleted, job_skill_links_deleted}`
+- `replace_job_skills(db_path, job_id, skill_names) -> bool` — delete/replace job skill links; returns `False` when normalized key set unchanged; `set_job_skills` delegates here
+- `delete_skill_from_db(db_path, skill_name)` — removes `skill_patterns` rows and all `job_skills` links for one normalized skill key; returns `{skill_rows_deleted, job_skill_links_deleted, affected_job_ids}`
+- `cleanup_blocked_skills_from_db(db_path, blocked_skills)` — dedupes blocked skill names via `_normalize_skill_name_key`, delegates each to `delete_skill_from_db`, returns aggregated `{skills_processed, skill_rows_deleted, job_skill_links_deleted, affected_job_ids}`
 (And many more database query functions)
 
 **Context:**
@@ -22,7 +23,8 @@ Extracted from `jobs.py`. The rest of the application (including business logic 
   - `get_all_applied_jobs()` — all `applied=1` rows (skill learning, enrichment, raw-text)
   - `get_interview_jobs()` — `applied=1 AND on_interview=1`
   - `get_stopped_interview_jobs()` — `applied=1 AND interview_stopped=1`
-- `queries_refresh.py` — description refresh and scoring candidate rows
+- `queries_refresh.py` — description refresh, scoring candidate rows, active rescore scope
+  - `get_jobs_for_active_rescore()` — jobs where `applied=1 OR on_interview=1 OR interview_stopped=1 OR viewed=0`
 - `queries_signals.py` — dedupe, merge, and suggestion queries
 - `queries_rows.py` — shared SQL row → dict mappers
 

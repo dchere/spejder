@@ -71,7 +71,7 @@ def _learn_skill_patterns_from_positions(
 
             page_context_cache: dict[str, str] = {}
             title_translation_cache: dict[str, str] = {}
-            skills_text, _ = materialize_job_skills(
+            skills_text, _, _ = materialize_job_skills(
                 db_path,
                 row,
                 llm=llm,

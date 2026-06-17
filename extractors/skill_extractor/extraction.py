@@ -3,7 +3,7 @@
 from typing import Optional
 
 from spejder.config import AppConfig
-from spejder.db import get_job_skills, set_job_skills
+from spejder.db import get_job_skills, replace_job_skills
 from spejder.llm import LocalLLM
 
 from .extraction_fallback import (
@@ -78,14 +78,14 @@ def _get_or_extract_job_skills(
     position_link: str = "",
     page_context_cache: Optional[dict] = None,
     limit: int = 10,
-) -> str:
+) -> tuple[str, bool]:
     """Return skill tags for a job, reading from the job_skills cache or extracting + caching."""
     if job_id:
         cached = get_job_skills(db_path, job_id)
         if cached:
             return _format_skills(
                 _filter_blocked_skill_names(cached, profile), limit=limit
-            )
+            ), False
     skills_text = _extract_job_skills(
         db_path,
         raw_text,
@@ -95,10 +95,8 @@ def _get_or_extract_job_skills(
         page_context_cache=page_context_cache,
         limit=limit,
     )
-    if job_id and skills_text:
-        set_job_skills(
-            db_path,
-            job_id,
-            [s.strip() for s in skills_text.split(",") if s.strip()],
-        )
-    return skills_text
+    skills_changed = False
+    if job_id:
+        skill_names = [s.strip() for s in skills_text.split(",") if s.strip()]
+        skills_changed = replace_job_skills(db_path, job_id, skill_names)
+    return skills_text, skills_changed

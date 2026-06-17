@@ -6,7 +6,7 @@ from spejder.extractors.skill_extractor import (
     _ensure_skill_pattern_seed_migration,
     _learn_skill_patterns_from_positions,
 )
-from spejder.jobs import apply_relevance, ingest_docs_to_db, update_profile_from_db_signals
+from spejder.jobs import ingest_docs_to_db, update_profile_from_db_signals
 from spejder.llm import LocalLLM
 from spejder.parsers import email_parser
 from spejder.workflows.ingest_utils import (
@@ -68,12 +68,6 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
         f"failed={delete_stats.get('failed', 0)}"
     )
 
-    total, relevant_count = apply_relevance(
-        db_path, profile, prune_irrelevant=prune_irrelevant
-    )
-    print(f"Scored {total} positions; relevant={relevant_count}")
-
-    relevant_jobs = get_relevant_jobs(db_path, limit=limit)
     llm = LocalLLM(model_path=model_path, n_ctx=int(profile.n_ctx), verbose=bool(verbose)) if model_path else None
     if not llm:
         raise SystemExit("Model init: model is required for process-inbox")
@@ -91,6 +85,9 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
         skip_cached=True,
         progress_label="Skill materialization",
     )
+
+    relevant_jobs = get_relevant_jobs(db_path, limit=limit)
+    print(f"Relevant after skill scoring: {len(relevant_jobs)}")
 
     skill_learning = _learn_skill_patterns_from_positions(
         db_path,

@@ -96,7 +96,12 @@ class BlockedSkillsCleanupTest(unittest.TestCase):
         stats = cleanup_blocked_skills_from_db(self.db_path, [])
         self.assertEqual(
             stats,
-            {"skills_processed": 0, "skill_rows_deleted": 0, "job_skill_links_deleted": 0},
+            {
+                "skills_processed": 0,
+                "skill_rows_deleted": 0,
+                "job_skill_links_deleted": 0,
+                "affected_job_ids": [],
+            },
         )
 
     def test_delete_skill_from_db_still_available_for_single_skill(self):
@@ -113,6 +118,7 @@ class BlockedSkillsCleanupTest(unittest.TestCase):
 
         self.assertEqual(deleted["skill_rows_deleted"], 1)
         self.assertEqual(deleted["job_skill_links_deleted"], 1)
+        self.assertEqual(deleted["affected_job_ids"], [job_id])
         self.assertEqual(get_job_skills(self.db_path, job_id), [])
 
 

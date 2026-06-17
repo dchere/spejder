@@ -5,6 +5,7 @@ from spejder.config import AppConfig
 from spejder.db import (
     get_job_for_rescoring,
     get_job_skills,
+    get_jobs_for_active_rescore,
     get_jobs_for_scoring,
     update_jobs_relevance,
 )
@@ -102,6 +103,107 @@ def score_relevance(
 
 def _load_skill_patterns(db_path: str, profile: AppConfig) -> list[tuple[str, str]]:
     return _get_skill_patterns(db_path, profile)
+
+
+def job_in_active_rescore_scope(row: dict) -> bool:
+    if int(row.get("applied", 0) or 0) == 1:
+        return True
+    if int(row.get("on_interview", 0) or 0) == 1:
+        return True
+    if int(row.get("interview_stopped", 0) or 0) == 1:
+        return True
+    return int(row.get("viewed", 0) or 0) == 0
+
+
+def _is_manual_feedback_reason(relevance_reason: str) -> bool:
+    manual_reason = (relevance_reason or "").strip().lower()
+    return manual_reason in {"manual_feedback=relevant", "manual_feedback=not relevant"}
+
+
+def _rescore_row(
+    db_path: str,
+    profile: AppConfig,
+    row: dict,
+    *,
+    skill_patterns: list[tuple[str, str]],
+    easy_apply_cache: dict[str, bool],
+) -> bool:
+    rid = int(row.get("id", 0) or 0)
+    if not rid:
+        return False
+    if _is_manual_feedback_reason(str(row.get("relevance_reason", ""))):
+        return False
+
+    cached_skills = get_job_skills(db_path, rid)
+    composed = f"{row.get('title') or ''}\n{row.get('company') or ''}\n{row.get('raw_text') or ''}"
+    score, reason, relevant, category = score_relevance(
+        composed,
+        profile,
+        skill_patterns=skill_patterns,
+        source=str(row.get("source") or ""),
+        position_link=str(row.get("position_link") or ""),
+        easy_apply_cache=easy_apply_cache,
+        cached_required_skills=cached_skills if cached_skills else None,
+    )
+
+    if int(row.get("applied", 0) or 0) == 1:
+        relevant = 1
+        category = "relevant"
+
+    update_jobs_relevance(db_path, [(rid, score, reason, relevant, category)])
+    return True
+
+
+def rescore_jobs_if_active(db_path: str, profile: AppConfig, job_ids: list[int]) -> int:
+    if not job_ids:
+        return 0
+
+    target_ids = {int(job_id) for job_id in job_ids if int(job_id or 0) > 0}
+    if not target_ids:
+        return 0
+
+    rows = [
+        row for row in get_jobs_for_active_rescore(db_path)
+        if int(row.get("id", 0) or 0) in target_ids and job_in_active_rescore_scope(row)
+    ]
+    if not rows:
+        return 0
+
+    skill_patterns = _load_skill_patterns(db_path, profile)
+    easy_apply_cache: dict[str, bool] = {}
+    rescored = 0
+    for row in rows:
+        if _rescore_row(
+            db_path,
+            profile,
+            row,
+            skill_patterns=skill_patterns,
+            easy_apply_cache=easy_apply_cache,
+        ):
+            rescored += 1
+    return rescored
+
+
+def rescore_active_jobs(db_path: str, profile: AppConfig) -> int:
+    rows = get_jobs_for_active_rescore(db_path)
+    if not rows:
+        return 0
+
+    skill_patterns = _load_skill_patterns(db_path, profile)
+    easy_apply_cache: dict[str, bool] = {}
+    rescored = 0
+    for row in rows:
+        if not job_in_active_rescore_scope(row):
+            continue
+        if _rescore_row(
+            db_path,
+            profile,
+            row,
+            skill_patterns=skill_patterns,
+            easy_apply_cache=easy_apply_cache,
+        ):
+            rescored += 1
+    return rescored
 
 
 def apply_relevance(

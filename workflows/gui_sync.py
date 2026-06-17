@@ -7,8 +7,7 @@ from spejder.config import AppConfig
 from spejder.core import load_runtime_profile
 from spejder.db import (
     cleanup_blocked_skills_from_db,
-    get_all_applied_jobs,
-    get_jobs_by_category,
+    get_jobs_for_active_rescore,
     get_jobs_for_description_refresh,
 )
 from spejder.extractors.skill_extractor import (
@@ -16,7 +15,7 @@ from spejder.extractors.skill_extractor import (
     should_sync_skill_antipatterns,
     sync_skill_extraction_antipatterns,
 )
-from spejder.jobs import apply_relevance, ingest_docs_to_db
+from spejder.jobs import ingest_docs_to_db, rescore_jobs_if_active
 from spejder.llm import LocalLLM
 from spejder.parsers import email_parser
 from spejder.workflows.deduplication import run_cross_source_dedupe
@@ -143,19 +142,6 @@ def run_inbox_sync(context: GuiSyncContext) -> None:
         except Exception as exc:
             print(f"Background sync: cross-source dedupe failed: {exc}")
 
-        context.queue_dashboard_rebuild(
-            reason=(
-                f"ingest processed={ingest_stats['processed']}, "
-                f"dedupe rows_deleted={dedupe_result.get('rows_deleted', 0)}"
-            )
-        )
-
-        print("Background sync: scoring relevance...")
-        total, relevant_count = apply_relevance(
-            context.db_path, context.runtime_profile, prune_irrelevant=False
-        )
-        print(f"Background sync: relevance scored (total={total}, relevant={relevant_count})")
-
         blocked_cleanup = cleanup_blocked_skills_from_db(
             context.db_path,
             list(context.runtime_profile.blocked_skills or []),
@@ -164,30 +150,11 @@ def run_inbox_sync(context: GuiSyncContext) -> None:
             "Background sync: blocked-skills cleanup "
             f"(processed={blocked_cleanup.get('skills_processed', 0)}, "
             f"links_deleted={blocked_cleanup.get('job_skill_links_deleted', 0)}, "
-            f"patterns_deleted={blocked_cleanup.get('skill_rows_deleted', 0)})"
+            f"patterns_deleted={blocked_cleanup.get('skill_rows_deleted', 0)}, "
+            f"affected_jobs={len(blocked_cleanup.get('affected_job_ids', []))})"
         )
-        if (
-            blocked_cleanup.get("job_skill_links_deleted", 0) > 0
-            or blocked_cleanup.get("skill_rows_deleted", 0) > 0
-        ):
-            context.queue_dashboard_rebuild(reason="blocked skills db cleanup")
 
-        relevant_rows = get_jobs_by_category(
-            context.db_path, "relevant", limit=0, unviewed_only=True
-        )
-        not_relevant_rows = get_jobs_by_category(
-            context.db_path, "not relevant", limit=0, unviewed_only=True
-        )
-        applied_rows = get_all_applied_jobs(context.db_path, limit=0)
-        skill_rows = []
-        seen_job_ids = set()
-        for row in relevant_rows + not_relevant_rows + applied_rows:
-            row_id = int(row.get("id", 0) or 0)
-            if not row_id or row_id in seen_job_ids:
-                continue
-            seen_job_ids.add(row_id)
-            skill_rows.append(row)
-
+        skill_rows = get_jobs_for_active_rescore(context.db_path)
         skills_updated = context.populate_missing_dashboard_skills(
             skill_rows,
             llm=llm_for_sync,
@@ -195,7 +162,20 @@ def run_inbox_sync(context: GuiSyncContext) -> None:
         )
         print(f"Background sync: missing skills populated ({skills_updated} jobs updated)")
 
-        context.queue_dashboard_rebuild(reason="relevance re-scored")
+        blocked_rescored = rescore_jobs_if_active(
+            context.db_path,
+            context.runtime_profile,
+            list(blocked_cleanup.get("affected_job_ids", [])),
+        )
+        if blocked_rescored:
+            print(f"Background sync: rescored blocked-skill jobs ({blocked_rescored})")
+
+        context.queue_dashboard_rebuild(
+            reason=(
+                f"skills materialized={skills_updated}, "
+                f"blocked_rescored={blocked_rescored}"
+            )
+        )
 
         desc_updated, desc_skipped = _generate_missing_descriptions_for_ingest(
             context.db_path,
@@ -291,7 +271,7 @@ def run_inbox_sync(context: GuiSyncContext) -> None:
         print(
             f"Background sync done: input_files={len(docs)}, processed={ingest_stats.get('processed', 0)}, "
             f"inserted={ingest_stats.get('inserted_new', 0)}, skipped_existing={ingest_stats.get('skipped_existing', 0)}, "
-            f"total_jobs={total}, relevant={relevant_count}"
+            f"skills_updated={skills_updated}, blocked_rescored={blocked_rescored}"
         )
     except Exception as exc:
         print(f"Background sync failed: {exc}")

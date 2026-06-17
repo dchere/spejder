@@ -21,6 +21,7 @@ from spejder.db import (
     set_job_on_interview,
     set_job_viewed,
 )
+from spejder.jobs import rescore_active_jobs, rescore_jobs_if_active
 from .extractors.skill_extractor import _normalize_skill_name
 from .llm import LocalLLM
 from .managers.dashboard_manager import _render_company_dashboard_html
@@ -177,10 +178,21 @@ def create_app(
                 runtime_profile=runtime_profile,
                 limit=10,
                 rescore=True,
+                first_materialize=True,
             )
             queue_dashboard_rebuild(reason=f"manual raw text job {req.job_id}")
+            return {"ok": True, "job_id": req.job_id, "signal": "applied_raw_text_added", "profile_learning": None}
 
-        return {"ok": True, "job_id": req.job_id, "signal": "applied_raw_text_added", "profile_learning": None}
+        print(
+            f"API: applied raw-text job_id={req.job_id} saved but row missing for materialize"
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "ok": False,
+                "error": "job saved but enrichment row missing; skills cache was cleared",
+            },
+        )
 
     class CoverLetterRequestToggle(BaseModel):
         job_id: int = 0
@@ -240,6 +252,8 @@ def create_app(
         if changed:
             persist_runtime_profile()
             reload_runtime_profile()
+            rescored = rescore_active_jobs(db_path, runtime_profile)
+            print(f"API: rescore_active_jobs after user skill toggle (rescored={rescored})")
             queue_dashboard_rebuild(reason=f"skill {'checked' if req.has_skill else 'unchecked'} {skill}")
         return {"ok": True, "skill": skill, "has_skill": req.has_skill, "changed": bool(changed)}
 
@@ -273,6 +287,12 @@ def create_app(
         persist_runtime_profile()
         reload_runtime_profile()
         db_deleted = delete_skill_from_db(db_path, skill)
+        rescored = rescore_jobs_if_active(
+            db_path,
+            runtime_profile,
+            list(db_deleted.get("affected_job_ids", [])),
+        )
+        print(f"API: rescore_jobs_if_active after skill block (rescored={rescored})")
         queue_dashboard_rebuild(reason=f"skill blocked {skill}")
         return {"ok": True, "skill": skill, "block_info": block_info, "db_deleted": db_deleted}
 
@@ -289,6 +309,12 @@ def create_app(
         persist_runtime_profile()
         reload_runtime_profile()
         db_deleted = delete_skill_from_db(db_path, skill)
+        rescored = rescore_jobs_if_active(
+            db_path,
+            runtime_profile,
+            list(db_deleted.get("affected_job_ids", [])),
+        )
+        print(f"API: rescore_jobs_if_active after skill delete (rescored={rescored})")
         queue_dashboard_rebuild(reason=f"skill deleted cleanup {skill}")
         return {"ok": True, "skill": skill, "profile_removed": profile_removed, "db_deleted": db_deleted}
 

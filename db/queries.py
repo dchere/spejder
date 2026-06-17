@@ -14,6 +14,7 @@ from .queries_listings import (
 )
 from .queries_refresh import (
     get_job_for_rescoring,
+    get_jobs_for_active_rescore,
     get_jobs_for_description_refresh,
     get_jobs_for_scoring,
 )
@@ -39,6 +40,7 @@ __all__ = [
     "get_viewed_jobs_count",
     "get_jobs_for_description_refresh",
     "get_jobs_for_scoring",
+    "get_jobs_for_active_rescore",
     "get_job_for_rescoring",
     "get_jobs_merge_candidates",
     "get_titles_for_labeled_jobs",

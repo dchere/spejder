@@ -140,7 +140,7 @@ def refresh_descriptions(profile: str = None, db: str = None, model: str = "", s
             cat_rows = get_jobs_by_category(db_path, cat, limit=0, unviewed_only=True)
             records = []
             for row in cat_rows:
-                skills, raw_text = materialize_job_skills(
+                skills, raw_text, _ = materialize_job_skills(
                     db_path,
                     row,
                     llm=llm,
@@ -187,7 +187,7 @@ def refresh_descriptions(profile: str = None, db: str = None, model: str = "", s
         interview_records = []
         stopped_records = []
         for row in get_all_applied_jobs(db_path, limit=0):
-            skills, raw_text = materialize_job_skills(
+            skills, raw_text, _ = materialize_job_skills(
                 db_path,
                 row,
                 llm=llm,
