@@ -109,6 +109,21 @@ class PositionDedupeKeyTest(unittest.TestCase):
             expected,
         )
 
+    def test_same_key_for_abbreviated_title_and_gender_marker(self):
+        expected = "danfoss|seniorembeddedsoftwareengineer"
+        self.assertEqual(
+            _position_dedupe_key("Danfoss", "Senior Embedded SW Engineer"),
+            expected,
+        )
+        self.assertEqual(
+            _position_dedupe_key("Danfoss", "Senior Embedded Software Engineer (m/f/d)"),
+            expected,
+        )
+        self.assertEqual(
+            _position_dedupe_key("Danfoss", "Sr. Embedded SW Engineer"),
+            expected,
+        )
+
 
 class MergeRawTextTest(unittest.TestCase):
     def test_appends_dissimilar_text(self):
@@ -168,6 +183,41 @@ class MergeDuplicatePositionsTest(unittest.TestCase):
             self.assertEqual(row[1], "Jobindex")
             self.assertEqual(row[6], "https://www.jobindex.dk/jobannonce/r13863385")
             self.assertEqual(row[9], 1)
+            self.assertIsNone(_fetch_job(db_path, duplicate_id))
+
+    def test_merges_danfoss_alert_title_variants(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = os.path.join(tmp, "jobs.db")
+            keeper_id = _insert_job_row(
+                db_path,
+                company="Danfoss",
+                title="Senior Embedded SW Engineer",
+                position_link="http://jobs.danfoss.com/job/Senior-Embedded-SW-Engineer/47123-en_GB",
+                source="Danfoss",
+                raw_text="Older alert anchor text",
+                created_at=_utc_iso(-3600),
+            )
+            duplicate_id = _insert_job_row(
+                db_path,
+                company="Danfoss",
+                title="Senior Embedded Software Engineer (m/f/d)",
+                position_link=(
+                    "http://jobs.danfoss.com/job/"
+                    "Senior-Embedded-Software-Engineer-%28mfd%29/47973-en_GB"
+                ),
+                source="Danfoss",
+                raw_text="Senior Embedded Software Engineer (m/f/d)",
+                place="Nordborg, DNK",
+                created_at=_utc_iso(),
+            )
+
+            result = merge_duplicate_positions(db_path)
+
+            self.assertEqual(_count_jobs(db_path), 1)
+            self.assertEqual(result["groups_merged"], 1)
+            row = _fetch_job(db_path, keeper_id)
+            self.assertIsNotNone(row)
+            self.assertEqual(row[4], "Nordborg, DNK")
             self.assertIsNone(_fetch_job(db_path, duplicate_id))
 
     def test_keeper_is_oldest_not_newer_jobindex(self):

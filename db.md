@@ -35,6 +35,7 @@ Extracted from `jobs.py`. The rest of the application (including business logic 
 
 **Position deduplication (`deduplication_utils.py`):**
 - `_position_dedupe_key(company, title)` — normalized `company|title` key for all sources
+- `_canonicalize_title_for_dedupe(title)` — strips EU gender markers like `(m/f/d)` and expands common abbreviations (`SW`→`Software`, `Sr.`→`Senior`) before keying; `(Senior)` role qualifiers are kept
 - `_merge_duplicate_into_keeper`, `_merge_raw_text` — shared merge rules used by `upsert_job` and `jobs/deduplication.merge_duplicate_positions`
 
 **Link normalization (`utils.py`):**

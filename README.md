@@ -252,7 +252,7 @@ Options: `--profile`, `--db`.
 
 Notes:
 
-- Merges rows with the same normalized company and title across **all sources**; keeps the oldest row (`created_at`, then lowest `id`).
+- Merges rows with the same normalized company and title across **all sources**; keeps the oldest row (`created_at`, then lowest `id`). Title keys strip gender markers like `(m/f/d)` and expand common abbreviations (`SW`→`Software`, `Sr.`→`Senior`).
 - Dissimilar duplicate `raw_text` snippets are appended under `[DEDUPE_SNIPPET]`; similar text (&gt;= 85%) is not duplicated.
 - `serve-gui` background sync also runs this pass after ingest and before relevance scoring; use this command for a standalone full-table pass.
 

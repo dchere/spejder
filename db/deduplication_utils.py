@@ -23,6 +23,34 @@ COMPANY_NOISE_TOKENS = {
     "holding",
 }
 
+_GENDER_MARKER_RE = re.compile(
+    r"\(\s*"
+    r"(?:"
+    r"m\s*/\s*f\s*/\s*d"
+    r"|m\s*/\s*f\s*/\s*x"
+    r"|w\s*/\s*m\s*/\s*d"
+    r"|mfd"
+    r"|wmd"
+    r"|all\s+genders?"
+    r")"
+    r"\s*\)",
+    flags=re.IGNORECASE,
+)
+
+_TITLE_ABBREVIATION_REPLACEMENTS = (
+    (re.compile(r"\bsw\b", re.IGNORECASE), "software"),
+    (re.compile(r"\bsr\.?\b", re.IGNORECASE), "senior"),
+)
+
+
+def _canonicalize_title_for_dedupe(title: str) -> str:
+    text = sanitize_job_title(title)
+    text = _GENDER_MARKER_RE.sub("", text)
+    text = re.sub(r"\s+", " ", text).strip(" -–—|,;")
+    for pattern, replacement in _TITLE_ABBREVIATION_REPLACEMENTS:
+        text = pattern.sub(replacement, text)
+    return re.sub(r"\s+", " ", text).strip()
+
 
 def _normalize_title_key(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", (value or "").lower())
@@ -38,7 +66,7 @@ def _normalize_company_key(value: str) -> str:
 
 def _position_dedupe_key(company: str, title: str) -> str:
     company_key = _normalize_company_key(company)
-    title_key = _normalize_title_key(sanitize_job_title(title))
+    title_key = _normalize_title_key(_canonicalize_title_for_dedupe(title))
     if not company_key or not title_key:
         return ""
     return f"{company_key}|{title_key}"

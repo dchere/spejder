@@ -23,6 +23,7 @@ Originally a monolith mixing SQL execution and logic, `jobs.py` now adheres to t
 
 **Position deduplication (`jobs/deduplication.py`):**
 - `merge_duplicate_positions(db_path)` — batch pass groups by key, keeps oldest `created_at` (then lowest `id`), merges fields, deletes duplicate rows
+- Dedupe keys canonicalize titles first (gender markers stripped, common abbreviations expanded) — see `db/deduplication_utils.py`
 - `merge_cross_source_duplicates(...)` — deprecated alias
 - Key/merge helpers live in [`db/deduplication_utils.py`](../db/deduplication_utils.py) to avoid circular imports with `upsert_job`
 
