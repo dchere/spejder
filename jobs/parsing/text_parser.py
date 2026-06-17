@@ -77,6 +77,7 @@ def _extract_entries_from_text(text: str) -> list[dict]:
             "view job",
             "new jobs match your preferences",
             "job alert",
+            "according to your selected",
         ]
         start = max(0, idx - 10)
         for j in range(start, idx):

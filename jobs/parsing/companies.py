@@ -2,6 +2,19 @@ import re
 
 from .utils import first_non_empty
 
+_LINKEDIN_COMPANY_NOISE = re.compile(
+    r"\s+according to your selected(?:\s+.*)?$",
+    re.IGNORECASE,
+)
+
+
+def sanitize_company_name(company: str) -> str:
+    cleaned = (company or "").strip()
+    if not cleaned:
+        return ""
+    cleaned = _LINKEDIN_COMPANY_NOISE.sub("", cleaned).strip(" -|:")
+    return cleaned[:180]
+
 
 def extract_company_title(text: str, title_hint: str = "") -> tuple[str, str]:
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
@@ -79,6 +92,6 @@ def extract_company_title(text: str, title_hint: str = "") -> tuple[str, str]:
         if m:
             company = m.group(1).strip()
 
-    return company[:180], title[:180]
+    return sanitize_company_name(company), title[:180]
 
 

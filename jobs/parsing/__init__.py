@@ -1,4 +1,4 @@
-from .companies import extract_company_title
+from .companies import extract_company_title, sanitize_company_name
 from .core import extract_job_entries
 from .html_parser import (
     _extract_html_entries_by_link,
@@ -20,6 +20,7 @@ from .platforms import (
 )
 from .platforms_career_alerts import (
     _extract_danfoss_entries_by_link,
+    _extract_novonordisk_entries_by_link,
     _extract_oracle_cx_entries_by_link,
     _extract_thehub_entries_by_link,
     _extract_vestas_entries_by_link,
@@ -31,12 +32,14 @@ __all__ = [
     "extract_company_title",
     "extract_job_entries",
     "first_non_empty",
+    "sanitize_company_name",
     "_extract_danfoss_entries_by_link",
     "_extract_demant_entries_by_link",
     "_extract_entries_from_text",
     "_extract_google_entries_by_link",
     "_extract_html_entries_by_link",
     "_extract_jobindex_entries_by_link",
+    "_extract_novonordisk_entries_by_link",
     "_extract_oracle_cx_entries_by_link",
     "_extract_thehub_entries_by_link",
     "_extract_vestas_entries_by_link",

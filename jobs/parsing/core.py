@@ -1,6 +1,6 @@
 from spejder.db import _normalize_position_link, _provider_from_link
 
-from .companies import extract_company_title
+from .companies import extract_company_title, sanitize_company_name
 from .html_parser import _extract_html_entries_by_link
 from .links import _is_job_link
 from .linkedin import (
@@ -16,6 +16,7 @@ from .platforms import (
 from .platforms_career_alerts import (
     _extract_danfoss_entries_by_link,
     _extract_djinni_entries_by_link,
+    _extract_novonordisk_entries_by_link,
     _extract_oracle_cx_entries_by_link,
     _extract_thehub_entries_by_link,
     _extract_vestas_entries_by_link,
@@ -34,6 +35,7 @@ def extract_job_entries(doc: dict) -> list[dict]:
     danfoss_by_link = _extract_danfoss_entries_by_link(html_text)
     google_by_link = _extract_google_entries_by_link(html_text)
     vestas_by_link = _extract_vestas_entries_by_link(html_text)
+    novonordisk_by_link = _extract_novonordisk_entries_by_link(html_text)
     thehub_by_link = _extract_thehub_entries_by_link(html_text)
     djinni_by_link = _extract_djinni_entries_by_link(html_text)
     oracle_by_link = _extract_oracle_cx_entries_by_link(html_text)
@@ -50,6 +52,7 @@ def extract_job_entries(doc: dict) -> list[dict]:
         danfoss_fields = danfoss_by_link.get(lnk, {})
         google_fields = google_by_link.get(lnk, {})
         vestas_fields = vestas_by_link.get(lnk, {})
+        novonordisk_fields = novonordisk_by_link.get(lnk, {})
         thehub_fields = thehub_by_link.get(lnk, {})
         djinni_fields = djinni_by_link.get(lnk, {})
         oracle_fields = oracle_by_link.get(lnk, {})
@@ -79,6 +82,19 @@ def extract_job_entries(doc: dict) -> list[dict]:
             entry["raw_text"] = vestas_fields["raw_text"]
         if vestas_fields.get("source"):
             entry["source"] = vestas_fields["source"]
+
+        if novonordisk_fields.get("title"):
+            entry["title"] = novonordisk_fields["title"]
+        if novonordisk_fields.get("company"):
+            entry["company"] = novonordisk_fields["company"]
+        if novonordisk_fields.get("place"):
+            entry["place"] = novonordisk_fields["place"]
+        if novonordisk_fields.get("work_type"):
+            entry["work_type"] = novonordisk_fields["work_type"]
+        if novonordisk_fields.get("raw_text"):
+            entry["raw_text"] = novonordisk_fields["raw_text"]
+        if novonordisk_fields.get("source"):
+            entry["source"] = novonordisk_fields["source"]
 
         if thehub_fields.get("title"):
             entry["title"] = thehub_fields["title"]
@@ -160,6 +176,7 @@ def extract_job_entries(doc: dict) -> list[dict]:
             or djinni_fields.get("title")
             or danfoss_fields.get("title")
             or vestas_fields.get("title")
+            or novonordisk_fields.get("title")
             or oracle_fields.get("title")
             or demant_fields.get("title")
             or ji_fields.get("title")
@@ -170,6 +187,7 @@ def extract_job_entries(doc: dict) -> list[dict]:
             or djinni_fields.get("company")
             or danfoss_fields.get("company")
             or vestas_fields.get("company")
+            or novonordisk_fields.get("company")
             or oracle_fields.get("company")
             or demant_fields.get("company")
             or ji_fields.get("company")
@@ -180,6 +198,7 @@ def extract_job_entries(doc: dict) -> list[dict]:
             or djinni_fields.get("place")
             or danfoss_fields.get("place")
             or vestas_fields.get("place")
+            or novonordisk_fields.get("place")
             or oracle_fields.get("place")
             or demant_fields.get("place")
             or ji_fields.get("place")
@@ -190,6 +209,7 @@ def extract_job_entries(doc: dict) -> list[dict]:
             or djinni_fields.get("work_type")
             or danfoss_fields.get("work_type")
             or vestas_fields.get("work_type")
+            or novonordisk_fields.get("work_type")
             or oracle_fields.get("work_type")
             or demant_fields.get("work_type")
         )
@@ -199,6 +219,7 @@ def extract_job_entries(doc: dict) -> list[dict]:
             or djinni_fields.get("raw_text")
             or danfoss_fields.get("raw_text")
             or vestas_fields.get("raw_text")
+            or novonordisk_fields.get("raw_text")
             or oracle_fields.get("raw_text")
             or demant_fields.get("raw_text")
             or ji_fields.get("raw_text")
@@ -239,6 +260,7 @@ def extract_job_entries(doc: dict) -> list[dict]:
         danfoss_fields = danfoss_by_link.get(normalized, {})
         google_fields = google_by_link.get(normalized, {})
         vestas_fields = vestas_by_link.get(normalized, {})
+        novonordisk_fields = novonordisk_by_link.get(normalized, {})
         thehub_fields = thehub_by_link.get(normalized, {})
         djinni_fields = djinni_by_link.get(normalized, {})
         oracle_fields = oracle_by_link.get(normalized, {})
@@ -252,6 +274,7 @@ def extract_job_entries(doc: dict) -> list[dict]:
             or djinni_fields.get("company")
             or danfoss_fields.get("company")
             or vestas_fields.get("company")
+            or novonordisk_fields.get("company")
             or oracle_fields.get("company")
             or demant_fields.get("company")
             or ji_fields.get("company")
@@ -262,6 +285,7 @@ def extract_job_entries(doc: dict) -> list[dict]:
             or djinni_fields.get("title")
             or danfoss_fields.get("title")
             or vestas_fields.get("title")
+            or novonordisk_fields.get("title")
             or oracle_fields.get("title")
             or demant_fields.get("title")
             or ji_fields.get("title")
@@ -272,6 +296,7 @@ def extract_job_entries(doc: dict) -> list[dict]:
             or djinni_fields.get("place")
             or danfoss_fields.get("place")
             or vestas_fields.get("place")
+            or novonordisk_fields.get("place")
             or oracle_fields.get("place")
             or demant_fields.get("place")
             or ji_fields.get("place")
@@ -282,6 +307,7 @@ def extract_job_entries(doc: dict) -> list[dict]:
             or djinni_fields.get("work_type")
             or danfoss_fields.get("work_type")
             or vestas_fields.get("work_type")
+            or novonordisk_fields.get("work_type")
             or oracle_fields.get("work_type")
             or demant_fields.get("work_type")
             or (wt if wt else "Unknown"),
@@ -291,6 +317,7 @@ def extract_job_entries(doc: dict) -> list[dict]:
             or djinni_fields.get("raw_text")
             or danfoss_fields.get("raw_text")
             or vestas_fields.get("raw_text")
+            or novonordisk_fields.get("raw_text")
             or oracle_fields.get("raw_text")
             or demant_fields.get("raw_text")
             or ji_fields.get("raw_text")
@@ -301,6 +328,7 @@ def extract_job_entries(doc: dict) -> list[dict]:
             or djinni_fields.get("source")
             or danfoss_fields.get("source")
             or vestas_fields.get("source")
+            or novonordisk_fields.get("source")
             or oracle_fields.get("source")
             or demant_fields.get("source")
             or _provider_from_link(normalized),
@@ -313,6 +341,10 @@ def extract_job_entries(doc: dict) -> list[dict]:
                 entry.get("position_link", ""))
         if entry.get("source") == "Getinge":
             entry["company"] = "Getinge"
+        elif entry.get("source") == "Novo Nordisk":
+            entry["company"] = "Novo Nordisk"
+        else:
+            entry["company"] = sanitize_company_name(entry.get("company", ""))
         if _is_linkedin_boilerplate_entry(entry):
             continue
         filtered_entries.append(entry)

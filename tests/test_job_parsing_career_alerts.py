@@ -9,11 +9,14 @@ from spejder.db import (
     _normalize_position_link,
     _provider_from_link,
 )
+from spejder.jobs.parsing.companies import sanitize_company_name
 from spejder.jobs.parsing.core import extract_job_entries
 from spejder.jobs.parsing.links import _is_job_link
+from spejder.jobs.parsing.jobs2web import _parse_jobs2web_anchor_text
 from spejder.jobs.parsing.platforms_career_alerts import (
     _extract_danfoss_entries_by_link,
     _extract_djinni_entries_by_link,
+    _extract_novonordisk_entries_by_link,
     _extract_oracle_cx_entries_by_link,
     _extract_thehub_entries_by_link,
     _extract_vestas_entries_by_link,
@@ -62,6 +65,17 @@ class JobLinkRecognitionTest(unittest.TestCase):
         self.assertTrue(_is_job_link(normalized))
         self.assertNotIn("?", normalized)
         self.assertEqual(_provider_from_link(normalized), "Vestas")
+
+    def test_novonordisk_job_link(self):
+        link = (
+            "http://careers.novonordisk.com/job/"
+            "S%C3%B8borg-Lead-Software-Engineer-Capi/1402849933"
+            "?from=email&utm_source=J2WEmail"
+        )
+        normalized = _normalize_position_link(link)
+        self.assertTrue(_is_job_link(normalized))
+        self.assertNotIn("?", normalized)
+        self.assertEqual(_provider_from_link(normalized), "Novo Nordisk")
 
     def test_oracle_fa_job_link(self):
         link = (
@@ -136,6 +150,16 @@ class PlatformExtractorTest(unittest.TestCase):
         self.assertEqual(senior["place"], "Reynosa, MEX")
         self.assertEqual(senior["source"], "Danfoss")
 
+    def test_novonordisk_extractor(self):
+        html = _read_fixture("novonordisk_snippet.html")
+        by_link = _extract_novonordisk_entries_by_link(html)
+        self.assertEqual(len(by_link), 1)
+        entry = next(iter(by_link.values()))
+        self.assertEqual(entry["company"], "Novo Nordisk")
+        self.assertEqual(entry["title"], "Lead Software Engineer")
+        self.assertEqual(entry["place"], "Søborg, Capital Region of Denmark, DK")
+        self.assertEqual(entry["source"], "Novo Nordisk")
+
     def test_thehub_digest_extractor(self):
         html = _read_fixture("thehub_digest_snippet.html")
         by_link = _extract_thehub_entries_by_link(html)
@@ -178,6 +202,73 @@ class PlatformExtractorTest(unittest.TestCase):
             self.assertTrue(entry["title"])
 
 
+class SanitizeCompanyNameTest(unittest.TestCase):
+    def test_strips_linkedin_selected_boilerplate(self):
+        self.assertEqual(
+            sanitize_company_name("Novo Nordisk according to your selected"),
+            "Novo Nordisk",
+        )
+
+    def test_leaves_clean_company_unchanged(self):
+        self.assertEqual(sanitize_company_name("Novo Nordisk"), "Novo Nordisk")
+
+    def test_empty_input(self):
+        self.assertEqual(sanitize_company_name(""), "")
+        self.assertEqual(sanitize_company_name("   "), "")
+
+
+class Jobs2WebAnchorParserTest(unittest.TestCase):
+    def test_dash_format_splits_title_and_place(self):
+        parsed = _parse_jobs2web_anchor_text("Senior Engineer - Reynosa, MEX")
+        self.assertEqual(parsed["title"], "Senior Engineer")
+        self.assertEqual(parsed["place"], "Reynosa, MEX")
+
+    def test_middot_format_splits_title_place_and_work_type(self):
+        parsed = _parse_jobs2web_anchor_text(
+            "Lead Software Engineer · Novo Nordisk according to your selected · "
+            "Søborg (On-site)"
+        )
+        self.assertEqual(parsed["title"], "Lead Software Engineer")
+        self.assertEqual(parsed["place"], "Søborg")
+        self.assertEqual(parsed["work_type"], "On-site")
+
+    def test_single_middot_does_not_fall_through_to_dash_split(self):
+        parsed = _parse_jobs2web_anchor_text(
+            "Engineer · Remote - Copenhagen (On-site)"
+        )
+        self.assertEqual(parsed["title"], "Engineer · Remote - Copenhagen")
+        self.assertEqual(parsed["place"], "")
+        self.assertEqual(parsed["work_type"], "On-site")
+
+
+class NovoNordiskLinkedInDigestTest(unittest.TestCase):
+    def test_linkedin_style_digest_company_is_novo_nordisk(self):
+        text = """Lead Software Engineer
+Novo Nordisk according to your selected
+Søborg, Denmark
+View job: https://careers.novonordisk.com/job/S%C3%B8borg-Lead-Software-Engineer-Capi/1402849933
+"""
+        html = (
+            '<a href="https://careers.novonordisk.com/job/'
+            'S%C3%B8borg-Lead-Software-Engineer-Capi/1402849933">'
+            "Lead Software Engineer · Novo Nordisk according to your selected · "
+            "Søborg (On-site)</a>"
+        )
+        link = (
+            "https://careers.novonordisk.com/job/"
+            "S%C3%B8borg-Lead-Software-Engineer-Capi/1402849933"
+        )
+        doc = {"html": html, "text": text, "title": "", "links": [link]}
+        entries = extract_job_entries(doc)
+        self.assertEqual(len(entries), 1)
+        entry = entries[0]
+        self.assertEqual(entry["company"], "Novo Nordisk")
+        self.assertEqual(entry["title"], "Lead Software Engineer")
+        self.assertEqual(entry["place"], "Søborg")
+        self.assertEqual(entry["work_type"], "On-site")
+        self.assertEqual(entry["source"], "Novo Nordisk")
+
+
 class CareerAlertIntegrationTest(unittest.TestCase):
     def test_fixture_snippets_produce_entries(self):
         for name in (
@@ -187,6 +278,7 @@ class CareerAlertIntegrationTest(unittest.TestCase):
             "thehub_single_snippet.html",
             "oracle_snippet.html",
             "djinni_digest_snippet.html",
+            "novonordisk_snippet.html",
         ):
             html = _read_fixture(name)
             doc = {"html": html, "text": "", "title": "", "links": []}
@@ -203,6 +295,9 @@ class CareerAlertIntegrationTest(unittest.TestCase):
                 if name == "danfoss_snippet.html":
                     self.assertTrue(all(e.get("company") == "Danfoss" for e in entries))
                     self.assertTrue(all(e.get("source") == "Danfoss" for e in entries))
+                if name == "novonordisk_snippet.html":
+                    self.assertTrue(all(e.get("company") == "Novo Nordisk" for e in entries))
+                    self.assertTrue(all(e.get("source") == "Novo Nordisk" for e in entries))
 
 
 if __name__ == "__main__":
