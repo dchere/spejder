@@ -49,7 +49,6 @@
   "easy_apply_bonus": 0.75,
   "missing_skills_max_items": 25,
   "skill_new_confidence_threshold": 0.9,
-  "skill_new_max_per_job": 2,
   "user_skills": [],
   "blocked_skills": [],
   "skill_extraction_antipatterns": [],

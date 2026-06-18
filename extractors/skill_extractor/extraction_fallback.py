@@ -19,7 +19,7 @@ def _apply_blocked_filter(
 
 
 def _extract_skills_fallback(
-    text: str, skill_patterns: list[tuple[str, str]], limit: int = 10
+    text: str, skill_patterns: list[tuple[str, str]]
 ) -> list[str]:
     source = " ".join((text or "").split())
     if not source:
@@ -40,9 +40,6 @@ def _extract_skills_fallback(
         if key not in seen:
             seen.add(key)
             ordered.append(label)
-
-    if len(ordered) >= limit:
-        return ordered[:limit]
 
     sentences = re.split(r"(?<=[.!?])\s+", source)
     phrase_candidates = []
@@ -69,7 +66,5 @@ def _extract_skills_fallback(
             continue
         seen.add(key)
         ordered.append(skill)
-        if len(ordered) >= limit:
-            break
 
-    return ordered[:limit]
+    return ordered

@@ -176,7 +176,6 @@ def create_app(
                 target_row,
                 llm=llm_for_manual,
                 runtime_profile=runtime_profile,
-                limit=10,
                 rescore=True,
                 first_materialize=True,
             )

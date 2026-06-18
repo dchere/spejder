@@ -1,10 +1,20 @@
 """Skills tab data builder for the dashboard UI."""
 
 from spejder.config import AppConfig
-from spejder.db import get_skill_patterns as get_db_skill_patterns
+from spejder.db import (
+    count_job_links_for_skills,
+    count_jobs_with_skill_links,
+    get_skill_patterns as get_db_skill_patterns,
+)
 
 from .filtering import _blocked_skill_keys
 from .normalization import _normalize_skill_name
+
+
+def _position_pct(position_count: int, jobs_with_skills: int) -> float:
+    if jobs_with_skills <= 0 or position_count <= 0:
+        return 0.0
+    return round(100.0 * position_count / jobs_with_skills, 1)
 
 
 def _build_skills_tab_items(db_path: str, profile: AppConfig) -> list[dict]:
@@ -67,5 +77,13 @@ def _build_skills_tab_items(db_path: str, profile: AppConfig) -> list[dict]:
         upsert(str(item), "profile")
 
     rows = list(by_key.values())
-    rows.sort(key=lambda x: (x["name"].lower(), -x.get("occurrences", 0)))
+    jobs_with_skills = count_jobs_with_skill_links(db_path)
+    link_counts = count_job_links_for_skills(db_path, [row["name"] for row in rows])
+    for row in rows:
+        position_count = int(link_counts.get(row["name"], 0))
+        row["jobs_with_skills"] = jobs_with_skills
+        row["position_count"] = position_count
+        row["position_pct"] = _position_pct(position_count, jobs_with_skills)
+
+    rows.sort(key=lambda x: x["name"].lower())
     return rows

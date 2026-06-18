@@ -16,7 +16,6 @@ def materialize_job_skills(
     runtime_profile: Optional[AppConfig] = None,
     page_context_cache: Optional[dict] = None,
     title_translation_cache: Optional[dict] = None,
-    limit: int = 10,
     rescore: bool = False,
     first_materialize: bool = False,
 ) -> tuple[str, str, bool]:
@@ -38,7 +37,6 @@ def materialize_job_skills(
         profile=runtime_profile,
         position_link=row.get("position_link", ""),
         page_context_cache=page_context_cache,
-        limit=limit,
     )
     if (
         rescore
@@ -57,7 +55,6 @@ def materialize_jobs_skills(
     *,
     llm: LocalLLM = None,
     runtime_profile: Optional[AppConfig] = None,
-    limit: int = 10,
     rescore: bool = False,
     skip_cached: bool = False,
     progress_label: str = "",
@@ -87,7 +84,6 @@ def materialize_jobs_skills(
             runtime_profile=runtime_profile,
             page_context_cache=page_context_cache,
             title_translation_cache=title_translation_cache,
-            limit=limit,
             rescore=rescore,
             first_materialize=not had_cache,
         )
@@ -107,7 +103,6 @@ def materialize_relevant_and_applied_skills(
     *,
     llm: LocalLLM = None,
     runtime_profile: Optional[AppConfig] = None,
-    limit: int = 10,
     rescore: bool = True,
     skip_cached: bool = True,
     progress_label: str = "Skill materialization",
@@ -121,7 +116,6 @@ def materialize_relevant_and_applied_skills(
         rows,
         llm=llm,
         runtime_profile=runtime_profile,
-        limit=limit,
         rescore=rescore,
         skip_cached=skip_cached,
         progress_label=progress_label,

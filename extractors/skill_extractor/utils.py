@@ -21,7 +21,7 @@ def _split_skills_from_text(text: str) -> list[str]:
     return out
 
 
-def _format_skills(skills: list[str], limit: int = 10) -> str:
+def _format_skills(skills: list[str]) -> str:
     compact = []
     seen = set()
     for skill in skills:
@@ -30,8 +30,6 @@ def _format_skills(skills: list[str], limit: int = 10) -> str:
         if normalized and key not in seen:
             seen.add(key)
             compact.append(normalized)
-        if len(compact) >= limit:
-            break
     return ", ".join(compact)
 
 

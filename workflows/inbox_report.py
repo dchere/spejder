@@ -111,7 +111,6 @@ def write_inbox_dashboard_report(
                 runtime_profile=profile,
                 page_context_cache=page_context_cache,
                 title_translation_cache=report_title_translation_cache,
-                limit=10,
                 rescore=False,
             )
             if not description:
@@ -186,7 +185,6 @@ def write_inbox_dashboard_report(
             runtime_profile=profile,
             page_context_cache=page_context_cache,
             title_translation_cache=report_title_translation_cache,
-            limit=10,
             rescore=False,
         )
         title_fields = _build_title_fields(

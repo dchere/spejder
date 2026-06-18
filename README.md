@@ -2,72 +2,110 @@
 
 `spejder` is a local CLI tool for parsing job emails (`.html`, `.htm`, `.eml`), storing extracted positions in SQLite, scoring relevance with a profile, extracting skills, and generating a browser dashboard for triage.
 
-## Current functionality
+## Table of contents
 
-- Parse HTML and EML job emails, extract links, and normalize job posting URLs.
-- Ingest jobs into SQLite with de-duplication on normalized `position_link`.
-- Classify jobs as `relevant` or `not relevant` using profile keywords and skill-aware scoring.
-- Generate `summary` and `description` text for jobs, optionally with a local GGUF model through `llama-cpp-python`.
-- Extract up to 10 skills per position and display them as tags in the dashboard.
-- Persist known skill patterns in DB (`skill_patterns` table) and update them from applied/relevant positions.
-- Learn missing skills from applied jobs and write suggestions to `profile.json`.
-- Clean obviously invalid extracted skills from the SQLite skill catalog and block them in `profile.json`.
-- Render `outbox/report.html` with six views: unviewed relevant jobs, unviewed not relevant jobs, applied jobs, interview-stage jobs, stopped interview jobs, and skills.
-- Detect LinkedIn `Easy Apply` from existing text, highlight those cards in the dashboard, and apply a relevance bonus.
-- Serve the dashboard with feedback endpoints for `Relevant`, `Viewed`, and `Applied` actions.
-- Learn additional profile keywords from labeled jobs and write them back to `profile.json`.
-- Translate non-English job titles to English using the local LLM for consistent display in the dashboard.
-- Allow pasting a full position description for applied jobs via the dashboard to trigger re-summarization and re-scoring with the LLM.
-- Block or delete skills from the dashboard; blocked skills are persisted in `profile.json` under `blocked_skills` and removed from SQLite (`skill_patterns` + `job_skills` links).
-- Provide a per-company filtered view at `/company.html?name=<company>` linked from dashboard cards.
-- Delete processed inbox files automatically after successful ingestion.
+- [Features](#features)
+- [Project layout](#project-layout)
+- [Install](#install)
+- [Running the CLI](#running-the-cli)
+- [Quick start](#quick-start)
+- [Dashboard behavior](#dashboard-behavior)
+- [CLI commands](#cli-commands)
+- [Data stored in `jobs.db`](#data-stored-in-jobsdb)
+- [Profile fields related to skills](#profile-fields-related-to-skills)
+- [Notes](#notes)
 
-## Requirements
+## Features
+
+- Parse job emails (HTML/EML) and ingest positions into SQLite with URL-based deduplication.
+- Score jobs as relevant or not relevant from your profile (keywords and extracted skills).
+- Generate summaries and descriptions with an optional local GGUF model (`llama-cpp-python`).
+- Extract skills per job and show them as tags on dashboard cards.
+- Interactive dashboard for triage: relevant / not relevant / applied / interview / stopped panels, plus a Skills tab.
+- Learn profile keywords and missing-skill suggestions from jobs you label or apply to.
+- Sync skills from a CV; block or delete noisy auto-extracted skills.
+- Per-company job view from dashboard cards.
+- Background inbox sync while `serve-gui` is running (ingest, dedupe, scoring, descriptions).
+- LinkedIn Easy Apply detection with a relevance bonus when detected in job text.
+
+## Project layout
+
+Commands resolve relative paths (`--profile`, `--db`, `--inbox`, `--report-dir`, and similar) against a **project directory** — the folder you run the CLI from (or `SPEJDER_WORKSPACE` if set). That directory should contain your runtime data:
+
+```text
+my-project/
+  profile.json
+  jobs.db
+  inbox/          # drop .eml / .html job emails here
+  outbox/         # report.html and other generated output
+  spejder/        # this repository (see layouts below)
+```
+
+**Layout A — project folder with a `spejder` subdirectory** (common when the Git repo lives inside a larger workspace):
+
+- Run `python3 -m spejder.cli …` from `my-project/`.
+- Install with `pip install -r spejder/requirements.txt`.
+
+**Layout B — clone used as the project folder** (repository root is `my-project/`):
+
+- Create `inbox/` and `outbox/` next to `profile.json` in the repo root.
+- Run `python3 -m cli …` from the repo root.
+- Install with `pip install -r requirements.txt`.
+
+## Install
 
 - Python 3.10+
-- Linux/macOS shell commands below (adapt activation for Windows if needed)
-
-Install dependencies:
+- Linux/macOS examples below (adapt activation for Windows if needed)
+- See [LICENSE](LICENSE) (MIT)
 
 ```bash
+cd my-project
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r spejder/requirements.txt
+pip install -r spejder/requirements.txt    # layout A
+# pip install -r requirements.txt          # layout B
 ```
+
+Local model features also need `llama-cpp-python` and a GGUF model path passed via `--model` on relevant commands.
 
 ## Running the CLI
 
-Run commands from the **workspace root** (the directory that contains `profile.json`, `jobs.db`, `inbox/`, and `outbox/` next to the `spejder/` package):
+From your **project directory** (layout A or B above):
 
 ```bash
-python3 -m spejder.cli ...
+python3 -m spejder.cli ...    # layout A
+# python3 -m cli ...          # layout B
 ```
 
-Relative CLI paths (`--profile`, `--db`, `--inbox`, `--cv`, `--report-dir`, `--input`, `--out`, `--folder`, `init-profile --path`, and `report-links` folder) are resolved against the workspace root. By default that is the current working directory; override with:
+Relative paths resolve against the project directory (current working directory by default). To use a different directory:
 
 ```bash
-export SPEJDER_WORKSPACE=/path/to/your/project
+export SPEJDER_WORKSPACE=/path/to/my-project
 ```
 
-You can also invoke from inside the `spejder` directory with `python3 -m cli ...`, but data paths still resolve from `SPEJDER_WORKSPACE` or your shell cwd — keep cwd at the workspace root for predictable behavior.
-
-Examples below use the workspace-root form.
+Examples below use `python3 -m spejder.cli` (layout A). Substitute `python3 -m cli` when using layout B.
 
 ## Quick start
 
-1. Create a profile file.
+1. Create runtime folders (if they do not exist yet).
+
+```bash
+mkdir -p inbox outbox
+```
+
+2. Create a profile file.
 
 ```bash
 python3 -m spejder.cli init-profile --path ./profile.json
 ```
 
-2. Process files from `./inbox` into `./jobs.db` and build `./outbox/report.html`.
+3. Drop job emails into `./inbox`, then process them into `./jobs.db` and build `./outbox/report.html`.
 
 ```bash
 python3 -m spejder.cli process-inbox --profile ./profile.json
 ```
 
-3. Serve the dashboard and feedback API.
+4. Serve the dashboard and feedback API.
 
 ```bash
 python3 -m spejder.cli serve-gui --profile ./profile.json
@@ -82,12 +120,16 @@ Open `http://127.0.0.1:8765/report.html`.
 - Marking a job as `Applied` moves it into the `Applied` tab and also marks it as relevant and viewed.
 - Applied jobs can be moved to `Interview` (on interview) or `Stopped` (process ended); the two flags are mutually exclusive. Cards live in one applied-stage panel at a time.
 - Stopped cards support free-text `Company feedback` saved via the dashboard.
-- Unmarking `Applied`, unmarking `Viewed`, or marking `Not relevant` clears interview/stopped state and company feedback (same DB clear path as unapply).
-- Feedback writes are applied to DB immediately; `report.html` regeneration is queued and runs in background.
+- Unmarking `Applied`, unmarking `Viewed`, or marking `Not relevant` clears interview/stopped state and company feedback.
+- Feedback writes are saved immediately; `report.html` regeneration is queued and runs in the background.
 - When `serve-gui` starts, it also performs a background inbox sync, position deduplication (company+title), relevance scoring, and missing-description generation.
 - If the requested port is busy, the server automatically tries the next ports up to 20 times.
-- Clicking a company name opens a `/company.html` view filtered to that company's jobs.
+- Clicking a company name opens a filtered company page for that employer's jobs.
 - Applied jobs have a "Paste full description" form that feeds the full text to the LLM, regenerating the summary, description, and skill tags.
+- **Skills** tab columns (sortable; default order is skill name A→Z):
+  - **Job share** — share of jobs with extracted skills that list this skill. Hover a cell for exact counts.
+  - **Learned** — pattern-learning score from applied/relevant jobs (not the same as job share; see [Profile fields](#profile-fields-related-to-skills)).
+  - **I have** / **Want to learn** — toggles for your profile skill list and want-to-learn suggestions.
 
 ## CLI commands
 
@@ -157,14 +199,15 @@ python3 -m spejder.cli serve-gui --profile ./profile.json
 
 Options: `--report-dir`, `--db`, `--profile`, `--host`, `--port`, `--no-open`, `--verbose`.
 
-API endpoints:
+Main dashboard API endpoints (JSON `POST` unless noted):
 
-- `POST /api/feedback` with `job_id` and `signal` (`relevant` or `not relevant`)
-- `POST /api/viewed` with `job_id` and `viewed` (`true` or `false`)
-- `POST /api/applied` with `job_id` and `applied` (`true` or `false`)
-- `POST /api/interview` with `job_id` and `on_interview` (`true` or `false`)
-- `POST /api/interview/stopped` with `job_id` and `stopped` (`true` or `false`)
-- `POST /api/interview/feedback` with `job_id` and `feedback` (string)
+- Triage: `/api/feedback`, `/api/viewed`, `/api/applied`
+- Interview: `/api/interview`, `/api/interview/stopped`, `/api/interview/feedback`
+- Applied enrichment: `/api/applied/raw-text`, `/api/applied/cover-letter/request`, `/api/applied/cover-letter`
+- Skills tab: `/api/skill/user`, `/api/skill/learn`, `/api/skill/block`, `/api/skill/delete`
+- Pages: `GET /report.html`, `GET /company.html?company=…`
+
+The dashboard uses these endpoints while you triage; you normally do not call them manually. Request body shapes are documented in [`server.md`](server.md).
 
 ### `refresh-descriptions`
 
@@ -320,18 +363,21 @@ In `profile.json`:
 - `skill_antipattern_validation_runs`: stable extraction runs per validation step (default `3`).
 - `skill_antipattern_prompt_max_items`: max antipatterns included in the extraction prompt (default `40`).
 - `missing_skills_suggestions`: generated from applied jobs.
+- `skill_new_confidence_threshold`: minimum LLM confidence for accepting a novel skill candidate (default `0.9`).
 - `skill_match_weight`: bonus per matched required skill.
 - `skill_missing_penalty`: penalty per missing required skill.
 - `easy_apply_bonus`: extra score added for LinkedIn jobs when `Easy Apply` is detected in existing text.
 - `missing_skills_max_items`: max missing-skill suggestions written to profile.
 - `report_max_relevant_positions`: max number of positions shown in `Relevant`, default `7`.
 - `report_max_not_relevant_positions`: max number of positions shown in `Not relevant`, default `42`.
-- `skill_learning_max_positions`, `skill_learning_min_occurrences`, `skill_learning_max_new_patterns`: controls for learning new DB skill patterns.
+- `skill_learning_max_positions`, `skill_learning_min_occurrences`, `skill_learning_max_new_patterns`: controls for learning new DB skill patterns (Skills tab **Learned** column shows `skill_patterns.occurrences`).
 - `max_input_chars`: maximum characters of job text passed to the LLM as input. Default `24000`. Raise this when pasting full position descriptions to get better summaries.
 - `n_ctx`: LLM context window size passed to `llama-cpp-python` at load time. Default `8192`. Should be at least as large as `max_input_chars / 4 + max_tokens` to avoid the "not optimal" warning from llama.cpp.
 
 ## Notes
 
-- Local model features require `llama-cpp-python` and a local GGUF model path passed via `--model`.
 - `serve-gui` and the in-browser dashboard expect the API server to be running; if you open `report.html` directly as a file, feedback actions will try `http://127.0.0.1:8765`.
+- Skill tags on a job card come from cached extraction. If tags look incomplete after an upgrade, paste a full description on an applied card or run `refresh-descriptions` with a model to re-extract skills for matching jobs.
+- Re-extracting skills (manual description paste, `refresh-descriptions`, or clearing cached skills) can change `relevance_score` when more or fewer skills match your profile.
+- Processed inbox files are removed automatically after successful ingestion when using background sync or `process-inbox`.
 

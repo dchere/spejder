@@ -32,7 +32,6 @@ def _extract_job_skills(
     profile: Optional[AppConfig] = None,
     position_link: str = "",
     page_context_cache: Optional[dict] = None,
-    limit: int = 10,
     skip_blocked_filter: bool = False,
     antipatterns_override: Optional[list[str]] = None,
 ) -> str:
@@ -44,7 +43,6 @@ def _extract_job_skills(
         raw_text,
         llm=llm,
         profile=profile,
-        limit=limit,
         skip_blocked_filter=skip_blocked_filter,
         antipatterns_override=antipatterns_override,
     )
@@ -60,13 +58,11 @@ def _extract_job_skills(
     ):
         fallback_source = page_context_cache.get(position_link, "")
     fallback_skills = _apply_blocked_filter(
-        _extract_skills_fallback(
-            fallback_source, skill_patterns=skill_patterns, limit=limit
-        ),
+        _extract_skills_fallback(fallback_source, skill_patterns=skill_patterns),
         profile,
         skip_blocked_filter,
     )
-    return _format_skills(fallback_skills, limit=limit)
+    return _format_skills(fallback_skills)
 
 
 def _get_or_extract_job_skills(
@@ -77,15 +73,12 @@ def _get_or_extract_job_skills(
     profile: Optional[AppConfig] = None,
     position_link: str = "",
     page_context_cache: Optional[dict] = None,
-    limit: int = 10,
 ) -> tuple[str, bool]:
     """Return skill tags for a job, reading from the job_skills cache or extracting + caching."""
     if job_id:
         cached = get_job_skills(db_path, job_id)
         if cached:
-            return _format_skills(
-                _filter_blocked_skill_names(cached, profile), limit=limit
-            ), False
+            return _format_skills(_filter_blocked_skill_names(cached, profile)), False
     skills_text = _extract_job_skills(
         db_path,
         raw_text,
@@ -93,7 +86,6 @@ def _get_or_extract_job_skills(
         profile=profile,
         position_link=position_link,
         page_context_cache=page_context_cache,
-        limit=limit,
     )
     skills_changed = False
     if job_id:

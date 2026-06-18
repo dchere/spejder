@@ -11,15 +11,15 @@ This module is responsible for parsing and extracting specialized entities (such
   - `filtering.py` — blocked/protected keys, phrase quality, cleanup reasons
   - `patterns.py` — skill pattern registry and profile-to-DB migration
   - `extraction_prompt.py` — LLM prompt and antipattern injection
-  - `extraction_fallback.py` — regex/phrase fallback and blocked-skill filter
+  - `extraction_fallback.py` — regex/phrase fallback and blocked-skill filter (no per-job cap; quality filters only)
   - `extraction_llm.py` — LLM JSON parse path for job skills
-  - `extraction.py` — orchestration facade (LLM + fallback + DB cache)
+  - `extraction.py` — orchestration facade (LLM + fallback + DB cache); no per-job skill count cap
   - `learning.py` — batch pattern learning from applied/relevant jobs
   - `antipattern_synthesis.py` — candidate selection, LLM JSON synthesis, profile merge helpers
   - `antipattern_validation.py` — synthetic job generation and multi-run extraction validation
   - `antipattern_sync.py` — orchestration, gates, CLI entry; re-exports synthesis/validation helpers
   - `user_sync.py` / `cleanup.py` — CLI commands for CV sync and DB cleanup
-  - `ui.py` — skills tab data for the dashboard
+  - `ui.py` — skills tab data for the dashboard (`position_pct` = share of jobs with extracted skills; `occurrences` = pattern-learning counter shown as **Learned**)
 
 ## Blocked skills vs antipatterns
 

@@ -147,7 +147,6 @@ def refresh_descriptions(profile: str = None, db: str = None, model: str = "", s
                     runtime_profile=runtime_profile,
                     page_context_cache=page_context_cache,
                     title_translation_cache=title_translation_cache,
-                    limit=10,
                     rescore=False,
                 )
                 records.append(
@@ -194,7 +193,6 @@ def refresh_descriptions(profile: str = None, db: str = None, model: str = "", s
                 runtime_profile=runtime_profile,
                 page_context_cache=page_context_cache,
                 title_translation_cache=title_translation_cache,
-                limit=10,
                 rescore=False,
             )
             record = {

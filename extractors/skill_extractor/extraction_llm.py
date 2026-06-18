@@ -28,7 +28,6 @@ def _extract_job_skills_llm_path(
     raw_text: str,
     llm: Optional[LocalLLM] = None,
     profile: Optional[AppConfig] = None,
-    limit: int = 10,
     skip_blocked_filter: bool = False,
     antipatterns_override: Optional[list[str]] = None,
 ) -> Optional[str]:
@@ -41,7 +40,6 @@ def _extract_job_skills_llm_path(
     new_skill_conf_threshold = float(
         profile_data.get("skill_new_confidence_threshold", 0.9) or 0.9
     )
-    new_skill_max_per_job = int(profile_data.get("skill_new_max_per_job", 2) or 2)
     known_by_key = {
         _normalize_skill_name(name).lower(): _normalize_skill_name(name)
         for name, _ in skill_patterns
@@ -82,42 +80,33 @@ def _extract_job_skills_llm_path(
             if key in cleaned.lower():
                 selected.append(known_by_key[key])
                 seen.add(key)
-            if len(selected) >= int(limit):
-                break
 
-        if len(selected) < int(limit):
-            added_new = 0
-            for item in _to_items(parsed_json.get("new_candidates")):
-                skill = _normalize_skill_name(str(item.get("name", "")))
-                key = skill.lower()
-                if not key or key in seen or key in known_by_key:
-                    continue
-                confidence_raw = item.get("confidence", 0.0)
-                try:
-                    confidence = float(confidence_raw)
-                except (TypeError, ValueError):
-                    confidence = 0.0
-                evidence = str(item.get("evidence", ""))
-                if not _is_candidate_strong(
-                    skill, evidence, confidence, new_skill_conf_threshold, cleaned
-                ):
-                    continue
-                if not _passes_phrase_quality(skill):
-                    continue
-                selected.append(skill)
-                seen.add(key)
-                added_new += 1
-                if added_new >= max(0, int(new_skill_max_per_job)):
-                    break
-                if len(selected) >= int(limit):
-                    break
+        for item in _to_items(parsed_json.get("new_candidates")):
+            skill = _normalize_skill_name(str(item.get("name", "")))
+            key = skill.lower()
+            if not key or key in seen or key in known_by_key:
+                continue
+            confidence_raw = item.get("confidence", 0.0)
+            try:
+                confidence = float(confidence_raw)
+            except (TypeError, ValueError):
+                confidence = 0.0
+            evidence = str(item.get("evidence", ""))
+            if not _is_candidate_strong(
+                skill, evidence, confidence, new_skill_conf_threshold, cleaned
+            ):
+                continue
+            if not _passes_phrase_quality(skill):
+                continue
+            selected.append(skill)
+            seen.add(key)
 
         if selected:
             filtered_selected = _apply_blocked_filter(
                 selected, profile, skip_blocked_filter
             )
             if filtered_selected:
-                return _format_skills(filtered_selected, limit=limit)
+                return _format_skills(filtered_selected)
 
         parsed_text = _split_skills_from_text(_clean_model_output(out))
         constrained = []
@@ -129,7 +118,7 @@ def _extract_job_skills_llm_path(
             constrained, profile, skip_blocked_filter
         )
         if filtered_constrained:
-            return _format_skills(filtered_constrained, limit=limit)
+            return _format_skills(filtered_constrained)
     except (RuntimeError, ValueError, TypeError, KeyError):
         pass
     return None

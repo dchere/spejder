@@ -47,9 +47,14 @@
             .hidden { display: none; }
             .empty { background: #fff; border: 1px dashed #ccc; border-radius: 10px; padding: 12px; margin: 0; }
             .skills-wrap { background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 12px; overflow-x: auto; }
-            .skills-table { width: 100%; border-collapse: collapse; min-width: 760px; }
+            .skills-table { width: 100%; border-collapse: collapse; min-width: 900px; }
             .skills-table th, .skills-table td { border-bottom: 1px solid #eee; text-align: left; padding: 8px; font-size: 13px; }
             .skills-table th { background: #fafafa; font-weight: 700; }
+            .skills-table th.skills-sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+            .skills-table th.skills-sortable:hover { background: #f0f4fa; }
+            .skills-sort-indicator { display: inline-block; width: 0.9em; margin-left: 4px; color: #6b7a99; font-size: 11px; }
+            .skills-table th.skills-sort-active .skills-sort-indicator::after { content: '▲'; }
+            .skills-table th.skills-sort-active.skills-sort-desc .skills-sort-indicator::after { content: '▼'; }
             .skills-table tbody tr.skill-row-focus { outline: 2px solid #0a58ca; outline-offset: -2px; background: #eef4ff; transition: background-color 0.8s ease; }
             .delete-skill-btn { border: 1px solid #cc8c8c; color: #7b1111; background: #fff; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
             .block-skill-btn { border: 1px solid #d2a24a; color: #7a5200; background: #fff7e8; border-radius: 6px; padding: 4px 8px; cursor: pointer; margin-right: 6px; }
@@ -261,6 +266,10 @@
                     if (!response.ok || !data.ok) {
                         throw new Error(data.error || 'Request failed');
                     }
+                    const row = inputEl.closest('tr');
+                    if (row) {
+                        syncSkillsRowSortDataset(row, 'has_skill', hasSkill);
+                    }
                 } catch (err) {
                     inputEl.checked = !hasSkill;
                     alert(`Failed to update skill: ${err.message}`);
@@ -280,6 +289,10 @@
                     const data = await response.json();
                     if (!response.ok || !data.ok) {
                         throw new Error(data.error || 'Request failed');
+                    }
+                    const row = inputEl.closest('tr');
+                    if (row) {
+                        syncSkillsRowSortDataset(row, 'want_learn', learn);
                     }
                 } catch (err) {
                     inputEl.checked = !learn;
@@ -642,6 +655,99 @@
                 }
             }
 
+            let skillsTableSort = null;
+
+            function syncSkillsRowSortDataset(row, sortKey, enabled) {
+                if (sortKey === 'has_skill') {
+                    row.dataset.sortHasSkill = enabled ? '1' : '0';
+                } else if (sortKey === 'want_learn') {
+                    row.dataset.sortWantLearn = enabled ? '1' : '0';
+                }
+                if (skillsTableSort && skillsTableSort.sortKey() === sortKey) {
+                    skillsTableSort.applySort();
+                }
+            }
+
+            function initSkillsTableSort() {
+                const table = document.getElementById('skills-table');
+                if (!table) return;
+
+                const tbody = table.querySelector('tbody');
+                const headers = Array.from(table.querySelectorAll('th.skills-sortable'));
+                if (!tbody || headers.length === 0) return;
+
+                const sortState = { key: 'name', dir: 1 };
+
+                function rowValue(row, key) {
+                    if (key === 'name') return (row.dataset.sortName || '').toLowerCase();
+                    if (key === 'source') return (row.dataset.sortSource || '').toLowerCase();
+                    if (key === 'position_pct') return Number.parseFloat(row.dataset.sortPositionPct || '0') || 0;
+                    if (key === 'occurrences') return Number.parseInt(row.dataset.sortOccurrences || '0', 10) || 0;
+                    if (key === 'has_skill') return Number.parseInt(row.dataset.sortHasSkill || '0', 10) || 0;
+                    if (key === 'want_learn') return Number.parseInt(row.dataset.sortWantLearn || '0', 10) || 0;
+                    return '';
+                }
+
+                function compareRows(a, b) {
+                    const left = rowValue(a, sortState.key);
+                    const right = rowValue(b, sortState.key);
+                    let cmp = 0;
+                    if (typeof left === 'number' && typeof right === 'number') {
+                        cmp = left - right;
+                    } else {
+                        cmp = String(left).localeCompare(String(right));
+                    }
+                    if (cmp === 0) {
+                        cmp = String(a.dataset.sortName || '').localeCompare(String(b.dataset.sortName || ''));
+                    }
+                    return cmp * sortState.dir;
+                }
+
+                function applySort() {
+                    const rows = Array.from(tbody.querySelectorAll('tr'));
+                    rows.sort(compareRows);
+                    rows.forEach((row) => tbody.appendChild(row));
+                    headers.forEach((header) => {
+                        const active = header.dataset.sortKey === sortState.key;
+                        header.classList.toggle('skills-sort-active', active);
+                        header.classList.toggle('skills-sort-desc', active && sortState.dir < 0);
+                        if (active) {
+                            header.setAttribute('aria-sort', sortState.dir > 0 ? 'ascending' : 'descending');
+                        } else {
+                            header.removeAttribute('aria-sort');
+                        }
+                    });
+                }
+
+                headers.forEach((header) => {
+                    header.setAttribute('tabindex', '0');
+                    header.setAttribute('role', 'button');
+                    const activateSort = () => {
+                        const key = header.dataset.sortKey || 'name';
+                        if (sortState.key === key) {
+                            sortState.dir *= -1;
+                        } else {
+                            sortState.key = key;
+                            sortState.dir = (key === 'name' || key === 'source') ? 1 : -1;
+                        }
+                        applySort();
+                    };
+                    header.addEventListener('click', activateSort);
+                    header.addEventListener('keydown', (event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            activateSort();
+                        }
+                    });
+                });
+
+                skillsTableSort = {
+                    applySort,
+                    sortKey: () => sortState.key,
+                };
+                applySort();
+            }
+
             window.setRelevant = setRelevant;
             window.setViewed = setViewed;
             window.setApplied = setApplied;
@@ -657,6 +763,7 @@
             window.appendAppliedRawText = appendAppliedRawText;
             window.setCoverLetterRequested = setCoverLetterRequested;
             window.saveCoverLetter = saveCoverLetter;
+            initSkillsTableSort();
             refreshCounts();
         </script>
     </body>

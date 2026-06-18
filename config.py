@@ -52,7 +52,6 @@ class AppConfig(BaseModel):
     easy_apply_bonus: float = 0.75
     missing_skills_max_items: int = 25
     skill_new_confidence_threshold: float = 0.9
-    skill_new_max_per_job: int = 2
     
     user_skills: list[str] = Field(default_factory=list)
     blocked_skills: list[str] = Field(default_factory=list)

@@ -78,7 +78,6 @@ def _learn_skill_patterns_from_positions(
                 runtime_profile=runtime_profile,
                 page_context_cache=page_context_cache,
                 title_translation_cache=title_translation_cache,
-                limit=10,
                 rescore=False,
             )
             skills = [

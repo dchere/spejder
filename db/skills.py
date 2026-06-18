@@ -285,6 +285,18 @@ def get_job_ids_for_skill(db_path: str, skill_name: str, limit: int = 2) -> list
         conn.close()
 
 
+def count_jobs_with_skill_links(db_path: str) -> int:
+    """Return how many distinct jobs have at least one cached skill link."""
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(DISTINCT job_id) FROM job_skills")
+        row = cur.fetchone()
+        return int(row[0] or 0) if row else 0
+    finally:
+        conn.close()
+
+
 def count_job_links_for_skills(db_path: str, skill_names: list[str]) -> dict[str, int]:
     """Return job link counts keyed by input skill name."""
     if not skill_names:

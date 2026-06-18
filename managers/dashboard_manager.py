@@ -141,13 +141,33 @@ def _render_html_dashboard(
         skill_key_js = html_lib.escape(json.dumps(str(item.get("key", ""))), quote=True)
         source = html_lib.escape(str(item.get("source", "")))
         occurrences = int(item.get("occurrences", 0) or 0)
-        has_skill_checked = "checked" if bool(item.get("has_skill")) else ""
-        learn_checked = "checked" if bool(item.get("want_to_learn")) else ""
+        position_count = int(item.get("position_count", 0) or 0)
+        jobs_with_skills = int(item.get("jobs_with_skills", 0) or 0)
+        position_pct = float(item.get("position_pct", 0) or 0)
+        has_skill = bool(item.get("has_skill"))
+        want_to_learn = bool(item.get("want_to_learn"))
+        has_skill_checked = "checked" if has_skill else ""
+        learn_checked = "checked" if want_to_learn else ""
+        if jobs_with_skills > 0:
+            position_display = f"{position_pct:.1f}%"
+            position_title = html_lib.escape(
+                f"On {position_count} of {jobs_with_skills} jobs with extracted skills ({position_pct:.1f}%)"
+            )
+        else:
+            position_display = "—"
+            position_title = html_lib.escape("No jobs with extracted skills yet")
         skills_rows.append(
             f"""
-            <tr data-skill-key="{skill_key}">
+            <tr data-skill-key="{skill_key}"
+                data-sort-name="{html_lib.escape(str(item.get('name', '')), quote=True)}"
+                data-sort-source="{html_lib.escape(str(item.get('source', '')), quote=True)}"
+                data-sort-position-pct="{position_pct:.1f}"
+                data-sort-occurrences="{occurrences}"
+                data-sort-has-skill="{'1' if has_skill else '0'}"
+                data-sort-want-learn="{'1' if want_to_learn else '0'}">
                 <td>{skill_name}</td>
                 <td>{source}</td>
+                <td title="{position_title}">{position_display}</td>
                 <td>{occurrences}</td>
                 <td><input type="checkbox" {has_skill_checked} onchange="setUserSkill({skill_key_js}, this.checked, this)" /></td>
                 <td><input type="checkbox" {learn_checked} onchange="setLearnSkill({skill_key_js}, this.checked, this)" /></td>
@@ -158,15 +178,16 @@ def _render_html_dashboard(
 
     skills_table_html = (
         """
-        <table class="skills-table">
+        <table class="skills-table" id="skills-table">
             <thead>
                 <tr>
-                    <th>Skill</th>
-                    <th>Source</th>
-                    <th>Seen</th>
-                    <th>I have</th>
-                    <th>Learn</th>
-                    <th>Action</th>
+                    <th class="skills-sortable skills-sort-active" data-sort-key="name" title="Skill name (normalized). Click to sort.">Skill<span class="skills-sort-indicator" aria-hidden="true"></span></th>
+                    <th class="skills-sortable" data-sort-key="source" title="Where defined: db (SQLite pattern) or profile (your lists / seed patterns). Click to sort.">Source<span class="skills-sort-indicator" aria-hidden="true"></span></th>
+                    <th class="skills-sortable" data-sort-key="position_pct" title="Share of jobs with extracted skills that list this skill. Cell tooltip shows exact counts. Click to sort.">Job share<span class="skills-sort-indicator" aria-hidden="true"></span></th>
+                    <th class="skills-sortable" data-sort-key="occurrences" title="Pattern-learning score from applied/relevant positions (not the same as job share). Click to sort.">Learned<span class="skills-sort-indicator" aria-hidden="true"></span></th>
+                    <th class="skills-sortable" data-sort-key="has_skill" title="Whether the skill is in your profile user_skills list. Click to sort.">I have<span class="skills-sort-indicator" aria-hidden="true"></span></th>
+                    <th class="skills-sortable" data-sort-key="want_learn" title="Whether the skill is in missing_skills_suggestions (want to learn). Click to sort.">Want to learn<span class="skills-sort-indicator" aria-hidden="true"></span></th>
+                    <th title="Block hides the skill; Delete removes it from profile and DB.">Action</th>
                 </tr>
             </thead>
             <tbody>

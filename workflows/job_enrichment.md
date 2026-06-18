@@ -9,6 +9,7 @@ Per-job text enrichment: translation, description generation, skill materializat
 - `job_descriptions.py` — description LLM generation, quality checks, `_generate_missing_descriptions_for_ingest`
 - `job_skills_materialize.py` — `materialize_job_skills`, `materialize_jobs_skills`, `materialize_relevant_and_applied_skills`
   - Uses `replace_job_skills`; propagates `skills_changed`
+  - No per-job skill count cap; LLM novel skills gated by `skill_new_confidence_threshold` and phrase-quality checks only
   - Rescores when `rescore AND job_in_active_rescore_scope(row) AND (skills_changed OR first_materialize)`
   - `first_materialize=True` when the job had no cached `job_skills` before extraction (covers keyword-only score when LLM returns no skills)
   - Batch scope via `get_jobs_for_active_rescore` (unviewed, applied, interview stages)

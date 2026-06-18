@@ -17,5 +17,10 @@ Replaces the old dictionary-based profile system (`FALLBACK_DEFAULT_PROFILE`). A
 - `language_translation_source_1/2/3` — FastText ISO 639-1 source language codes paired with each model slot (e.g. `da`, `uk`, `fr`)
 - Legacy `translation_model_path`, `danish_translation_model_path`, and `ukrainian_translation_model_path` migrate into slots 1–2 on load (Danish → slot 1, Ukrainian → slot 2; Ukrainian-only legacy profiles therefore use slot 2)
 
+**Skill extraction profile fields:**
+- `skill_new_confidence_threshold` — minimum LLM confidence for novel skill candidates (default `0.9`); quality/evidence checks in `filtering._is_candidate_strong` still apply
+- No per-job skill count cap; extraction returns all skills that pass filters
+- `skill_new_max_per_job` — **removed**; ignored if still present in an old `profile.json` (dropped on next profile save)
+
 **Dependencies:**
 - `pydantic`, `json`, `os`
