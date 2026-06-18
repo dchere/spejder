@@ -269,7 +269,7 @@ Notes:
 
 ### `sync-antipatterns`
 
-Distill `blocked_skills` into LLM antipattern rules using a synthetic test job, validate each candidate independently, and prune blocked entries the prompt now filters.
+Distill `blocked_skills` into LLM antipattern rules using per-candidate synthetic test jobs, validate each candidate independently, and prune blocked entries the prompt now filters.
 
 ```bash
 python3 -m spejder.cli sync-antipatterns \
@@ -280,6 +280,8 @@ python3 -m spejder.cli sync-antipatterns \
 ```
 
 Options: `--profile`, `--db`, `--model`, `--dry-run`, `--force` (skip gate thresholds).
+
+Each candidate rule triggers its own LLM match pass against the **full** blocked list (chunked at 150 phrases per call), synthetic job generation, and multi-run extraction validation (~3× LLM work vs the old single shared test job).
 
 Runs automatically at the end of GUI background sync when blocked skills grow enough (rare maintenance).
 
@@ -364,6 +366,7 @@ In `profile.json`:
 - `skill_antipattern_synthesis_count`: antipattern rules to synthesize per sync (default `3`).
 - `skill_antipattern_validation_runs`: stable extraction runs per validation step (default `3`).
 - `skill_antipattern_prompt_max_items`: max antipatterns included in the extraction prompt (default `40`).
+- `skill_antipattern_good_skills_count`: top DB skills by job link count used in per-candidate synthetic validation jobs (default `20`, minimum `1`).
 - `missing_skills_suggestions`: generated from applied jobs.
 - `skill_new_confidence_threshold`: minimum LLM confidence for accepting a novel skill candidate (default `0.9`).
 - `skill_match_weight`: bonus per matched required skill.

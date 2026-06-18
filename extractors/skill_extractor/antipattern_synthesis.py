@@ -1,6 +1,7 @@
 """LLM synthesis and profile merge helpers for antipattern sync."""
 
 import json
+import random
 
 from spejder.config import AppConfig
 from spejder.llm import LocalLLM
@@ -27,8 +28,8 @@ def _antipattern_keys(profile: AppConfig) -> set[str]:
     return keys
 
 
-def _blocked_skills_for_synthesis(profile: AppConfig) -> tuple[list[str], bool]:
-    """Return deduped normalized blocked skills; truncated flag if list was capped."""
+def _blocked_skills_for_synthesis(profile: AppConfig) -> list[str]:
+    """Return deduped normalized blocked skills not already covered by antipatterns."""
     existing = _antipattern_keys(profile)
     skills: list[str] = []
     seen = set()
@@ -39,23 +40,17 @@ def _blocked_skills_for_synthesis(profile: AppConfig) -> tuple[list[str], bool]:
             continue
         seen.add(key)
         skills.append(normalized)
-    truncated = len(skills) > SYNTHESIS_BLOCKED_INPUT_MAX
-    if truncated:
-        skills = skills[:SYNTHESIS_BLOCKED_INPUT_MAX]
-    return skills, truncated
+    return skills
 
 
 def _sample_blocked_skills_for_synthesis(
     blocked_skills: list[str],
     max_sample: int = SYNTHESIS_SAMPLE_MAX,
 ) -> tuple[list[str], bool]:
-    """Pick a spread sample for the synthesis prompt; full list is still used later."""
+    """Pick a random sample for the synthesis prompt; full list is used for validation."""
     if len(blocked_skills) <= max_sample:
         return blocked_skills, False
-    step = len(blocked_skills) / max_sample
-    indices = {min(len(blocked_skills) - 1, int(i * step)) for i in range(max_sample)}
-    ordered = [blocked_skills[i] for i in sorted(indices)]
-    return ordered, True
+    return random.sample(blocked_skills, max_sample), True
 
 
 def _append_rule(merged: list[str], seen: set[str], raw, pattern_count: int) -> bool:

@@ -55,6 +55,7 @@
   "skill_antipattern_synthesis_count": 3,
   "skill_antipattern_validation_runs": 3,
   "skill_antipattern_prompt_max_items": 40,
+  "skill_antipattern_good_skills_count": 20,
   "missing_skills_suggestions": [],
   "known_skill_patterns": [
     {

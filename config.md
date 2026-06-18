@@ -19,6 +19,10 @@ Replaces the old dictionary-based profile system (`FALLBACK_DEFAULT_PROFILE`). A
 
 **Skill extraction profile fields:**
 - `skill_new_confidence_threshold` — minimum LLM confidence for novel skill candidates (default `0.9`); quality/evidence checks in `filtering._is_candidate_strong` still apply
+- `skill_antipattern_synthesis_count` — antipattern rules to synthesize per sync (default `3`)
+- `skill_antipattern_validation_runs` — stable extraction runs per validation step (default `3`)
+- `skill_antipattern_prompt_max_items` — max antipatterns injected into the job extraction prompt (default `40`)
+- `skill_antipattern_good_skills_count` — top DB skills by job link count woven into per-candidate synthetic validation jobs (default `20`, minimum `1`)
 - No per-job skill count cap; extraction returns all skills that pass filters
 - `skill_new_max_per_job` — **removed**; ignored if still present in an old `profile.json` (dropped on next profile save)
 

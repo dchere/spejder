@@ -59,6 +59,7 @@ class AppConfig(BaseModel):
     skill_antipattern_synthesis_count: int = 3
     skill_antipattern_validation_runs: int = 3
     skill_antipattern_prompt_max_items: int = 40
+    skill_antipattern_good_skills_count: int = Field(default=20, ge=1)
     missing_skills_suggestions: list[str] = Field(default_factory=list)
     known_skill_patterns: list[dict] = Field(default_factory=list)
 

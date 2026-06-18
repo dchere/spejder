@@ -10,6 +10,7 @@ from spejder.llm import LocalLLM
 from spejder.managers.profile_manager import _save_profile
 
 from .antipattern_synthesis import (
+    ANTIPATTERN_PROMPT_INPUT_MAX,
     SYNTHESIS_PATTERN_COUNT,
     _blocked_skills_for_synthesis,
     _merge_antipatterns,
@@ -19,13 +20,14 @@ from .antipattern_synthesis import (
 from .antipattern_validation import (
     VALIDATION_RUNS,
     _generate_synthetic_job_posting,
-    _skills_seen_at_least_once,
-    _stable_extracted_keys,
+    _match_blocked_skills_for_antipattern,
+    _top_position_skills,
     _validate_antipattern_candidate,
 )
 from .normalization import _normalize_skill_name
 
 SYNC_MIN_BLOCKED = 15
+DEFAULT_GOOD_SKILLS_COUNT = 20
 
 
 def _save_antipattern_sync_profile(
@@ -61,13 +63,32 @@ def _validation_runs(profile: AppConfig) -> int:
     return int(getattr(profile, "skill_antipattern_validation_runs", VALIDATION_RUNS) or VALIDATION_RUNS)
 
 
-def _blocked_keys(profile: AppConfig) -> set[str]:
-    keys = set()
-    for item in profile.blocked_skills or []:
-        normalized = _normalize_skill_name(str(item))
-        if normalized:
-            keys.add(normalized.lower())
-    return keys
+def _good_skills_count(profile: AppConfig) -> int:
+    value = getattr(profile, "skill_antipattern_good_skills_count", None)
+    if value is None:
+        value = DEFAULT_GOOD_SKILLS_COUNT
+    return max(1, int(value))
+
+
+def _skip_candidate_result(
+    rule: str,
+    reason: str,
+    matched_blocked: Optional[list[str]] = None,
+) -> dict:
+    matched_keys: list[str] = []
+    for item in matched_blocked or []:
+        if normalized := _normalize_skill_name(str(item)):
+            matched_keys.append(normalized.lower())
+    matched_keys.sort()
+    return {
+        "rule": _normalize_skill_name(str(rule)),
+        "accepted": False,
+        "skip_reason": reason,
+        "matched_blocked": matched_keys,
+        "baseline_blocked": [],
+        "with_blocked": [],
+        "pruned_blocked": [],
+    }
 
 
 def _log_candidate_result(result: dict) -> None:
@@ -76,6 +97,7 @@ def _log_candidate_result(result: dict) -> None:
         f'rule="{result.get("rule", "")}", '
         f"accepted={result.get('accepted', False)}, "
         f"reason={result.get('skip_reason', '') or 'accepted'}, "
+        f"matched_blocked={len(result.get('matched_blocked', []))}, "
         f"baseline_blocked={len(result.get('baseline_blocked', []))}, "
         f"with_blocked={len(result.get('with_blocked', []))}, "
         f"pruned={len(result.get('pruned_blocked', []))}"
@@ -96,7 +118,6 @@ def sync_skill_extraction_antipatterns(
         "skip_reason": "",
         "committed": False,
         "blocked_input": 0,
-        "blocked_input_truncated": False,
         "synthesized": [],
         "synthetic_job_len": 0,
         "candidates_tested": 0,
@@ -118,9 +139,8 @@ def sync_skill_extraction_antipatterns(
         stats["skip_reason"] = "gate_failed"
         return stats
 
-    blocked_skills, truncated = _blocked_skills_for_synthesis(profile)
+    blocked_skills = _blocked_skills_for_synthesis(profile)
     stats["blocked_input"] = len(blocked_skills)
-    stats["blocked_input_truncated"] = truncated
     if not blocked_skills:
         stats["skipped"] = True
         stats["skip_reason"] = "no_blocked_input"
@@ -128,6 +148,15 @@ def sync_skill_extraction_antipatterns(
 
     pattern_count = _pattern_count(profile)
     validation_runs = _validation_runs(profile)
+    good_skills_count = _good_skills_count(profile)
+    top_skills = _top_position_skills(db_path, profile, good_skills_count)
+    if not top_skills:
+        stats["skipped"] = True
+        stats["skip_reason"] = "no_top_skills"
+        print("Antipattern sync: skipped (no_top_skills — no ranked DB skills for validation).")
+        return stats
+
+    top_skill_keys = {skill.lower() for skill in top_skills}
 
     try:
         synthesized = _synthesize_antipatterns_via_llm(
@@ -141,61 +170,10 @@ def sync_skill_extraction_antipatterns(
 
     stats["synthesized"] = synthesized
     print(f"Antipattern sync: synthesized={synthesized}")
-    if truncated:
-        print(
-            "Antipattern sync: blocked input truncated "
-            f"to {len(blocked_skills)} phrases for synthesis"
-        )
 
     if not synthesized:
         stats["skipped"] = True
         stats["skip_reason"] = "synthesis_empty"
-        return stats
-
-    seen_skills = _skills_seen_at_least_once(db_path)
-    seen_keys = {s.lower() for s in seen_skills}
-    blocked_key_set = _blocked_keys(profile)
-
-    try:
-        synthetic_job, job_blocked_truncated, job_seen_truncated = _generate_synthetic_job_posting(
-            llm, blocked_skills, seen_skills
-        )
-    except Exception:
-        stats["skipped"] = True
-        stats["skip_reason"] = "synthetic_job_error"
-        return stats
-
-    stats["synthetic_job_len"] = len(synthetic_job)
-    if job_blocked_truncated:
-        print(
-            "Antipattern sync: synthetic job blocked input truncated "
-            f"to {len(blocked_skills)} phrases"
-        )
-    if job_seen_truncated:
-        print(
-            "Antipattern sync: synthetic job seen-skills input truncated "
-            f"to {len(seen_skills)} skills"
-        )
-    preview = synthetic_job[:200] + ("..." if len(synthetic_job) > 200 else "")
-    print(f"Antipattern sync: synthetic_job preview={preview!r}")
-
-    if not synthetic_job:
-        stats["skipped"] = True
-        stats["skip_reason"] = "synthetic_job_empty"
-        return stats
-
-    existing_antipatterns = list(profile.skill_extraction_antipatterns or [])
-    baseline_keys = _stable_extracted_keys(
-        db_path,
-        profile,
-        llm,
-        synthetic_job,
-        antipatterns_override=existing_antipatterns,
-        runs=validation_runs,
-    )
-    if not baseline_keys:
-        stats["skipped"] = True
-        stats["skip_reason"] = "baseline_empty"
         return stats
 
     save_path = profile_path or DEFAULT_PROFILE_PATH
@@ -207,9 +185,68 @@ def sync_skill_extraction_antipatterns(
     prune_targets: list[str] = []
 
     try:
-        working_antipatterns = list(existing_antipatterns)
+        working_antipatterns = list(profile.skill_extraction_antipatterns or [])
         for candidate in synthesized:
             stats["candidates_tested"] += 1
+            try:
+                matched_blocked = _match_blocked_skills_for_antipattern(
+                    llm, candidate, blocked_skills
+                )
+            except Exception:
+                result = _skip_candidate_result(candidate, "match_error")
+                stats["candidate_results"].append(result)
+                stats["candidates_skipped"] += 1
+                _log_candidate_result(result)
+                continue
+
+            if not matched_blocked:
+                result = _skip_candidate_result(candidate, "no_matched_blocked")
+                stats["candidate_results"].append(result)
+                stats["candidates_skipped"] += 1
+                _log_candidate_result(result)
+                continue
+
+            if len(matched_blocked) > ANTIPATTERN_PROMPT_INPUT_MAX:
+                print(
+                    "Antipattern sync: matched blocked truncated "
+                    f"from {len(matched_blocked)} to {ANTIPATTERN_PROMPT_INPUT_MAX}"
+                )
+                matched_blocked = matched_blocked[:ANTIPATTERN_PROMPT_INPUT_MAX]
+
+            try:
+                synthetic_job, job_blocked_truncated, job_good_skills_truncated = (
+                    _generate_synthetic_job_posting(llm, matched_blocked, top_skills)
+                )
+            except Exception:
+                result = _skip_candidate_result(
+                    candidate, "synthetic_job_error", matched_blocked
+                )
+                stats["candidate_results"].append(result)
+                stats["candidates_skipped"] += 1
+                _log_candidate_result(result)
+                continue
+
+            stats["synthetic_job_len"] = max(stats["synthetic_job_len"], len(synthetic_job))
+            if job_blocked_truncated:
+                print(
+                    "Antipattern sync: synthetic job blocked input truncated "
+                    f"to {ANTIPATTERN_PROMPT_INPUT_MAX} phrases"
+                )
+            if job_good_skills_truncated:
+                print(
+                    "Antipattern sync: synthetic job good-skills input truncated "
+                    f"to {ANTIPATTERN_PROMPT_INPUT_MAX} skills"
+                )
+
+            if not synthetic_job:
+                result = _skip_candidate_result(
+                    candidate, "synthetic_job_empty", matched_blocked
+                )
+                stats["candidate_results"].append(result)
+                stats["candidates_skipped"] += 1
+                _log_candidate_result(result)
+                continue
+
             result = _validate_antipattern_candidate(
                 db_path,
                 profile,
@@ -217,9 +254,8 @@ def sync_skill_extraction_antipatterns(
                 synthetic_job,
                 candidate,
                 working_antipatterns,
-                blocked_key_set,
-                seen_keys,
-                baseline_keys=baseline_keys,
+                matched_blocked,
+                top_skill_keys,
                 validation_runs=validation_runs,
             )
             stats["candidate_results"].append(result)
