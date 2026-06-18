@@ -12,7 +12,7 @@ from spejder.workflows.dashboard import (
     DashboardRebuildQueue,
     populate_missing_dashboard_skills,
 )
-from spejder.workflows.gui_sync import GuiSyncContext, run_inbox_sync
+from spejder.workflows.gui_sync import GuiSyncContext, InboxSyncRunner
 
 
 def serve_gui(
@@ -88,6 +88,7 @@ def serve_gui(
         reload_runtime_profile=_reload_runtime_profile,
         populate_missing_dashboard_skills=_populate_missing_dashboard_skills,
     )
+    inbox_sync_runner = InboxSyncRunner(sync_context, rebuild_queue)
     app_factory_kwargs = {
         "db_path": db_path,
         "profile_path": profile_path,
@@ -99,28 +100,28 @@ def serve_gui(
         "reload_runtime_profile": _reload_runtime_profile,
         "queue_dashboard_rebuild": rebuild_queue.queue,
         "cli_verbose": cli_verbose,
+        "trigger_inbox_sync": inbox_sync_runner.trigger,
+        "get_inbox_sync_status": inbox_sync_runner.get_status,
     }
 
-    if not no_open:
-        def open_browser():
-            time.sleep(1)
+    print("Serve GUI: rebuilding startup dashboard snapshot")
+    rebuild_queue.start_worker()
+    rebuild_queue.queue(reason="startup snapshot")
+    if not rebuild_queue.wait_until_idle(timeout=600):
+        print("Serve GUI: warning: startup dashboard rebuild timed out")
+
+    def _post_bind_startup() -> None:
+        time.sleep(1)
+        if not no_open:
             report_url = f"http://{host}:{port}/report.html"
             opened = webbrowser.open(report_url, new=2)
             if opened:
                 print(f"Opened in default browser: {report_url}")
-        threading.Thread(target=open_browser, daemon=True).start()
+        inbox_sync_runner.trigger()
 
-    print("Serve GUI: starting startup tasks in background")
-    rebuild_queue.start_worker()
     threading.Thread(
-        target=lambda: rebuild_queue.queue(reason="startup snapshot"),
-        name="spejder-startup-dashboard",
-        daemon=True,
-    ).start()
-    threading.Thread(
-        target=run_inbox_sync,
-        args=(sync_context,),
-        name="spejder-inbox-sync",
+        target=_post_bind_startup,
+        name="spejder-startup-post-bind",
         daemon=True,
     ).start()
 

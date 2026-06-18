@@ -46,7 +46,9 @@ def create_app(
     persist_runtime_profile,
     reload_runtime_profile,
     queue_dashboard_rebuild,
-    cli_verbose: bool
+    cli_verbose: bool,
+    trigger_inbox_sync=None,
+    get_inbox_sync_status=None,
 ) -> FastAPI:
     app = FastAPI(title="Spejder GUI Server")
 
@@ -321,6 +323,30 @@ def create_app(
     def api_report_rebuild():
         queue_dashboard_rebuild(reason="manual rebuild")
         return {"ok": True, "queued": True}
+
+    @app.post("/api/inbox/sync")
+    def api_inbox_sync():
+        if trigger_inbox_sync is None:
+            return JSONResponse(
+                status_code=503,
+                content={"ok": False, "error": "inbox sync not available"},
+            )
+        result = trigger_inbox_sync()
+        if not result.get("ok"):
+            return JSONResponse(status_code=409, content=result)
+        return {"ok": True, "started": True}
+
+    @app.get("/api/inbox/sync/status")
+    def api_inbox_sync_status():
+        if get_inbox_sync_status is None:
+            return {
+                "running": False,
+                "stage_id": "",
+                "stage_message": "",
+                "status": "idle",
+                "message": "",
+            }
+        return get_inbox_sync_status()
 
     @app.get("/company.html")
     def company_page(company: str = ""):

@@ -4,8 +4,10 @@
 Background inbox synchronization pipeline extracted from `gui.py`, preserving existing behavior while isolating sync-side orchestration from dashboard/server concerns.
 
 **API:**
-- `GuiSyncContext` (frozen dataclass carrying paths, runtime config, and callbacks)
-- `run_inbox_sync(context: GuiSyncContext) -> None`
+- `GuiSyncContext` (frozen dataclass carrying paths, runtime config, callbacks, and optional `on_stage(stage_id, message)`)
+- `InboxSyncResult` — `status` is `done`, `skipped`, or `failed`
+- `run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult`
+- `InboxSyncRunner` — thread-safe runner; at most one sync at a time (`_running` claimed under lock before the worker thread is spawned); `trigger()` is used for both `serve_gui` startup sync and the dashboard **Sync inbox** button. Wires `on_stage` into `run_inbox_sync`, then `DashboardRebuildQueue.wait_until_idle` after a successful or skipped run (skipped waits for in-flight rebuilds so startup snapshot does not race the status message). If rebuild wait times out after a successful sync, terminal `status` stays `complete` but `message` notes rebuild may still be in progress.
 
 **Pipeline (7 steps):**
 1. Ingest inbox input (or detect missing-description backfill mode)

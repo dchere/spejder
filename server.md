@@ -18,6 +18,8 @@ Provides an interactive dashboard (web GUI) to review extracted jobs and view th
 - `POST /api/skill/delete` — profile cleanup + `delete_skill_from_db` + `rescore_jobs_if_active` on affected jobs
 - `POST /api/applied/raw-text` — `{ job_id, text }`; requires `applied=1` and non-empty `text`; appends `[MANUAL_APPLIED_DESCRIPTION]` block to `raw_text`, clears `job_skills`, rematerializes skills, then rescoring via `materialize_job_skills(..., rescore=True, first_materialize=True)` so keyword-only score updates even when LLM returns no skills. Returns 400 when text empty or job not applied; 500 if save succeeded but the job row cannot be loaded for enrichment (skills cache already cleared in that case).
 - `POST /api/report/rebuild` — queues dashboard rebuild (`reason="manual rebuild"`); no DB mutation; used by the report page **Regenerate report** button
+- `POST /api/inbox/sync` — starts a background inbox sync when `trigger_inbox_sync` is wired (`serve-gui`); returns 503 when inbox sync is not configured; returns 409 when a sync is already running
+- `GET /api/inbox/sync/status` — `{ running, stage_id, stage_message, status, message }`; `status` is `running`, `complete`, `skipped`, `failed`, or `idle`
 
 **Context:**
 Originally built with the built-in `http.server`, it has been upgraded to a modern asynchronous stack using **FastAPI** and **Uvicorn**. It provides endpoints like `/`, `/company.html`, `/logs`, `/action/submit_job`, etc. It fetches data via `db.py` and renders HTML via `managers/dashboard_manager.py` (Jinja2 templates).

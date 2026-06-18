@@ -59,8 +59,9 @@
             .delete-skill-btn { border: 1px solid #cc8c8c; color: #7b1111; background: #fff; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
             .block-skill-btn { border: 1px solid #d2a24a; color: #7a5200; background: #fff7e8; border-radius: 6px; padding: 4px 8px; cursor: pointer; margin-right: 6px; }
             .regenerate-btn { margin-left: auto; border: 1px solid #6c757d; color: #495057; background: #fff; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
-            .regenerate-btn:disabled { opacity: 0.55; cursor: not-allowed; }
-            .regenerate-status { margin-left: 8px; font-size: 12px; color: #555; align-self: center; }
+            .regenerate-btn:disabled, .sync-inbox-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+            .sync-inbox-btn { border: 1px solid #0a58ca; color: #0a58ca; background: #fff; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+            .regenerate-status, .sync-inbox-status { margin-left: 8px; font-size: 12px; color: #555; align-self: center; }
         </style>
     </head>
     <body>
@@ -72,6 +73,8 @@
             <button id="btn-interview" class="mode-btn" type="button">Interview ({{ len_interview_items }})</button>
             <button id="btn-stopped" class="mode-btn" type="button">Stopped ({{ len_stopped_items }})</button>
             <button id="btn-skills" class="mode-btn" type="button">Skills ({{ len_skills_items }})</button>
+            <button id="btn-sync-inbox" class="sync-inbox-btn" type="button" onclick="syncInbox(this)">Sync inbox</button>
+            <span id="sync-inbox-status" class="sync-inbox-status"></span>
             <button id="btn-regenerate" class="regenerate-btn" type="button" onclick="regenerateReport(this)">Regenerate report</button>
             <span id="regenerate-status" class="regenerate-status"></span>
         </div>
@@ -114,6 +117,89 @@
 
             function sleep(ms) {
                 return new Promise((resolve) => setTimeout(resolve, ms));
+            }
+
+            let syncPollTimer = null;
+
+            async function fetchSyncStatus() {
+                const response = await fetch(apiUrl('/api/inbox/sync/status'), { cache: 'no-store' });
+                if (!response.ok) {
+                    throw new Error('Failed to read sync status');
+                }
+                return response.json();
+            }
+
+            function applySyncStatus(data, btnEl, statusEl) {
+                const running = Boolean(data.running);
+                btnEl.disabled = running;
+                if (running) {
+                    statusEl.textContent = data.stage_message || data.message || 'Syncing…';
+                    return;
+                }
+                const status = data.status || 'idle';
+                if (status === 'complete') {
+                    statusEl.textContent = data.message || 'Sync complete — reload the page to see new positions';
+                } else if (status === 'skipped') {
+                    statusEl.textContent = data.message || 'Nothing to sync — inbox is empty and descriptions are up to date';
+                } else if (status === 'failed') {
+                    statusEl.textContent = data.message || 'Sync failed';
+                } else {
+                    statusEl.textContent = '';
+                }
+            }
+
+            async function pollSyncStatus(btnEl, statusEl) {
+                try {
+                    const data = await fetchSyncStatus();
+                    applySyncStatus(data, btnEl, statusEl);
+                    if (data.running) {
+                        syncPollTimer = setTimeout(() => pollSyncStatus(btnEl, statusEl), 2000);
+                    }
+                } catch (err) {
+                    statusEl.textContent = `Error: ${err.message}`;
+                    btnEl.disabled = false;
+                }
+            }
+
+            async function syncInbox(btnEl) {
+                const statusEl = document.getElementById('sync-inbox-status');
+                if (syncPollTimer) {
+                    clearTimeout(syncPollTimer);
+                    syncPollTimer = null;
+                }
+                btnEl.disabled = true;
+                statusEl.textContent = 'Starting sync…';
+                try {
+                    const response = await fetch(apiUrl('/api/inbox/sync'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || 'Request failed');
+                    }
+                    pollSyncStatus(btnEl, statusEl);
+                } catch (err) {
+                    statusEl.textContent = `Error: ${err.message}`;
+                    btnEl.disabled = false;
+                }
+            }
+
+            async function initInboxSyncStatus() {
+                const btnEl = document.getElementById('btn-sync-inbox');
+                const statusEl = document.getElementById('sync-inbox-status');
+                if (!btnEl || !statusEl) {
+                    return;
+                }
+                try {
+                    const data = await fetchSyncStatus();
+                    applySyncStatus(data, btnEl, statusEl);
+                    if (data.running) {
+                        pollSyncStatus(btnEl, statusEl);
+                    }
+                } catch (_) {
+                    // Status endpoint unavailable when opened as a static file.
+                }
             }
 
             async function regenerateReport(btnEl) {
@@ -816,7 +902,9 @@
             window.setCoverLetterRequested = setCoverLetterRequested;
             window.saveCoverLetter = saveCoverLetter;
             window.regenerateReport = regenerateReport;
+            window.syncInbox = syncInbox;
             initSkillsTableSort();
+            initInboxSyncStatus();
             refreshCounts();
         </script>
     </body>

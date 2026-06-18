@@ -123,6 +123,7 @@ class DashboardRebuildQueue:
         self._rebuild_pending_lock = threading.Lock()
         self._rebuild_pending_reasons: list[str] = []
         self._title_translation_cache: dict[str, str] = {}
+        self._rebuild_active = False
 
     def queue(self, reason: str = "") -> None:
         reason_text = str(reason or "").strip() or "queued update"
@@ -149,11 +150,27 @@ class DashboardRebuildQueue:
                 continue
 
             reason = coalesce_rebuild_reasons(reasons)
-            self.rebuild(reason=reason)
+            self._rebuild_active = True
+            try:
+                self.rebuild(reason=reason)
+            finally:
+                self._rebuild_active = False
+
+    def is_idle(self) -> bool:
+        with self._rebuild_pending_lock:
+            pending = bool(self._rebuild_pending_reasons)
+        return not self._rebuild_active and not pending and not self._rebuild_signal.is_set()
+
+    def wait_until_idle(self, timeout: float = 600.0) -> bool:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self.is_idle():
+                return True
+            time.sleep(0.1)
+        return False
 
     def rebuild(self, reason: str = "") -> None:
         should_log_rebuild = bool(reason)
-
         if should_log_rebuild:
             print(f"Dashboard rebuild: started ({reason})")
         for attempt in range(3):

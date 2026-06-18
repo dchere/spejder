@@ -25,7 +25,7 @@
 - Learn profile keywords and missing-skill suggestions from jobs you label or apply to.
 - Sync skills from a CV; block or delete noisy auto-extracted skills.
 - Per-company job view from dashboard cards.
-- Background inbox sync while `serve-gui` is running (ingest, dedupe, scoring, descriptions).
+- Background inbox sync while `serve-gui` is running (ingest, dedupe, scoring, descriptions), including an on-demand **Sync inbox** button on the report dashboard.
 - LinkedIn Easy Apply detection with a relevance bonus when detected in job text.
 
 ## Project layout
@@ -123,7 +123,8 @@ Open `http://127.0.0.1:8765/report.html`.
 - Unmarking `Applied`, unmarking `Viewed`, or marking `Not relevant` clears interview/stopped state and company feedback.
 - Feedback writes are saved immediately; `report.html` regeneration is queued and runs in the background.
 - **Regenerate report** queues a dashboard rebuild from the current DB and reloads the page when the new `report.html` is ready (requires `serve-gui`).
-- When `serve-gui` starts, it also performs a background inbox sync, position deduplication (company+title), relevance scoring, and missing-description generation.
+- **Sync inbox** (requires `serve-gui`) processes new inbox files on demand: ingest, dedupe, skills, descriptions, and related background steps. The button stays disabled while sync runs and until dashboard rebuild is idle; the status line shows stage progress. Reload the page manually when sync completes to see new positions — the page does not auto-reload.
+- When `serve-gui` starts, it rebuilds the dashboard snapshot from the current DB (blocking), starts the HTTP server, then triggers the same inbox sync pipeline as **Sync inbox** (ingest, dedupe, skills, descriptions, and related background steps). Reload the page manually when sync completes to see new positions.
 - If the requested port is busy, the server automatically tries the next ports up to 20 times.
 - Clicking a company name opens a filtered company page for that employer's jobs.
 - Applied jobs have a "Paste full description" form that feeds the full text to the LLM, regenerating the summary, description, and skill tags.
