@@ -21,7 +21,7 @@ def load_cv_text(cv_path: str, max_chars: int = 40000) -> str:
     if os.path.isdir(path):
         chunks = []
         total = 0
-        allowed_ext = {".txt", ".md", ".rst", ".html", ".htm", ".eml"}
+        allowed_ext = {".txt", ".md", ".rst", ".eml"}
         for root, _, files in os.walk(path):
             for name in files:
                 ext = os.path.splitext(name)[1].lower()

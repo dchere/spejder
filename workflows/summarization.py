@@ -13,7 +13,7 @@ def summarize_file(path: str, model: str, profile: str = None, max_tokens: int =
         print("File not found:", path)
         return
     runtime_profile = load_runtime_profile(profile or DEFAULT_PROFILE_PATH)
-    doc = email_parser.parse_html_file(path)
+    doc = email_parser.parse_email_file(path)
     llm = LocalLLM(model_path=model, verbose=bool(verbose_model))
     try:
         source_text = doc.get("text", "")

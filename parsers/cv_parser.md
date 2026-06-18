@@ -1,7 +1,7 @@
 # spejder.cv_parser
 
 **Purpose:**
-Handles loading and extracting text from CV documents (PDF, TXT, MD, etc.).
+Handles loading and extracting text from CV documents (`.txt`, `.md`, `.rst`, `.eml`).
 
 **API:**
 - `_load_cv_text`

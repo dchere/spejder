@@ -1,6 +1,6 @@
 # spejder
 
-`spejder` is a local CLI tool for parsing job emails (`.html`, `.htm`, `.eml`), storing extracted positions in SQLite, scoring relevance with a profile, extracting skills, and generating a browser dashboard for triage.
+`spejder` is a local CLI tool for parsing job emails (`.eml`), storing extracted positions in SQLite, scoring relevance with a profile, extracting skills, and generating a browser dashboard for triage.
 
 ## Table of contents
 
@@ -17,7 +17,7 @@
 
 ## Features
 
-- Parse job emails (HTML/EML) and ingest positions into SQLite with URL-based deduplication.
+- Parse job emails (`.eml`) and ingest positions into SQLite with URL-based deduplication.
 - Score jobs as relevant or not relevant from your profile (keywords and extracted skills).
 - Generate summaries and descriptions with an optional local GGUF model (`llama-cpp-python`).
 - Extract skills per job and show them as tags on dashboard cards.
@@ -36,7 +36,7 @@ Commands resolve relative paths (`--profile`, `--db`, `--inbox`, `--report-dir`,
 my-project/
   profile.json
   jobs.db
-  inbox/          # drop .eml / .html job emails here
+  inbox/          # drop .eml job emails here
   outbox/         # report.html and other generated output
   spejder/        # this repository (see layouts below)
 ```
@@ -382,4 +382,5 @@ In `profile.json`:
 - Skill tags on a job card come from cached extraction. If tags look incomplete after an upgrade, paste a full description on an applied card or run `refresh-descriptions` with a model to re-extract skills for matching jobs.
 - Re-extracting skills (manual description paste, `refresh-descriptions`, or clearing cached skills) can change `relevance_score` when more or fewer skills match your profile.
 - Processed inbox files are removed automatically after successful ingestion when using background sync or `process-inbox`.
+- Inbox ingestion accepts `.eml` files only. Save emails as `.eml` (e.g. drag from Mail.app, or **File → Save As** in Thunderbird) rather than "Save as HTML".
 

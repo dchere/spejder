@@ -1,4 +1,4 @@
-"""HTML Parser."""
+"""Email parser for job-alert .eml files."""
 import os
 import re
 from email import policy
@@ -74,43 +74,20 @@ def _parse_eml_file(path: str) -> dict:
     }
 
 
-def parse_html_file(path: str) -> dict:
-    """Parse an HTML or EML file and extract text and links.
+def parse_email_file(path: str) -> dict:
+    """Parse a job-alert .eml file and extract text, HTML body, and links.
 
-    Returns dict with keys: id, path, text, links
+    Returns dict with keys: id, path, text, html, links, title
     """
-    if path.lower().endswith(".eml"):
-        return _parse_eml_file(path)
-
-    with open(path, encoding="utf-8", errors="ignore") as f:
-        raw = f.read()
-
-    soup = BeautifulSoup(raw, "html.parser")
-    # If it's an .eml that contains plain text fallback, BeautifulSoup still works
-    text = soup.get_text(separator="\n").strip()
-    links = [a.get("href") for a in soup.find_all("a", href=True)]
-    title = ""
-    if soup.title and soup.title.string:
-        title = soup.title.string.strip()
-    if not title:
-        h1 = soup.find("h1")
-        if h1:
-            title = h1.get_text(separator=" ").strip()
-
-    return {
-        "id": os.path.abspath(path),
-        "path": os.path.abspath(path),
-        "text": text,
-        "html": raw,
-        "links": links,
-        "title": title,
-    }
+    if not path.lower().endswith(".eml"):
+        raise ValueError(f"Unsupported file type (expected .eml): {path}")
+    return _parse_eml_file(path)
 
 
 def load_files(folder: str, exts: list[str] = None) -> list[dict]:
-    """Walk a folder and parse supported files (default: .html, .htm, .eml)."""
+    """Walk a folder and parse supported files (default: .eml)."""
     if exts is None:
-        exts = [".html", ".htm", ".eml"]
+        exts = [".eml"]
 
     docs = []
     for root, _, files in os.walk(folder):
@@ -118,7 +95,7 @@ def load_files(folder: str, exts: list[str] = None) -> list[dict]:
             if any(fn.lower().endswith(e) for e in exts):
                 path = os.path.join(root, fn)
                 try:
-                    doc = parse_html_file(path)
+                    doc = parse_email_file(path)
                     docs.append(doc)
                 except Exception:
                     # ignore parse errors for now
