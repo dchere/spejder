@@ -58,6 +58,9 @@
             .skills-table tbody tr.skill-row-focus { outline: 2px solid #0a58ca; outline-offset: -2px; background: #eef4ff; transition: background-color 0.8s ease; }
             .delete-skill-btn { border: 1px solid #cc8c8c; color: #7b1111; background: #fff; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
             .block-skill-btn { border: 1px solid #d2a24a; color: #7a5200; background: #fff7e8; border-radius: 6px; padding: 4px 8px; cursor: pointer; margin-right: 6px; }
+            .regenerate-btn { margin-left: auto; border: 1px solid #6c757d; color: #495057; background: #fff; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+            .regenerate-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+            .regenerate-status { margin-left: 8px; font-size: 12px; color: #555; align-self: center; }
         </style>
     </head>
     <body>
@@ -69,6 +72,8 @@
             <button id="btn-interview" class="mode-btn" type="button">Interview ({{ len_interview_items }})</button>
             <button id="btn-stopped" class="mode-btn" type="button">Stopped ({{ len_stopped_items }})</button>
             <button id="btn-skills" class="mode-btn" type="button">Skills ({{ len_skills_items }})</button>
+            <button id="btn-regenerate" class="regenerate-btn" type="button" onclick="regenerateReport(this)">Regenerate report</button>
+            <span id="regenerate-status" class="regenerate-status"></span>
         </div>
         <section id="panel-relevant" class="grid">{{ relevant_cards }}</section>
         <section id="panel-not-relevant" class="grid hidden">{{ not_relevant_cards }}</section>
@@ -97,6 +102,53 @@
                     return `http://127.0.0.1:8765${path}`;
                 }
                 return path;
+            }
+
+            async function reportLastModified() {
+                const response = await fetch(apiUrl('/report.html'), { method: 'HEAD', cache: 'no-store' });
+                if (!response.ok) {
+                    throw new Error('Failed to read report status');
+                }
+                return response.headers.get('Last-Modified') || '';
+            }
+
+            function sleep(ms) {
+                return new Promise((resolve) => setTimeout(resolve, ms));
+            }
+
+            async function regenerateReport(btnEl) {
+                const statusEl = document.getElementById('regenerate-status');
+                btnEl.disabled = true;
+                if (statusEl) statusEl.textContent = 'Regenerating…';
+                try {
+                    const beforeMtime = await reportLastModified();
+                    const response = await fetch(apiUrl('/api/report/rebuild'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || 'Request failed');
+                    }
+                    const deadline = Date.now() + 60000;
+                    while (Date.now() < deadline) {
+                        await sleep(500);
+                        const afterMtime = await reportLastModified();
+                        if (afterMtime && afterMtime !== beforeMtime) {
+                            location.reload();
+                            return;
+                        }
+                    }
+                    if (statusEl) {
+                        statusEl.textContent = 'Rebuild queued — refresh manually if the page does not update';
+                    }
+                    btnEl.disabled = false;
+                } catch (err) {
+                    if (statusEl) {
+                        statusEl.textContent = `Error: ${err.message}. Start: python -m spejder.cli serve-gui`;
+                    }
+                    btnEl.disabled = false;
+                }
             }
 
             function ensureEmptyState(panel) {
@@ -763,6 +815,7 @@
             window.appendAppliedRawText = appendAppliedRawText;
             window.setCoverLetterRequested = setCoverLetterRequested;
             window.saveCoverLetter = saveCoverLetter;
+            window.regenerateReport = regenerateReport;
             initSkillsTableSort();
             refreshCounts();
         </script>

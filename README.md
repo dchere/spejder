@@ -122,6 +122,7 @@ Open `http://127.0.0.1:8765/report.html`.
 - Stopped cards support free-text `Company feedback` saved via the dashboard.
 - Unmarking `Applied`, unmarking `Viewed`, or marking `Not relevant` clears interview/stopped state and company feedback.
 - Feedback writes are saved immediately; `report.html` regeneration is queued and runs in the background.
+- **Regenerate report** queues a dashboard rebuild from the current DB and reloads the page when the new `report.html` is ready (requires `serve-gui`).
 - When `serve-gui` starts, it also performs a background inbox sync, position deduplication (company+title), relevance scoring, and missing-description generation.
 - If the requested port is busy, the server automatically tries the next ports up to 20 times.
 - Clicking a company name opens a filtered company page for that employer's jobs.

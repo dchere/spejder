@@ -317,6 +317,11 @@ def create_app(
         queue_dashboard_rebuild(reason=f"skill deleted cleanup {skill}")
         return {"ok": True, "skill": skill, "profile_removed": profile_removed, "db_deleted": db_deleted}
 
+    @app.post("/api/report/rebuild")
+    def api_report_rebuild():
+        queue_dashboard_rebuild(reason="manual rebuild")
+        return {"ok": True, "queued": True}
+
     @app.get("/company.html")
     def company_page(company: str = ""):
         company_name = company.strip()
