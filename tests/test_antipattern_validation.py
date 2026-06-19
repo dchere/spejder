@@ -46,6 +46,19 @@ class MatchBlockedSkillsForAntipatternTest(unittest.TestCase):
         self.assertEqual(llm.generate.call_count, 2)
         self.assertEqual(matches, ["blocked phrase 0", "blocked phrase 150"])
 
+    @patch("builtins.print")
+    def test_logs_debug_when_match_parse_empty(self, mock_print):
+        blocked = ["we are looking for", "our new colleague"]
+        llm = MagicMock()
+        llm.generate.return_value = "not valid json at all"
+        _match_blocked_skills_for_antipattern(llm, "hiring fluff", blocked)
+        debug_calls = [
+            call
+            for call in mock_print.call_args_list
+            if call.args and str(call.args[0]).startswith("Antipattern sync: match parse empty")
+        ]
+        self.assertEqual(len(debug_calls), 1)
+
 
 class MatchesFromLlmOutputTest(unittest.TestCase):
     def test_rejects_off_list_keys(self):
@@ -171,7 +184,7 @@ class ValidateAntipatternCandidateTest(unittest.TestCase):
         self.assertEqual(result["skip_reason"], "no_blocked_reduction")
 
     @patch("spejder.extractors.skill_extractor.antipattern_validation._stable_extracted_keys")
-    def test_skips_when_good_skills_lost(self, mock_stable):
+    def test_accepts_when_one_good_skill_lost_within_tolerance(self, mock_stable):
         mock_stable.side_effect = [
             {
                 "python",
@@ -180,7 +193,33 @@ class ValidateAntipatternCandidateTest(unittest.TestCase):
                 "we are looking for",
                 "our new colleague",
             },
-            {"we are looking for"},
+            {"sql", "java", "our new colleague"},
+        ]
+        profile = AppConfig()
+        result = _validate_antipattern_candidate(
+            "./jobs.db",
+            profile,
+            MagicMock(),
+            "job text",
+            "moderate rule",
+            [],
+            ["we are looking for", "our new colleague"],
+            {"python", "sql", "java"},
+        )
+        self.assertTrue(result["accepted"])
+        self.assertEqual(result["pruned_blocked"], ["we are looking for"])
+
+    @patch("spejder.extractors.skill_extractor.antipattern_validation._stable_extracted_keys")
+    def test_skips_when_two_good_skills_lost(self, mock_stable):
+        mock_stable.side_effect = [
+            {
+                "python",
+                "sql",
+                "java",
+                "we are looking for",
+                "our new colleague",
+            },
+            {"java", "our new colleague"},
         ]
         profile = AppConfig()
         result = _validate_antipattern_candidate(

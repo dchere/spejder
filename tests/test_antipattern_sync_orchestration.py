@@ -3,7 +3,11 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
-from spejder.config import AppConfig
+from spejder.config import (
+    AppConfig,
+    SKILL_ANTIPATTERN_GOOD_SKILLS_COUNT_DEFAULT,
+    SKILL_ANTIPATTERN_GOOD_SKILLS_COUNT_MAX,
+)
 from spejder.extractors.skill_extractor.antipattern_synthesis import ANTIPATTERN_PROMPT_INPUT_MAX
 from spejder.extractors.skill_extractor.antipattern_sync import (
     SYNC_MIN_BLOCKED,
@@ -30,16 +34,26 @@ def _blocked_samples(count: int) -> list[str]:
 
 
 class GoodSkillsCountTest(unittest.TestCase):
-    def test_clamps_zero_to_one(self):
+    def test_model_construct_invalid_uses_default(self):
+        profile = AppConfig.model_construct(skill_antipattern_good_skills_count=False)
+        self.assertEqual(
+            _good_skills_count(profile),
+            SKILL_ANTIPATTERN_GOOD_SKILLS_COUNT_DEFAULT,
+        )
+
+    def test_model_construct_clamps_above_maximum(self):
+        profile = AppConfig.model_construct(skill_antipattern_good_skills_count=500)
+        self.assertEqual(
+            _good_skills_count(profile),
+            SKILL_ANTIPATTERN_GOOD_SKILLS_COUNT_MAX,
+        )
+
+    def test_model_construct_clamps_zero_to_one(self):
         profile = AppConfig.model_construct(skill_antipattern_good_skills_count=0)
         self.assertEqual(_good_skills_count(profile), 1)
 
-    def test_clamps_negative_to_one(self):
-        profile = AppConfig.model_construct(skill_antipattern_good_skills_count=-3)
-        self.assertEqual(_good_skills_count(profile), 1)
-
-    def test_uses_configured_value_when_positive(self):
-        profile = AppConfig(skill_antipattern_good_skills_count=5)
+    def test_model_construct_in_range_passthrough(self):
+        profile = AppConfig.model_construct(skill_antipattern_good_skills_count=5)
         self.assertEqual(_good_skills_count(profile), 5)
 
 
@@ -413,6 +427,47 @@ class SyncSkillExtractionAntipatternsTest(unittest.TestCase):
         self.assertEqual(stats["skip_reason"], "no_candidates_accepted")
         self.assertFalse(stats["committed"])
         self.assertEqual(profile.skill_extraction_antipatterns, original)
+
+    @patch("spejder.extractors.skill_extractor.antipattern_sync._validate_antipattern_candidate")
+    @patch("spejder.extractors.skill_extractor.antipattern_sync._generate_synthetic_job_posting")
+    @patch("spejder.extractors.skill_extractor.antipattern_sync._match_blocked_skills_for_antipattern")
+    @patch("spejder.extractors.skill_extractor.antipattern_sync._top_position_skills")
+    @patch("spejder.extractors.skill_extractor.antipattern_sync._synthesize_antipatterns_via_llm")
+    def test_passes_normalized_top_skill_keys_to_validation(
+        self,
+        mock_synthesize,
+        mock_top_skills,
+        mock_match,
+        mock_job,
+        mock_validate,
+    ):
+        mock_top_skills.return_value = ["Experience with Python"]
+        mock_match.return_value = ["we are looking for"]
+        mock_job.return_value = ("Synthetic job posting text.", False, False)
+        mock_synthesize.return_value = ["rule one"]
+        mock_validate.return_value = {
+            "rule": "rule one",
+            "accepted": False,
+            "skip_reason": "no_blocked_reduction",
+            "matched_blocked": ["we are looking for"],
+            "baseline_blocked": ["we are looking for"],
+            "with_blocked": ["we are looking for"],
+            "pruned_blocked": [],
+        }
+
+        blocked = _blocked_samples(SYNC_MIN_BLOCKED)
+        profile = AppConfig(blocked_skills=blocked, skill_extraction_antipatterns=[])
+
+        sync_skill_extraction_antipatterns(
+            "./jobs.db",
+            profile,
+            MagicMock(),
+            profile_path="./profile.json",
+            force=True,
+        )
+
+        good_skill_keys = mock_validate.call_args.kwargs["good_skill_keys"]
+        self.assertEqual(good_skill_keys, {"python"})
 
     @patch("spejder.extractors.skill_extractor.antipattern_sync._validate_antipattern_candidate")
     @patch("spejder.extractors.skill_extractor.antipattern_sync._generate_synthetic_job_posting")

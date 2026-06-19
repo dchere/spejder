@@ -3,14 +3,14 @@
 import json
 import random
 
-from spejder.config import AppConfig
+from spejder.config import ANTIPATTERN_PROMPT_LIST_MAX, AppConfig
 from spejder.llm import LocalLLM
 
 from .normalization import _normalize_skill_name
 from .utils import _extract_json_object, _to_items
 
 SYNTHESIS_PATTERN_COUNT = 3
-SYNTHESIS_BLOCKED_INPUT_MAX = 150
+SYNTHESIS_BLOCKED_INPUT_MAX = ANTIPATTERN_PROMPT_LIST_MAX
 SYNTHESIS_SAMPLE_MAX = 40
 SYNTHESIS_MAX_TOKENS = 512
 PROFILE_ANTIPATTERNS_MAX = 200

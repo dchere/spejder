@@ -5,7 +5,6 @@ from unittest.mock import MagicMock, patch
 
 from spejder.config import AppConfig
 from spejder.extractors.skill_extractor.antipattern_synthesis import (
-    ANTIPATTERN_PROMPT_INPUT_MAX,
     SYNTHESIS_PATTERN_COUNT,
     SYNTHESIS_SAMPLE_MAX,
     _blocked_skills_for_synthesis,

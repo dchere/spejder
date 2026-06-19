@@ -3,7 +3,11 @@
 import os
 from typing import Optional
 
-from spejder.config import AppConfig
+from spejder.config import (
+    AppConfig,
+    SKILL_ANTIPATTERN_GOOD_SKILLS_COUNT_DEFAULT,
+    coerce_skill_antipattern_good_skills_count,
+)
 from spejder.core import DEFAULT_PROFILE_PATH, load_runtime_profile
 from spejder.db import delete_skill_from_db
 from spejder.llm import LocalLLM
@@ -27,7 +31,6 @@ from .antipattern_validation import (
 from .normalization import _normalize_skill_name
 
 SYNC_MIN_BLOCKED = 15
-DEFAULT_GOOD_SKILLS_COUNT = 20
 
 
 def _save_antipattern_sync_profile(
@@ -64,10 +67,12 @@ def _validation_runs(profile: AppConfig) -> int:
 
 
 def _good_skills_count(profile: AppConfig) -> int:
+    # model_construct skips validators; re-coerce defensively.
     value = getattr(profile, "skill_antipattern_good_skills_count", None)
-    if value is None:
-        value = DEFAULT_GOOD_SKILLS_COUNT
-    return max(1, int(value))
+    coerced = coerce_skill_antipattern_good_skills_count(value)
+    if coerced is None:
+        return SKILL_ANTIPATTERN_GOOD_SKILLS_COUNT_DEFAULT
+    return coerced
 
 
 def _skip_candidate_result(
@@ -156,7 +161,11 @@ def sync_skill_extraction_antipatterns(
         print("Antipattern sync: skipped (no_top_skills — no ranked DB skills for validation).")
         return stats
 
-    top_skill_keys = {skill.lower() for skill in top_skills}
+    top_skill_keys = {
+        normalized.lower()
+        for skill in top_skills
+        if (normalized := _normalize_skill_name(skill))
+    }
 
     try:
         synthesized = _synthesize_antipatterns_via_llm(
@@ -255,7 +264,7 @@ def sync_skill_extraction_antipatterns(
                 candidate,
                 working_antipatterns,
                 matched_blocked,
-                top_skill_keys,
+                good_skill_keys=top_skill_keys,
                 validation_runs=validation_runs,
             )
             stats["candidate_results"].append(result)

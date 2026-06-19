@@ -102,6 +102,24 @@ class TopSkillsByJobLinksTest(unittest.TestCase):
     def test_zero_limit_returns_empty(self):
         self.assertEqual(get_top_skills_by_job_links(self.db_path, limit=0), [])
 
+    def test_excludes_skills_with_zero_occurrences_despite_job_links(self):
+        upsert_skill_pattern(
+            self.db_path,
+            name="PhantomSkill",
+            pattern=r"\bPhantomSkill\b",
+            source="test",
+            occurrences_inc=0,
+        )
+        job_id = _insert_job(
+            self.db_path,
+            "https://example.com/phantom",
+            title="Phantom Engineer",
+        )
+        set_job_skills(self.db_path, job_id, ["PhantomSkill"])
+
+        result = get_top_skills_by_job_links(self.db_path, limit=10)
+        self.assertNotIn("PhantomSkill", result)
+
     def test_equal_link_count_orders_alphabetically(self):
         for name in ("Alpha", "Beta"):
             upsert_skill_pattern(
