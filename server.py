@@ -1,5 +1,7 @@
 """API Server for Spejder"""
 
+import threading
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -34,6 +36,14 @@ from .workflows.job_enrichment import (
     _translate_text_to_english_if_needed,
     materialize_job_skills,
 )
+from .workflows.user_portrait import (
+    generate_portrait_draft,
+    load_portrait,
+    portrait_file_path,
+    portrait_has_context,
+    render_portrait_diff_html,
+    save_portrait,
+)
 
 
 def create_app(
@@ -51,6 +61,7 @@ def create_app(
     get_inbox_sync_status=None,
 ) -> FastAPI:
     app = FastAPI(title="Spejder GUI Server")
+    portrait_generate_lock = threading.Lock()
 
     app.add_middleware(
         CORSMiddleware,
@@ -347,6 +358,75 @@ def create_app(
                 "message": "",
             }
         return get_inbox_sync_status()
+
+    @app.get("/api/portrait")
+    def api_portrait_get():
+        text = load_portrait(portrait_file_path(runtime_profile))
+        return {"ok": True, "text": text}
+
+    class PortraitSaveRequest(BaseModel):
+        text: str
+
+    @app.post("/api/portrait/save")
+    def api_portrait_save(req: PortraitSaveRequest):
+        path = portrait_file_path(runtime_profile)
+        save_portrait(path, req.text)
+        print(f"API: saved portrait to {path} (chars={len(req.text)})")
+        return {"ok": True, "text": req.text}
+
+    @app.post("/api/portrait/generate")
+    def api_portrait_generate():
+        if not portrait_generate_lock.acquire(blocking=False):
+            return JSONResponse(
+                status_code=409,
+                content={"ok": False, "error": "portrait generation already in progress"},
+            )
+        try:
+            if not model_path:
+                return JSONResponse(
+                    status_code=503,
+                    content={"ok": False, "error": "default_model is not configured in profile"},
+                )
+            if not portrait_has_context(db_path, runtime_profile):
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "ok": False,
+                        "error": "no portrait data (CV, skills, or applied jobs required)",
+                    },
+                )
+            path = portrait_file_path(runtime_profile)
+            committed = load_portrait(path)
+            llm = LocalLLM(
+                model_path=model_path,
+                n_ctx=int(runtime_profile.n_ctx),
+                verbose=cli_verbose,
+            )
+            try:
+                draft = generate_portrait_draft(
+                    llm,
+                    db_path,
+                    runtime_profile,
+                    current_portrait=committed,
+                )
+            except ValueError as exc:
+                return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+            except Exception as exc:
+                print(f"API: portrait generate failed: {exc}")
+                return JSONResponse(
+                    status_code=500,
+                    content={"ok": False, "error": "portrait generation failed"},
+                )
+            diff_html = render_portrait_diff_html(committed, draft)
+            print(f"API: portrait draft generated (chars={len(draft)})")
+            return {
+                "ok": True,
+                "draft": draft,
+                "committed": committed,
+                "diff_html": diff_html,
+            }
+        finally:
+            portrait_generate_lock.release()
 
     @app.get("/company.html")
     def company_page(company: str = ""):

@@ -20,6 +20,9 @@ Provides an interactive dashboard (web GUI) to review extracted jobs and view th
 - `POST /api/report/rebuild` — queues dashboard rebuild (`reason="manual rebuild"`); no DB mutation; used by the report page **Regenerate report** button
 - `POST /api/inbox/sync` — starts a background inbox sync when `trigger_inbox_sync` is wired (`serve-gui`); returns 503 when inbox sync is not configured; returns 409 when a sync is already running
 - `GET /api/inbox/sync/status` — `{ running, stage_id, stage_message, status, message }`; `status` is `running`, `complete`, `skipped`, `failed`, or `idle`
+- `GET /api/portrait` — `{ ok, text }`; committed portrait from `default_portrait_path`
+- `POST /api/portrait/generate` — sync LLM regeneration; returns `{ ok, draft, committed, diff_html }`; requires `default_model`; 503 without model; 400 without context; 409 when generation already in progress; does not write file
+- `POST /api/portrait/save` — `{ text }`; writes portrait file; no dashboard rebuild
 
 **Context:**
 Originally built with the built-in `http.server`, it has been upgraded to a modern asynchronous stack using **FastAPI** and **Uvicorn**. It provides endpoints like `/`, `/company.html`, `/logs`, `/action/submit_job`, etc. It fetches data via `db.py` and renders HTML via `managers/dashboard_manager.py` (Jinja2 templates).

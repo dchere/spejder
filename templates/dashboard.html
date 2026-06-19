@@ -62,6 +62,20 @@
             .regenerate-btn:disabled, .sync-inbox-btn:disabled { opacity: 0.55; cursor: not-allowed; }
             .sync-inbox-btn { border: 1px solid #0a58ca; color: #0a58ca; background: #fff; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
             .regenerate-status, .sync-inbox-status { margin-left: 8px; font-size: 12px; color: #555; align-self: center; }
+            .portrait-wrap { background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 12px; }
+            .portrait-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+            .portrait-btn { border: 1px solid #0a58ca; color: #0a58ca; background: #fff; border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+            .portrait-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+            .portrait-save-btn { border-color: #198754; color: #198754; }
+            .portrait-status { font-size: 12px; color: #555; }
+            .portrait-empty { margin: 0 0 12px 0; font-size: 13px; color: #555; }
+            .portrait-editor { width: 100%; min-height: 360px; resize: vertical; border: 1px solid #c9d6f0; border-radius: 6px; padding: 8px; font-size: 13px; font-family: monospace; box-sizing: border-box; }
+            .portrait-diff-wrap { margin-bottom: 12px; border: 1px solid #ddd; border-radius: 8px; overflow: auto; max-height: 280px; }
+            .portrait-diff-wrap.hidden { display: none; }
+            .portrait-diff { margin: 0; padding: 8px; font-size: 12px; font-family: monospace; white-space: pre-wrap; word-break: break-word; }
+            .diff-line-ctx { color: #333; background: #fff; }
+            .diff-line-add { color: #116329; background: #e6ffed; }
+            .diff-line-del { color: #82071e; background: #ffeef0; }
         </style>
     </head>
     <body>
@@ -73,6 +87,7 @@
             <button id="btn-interview" class="mode-btn" type="button">Interview ({{ len_interview_items }})</button>
             <button id="btn-stopped" class="mode-btn" type="button">Stopped ({{ len_stopped_items }})</button>
             <button id="btn-skills" class="mode-btn" type="button">Skills ({{ len_skills_items }})</button>
+            <button id="btn-portrait" class="mode-btn" type="button">Portrait</button>
             <button id="btn-sync-inbox" class="sync-inbox-btn" type="button" onclick="syncInbox(this)">Sync inbox</button>
             <span id="sync-inbox-status" class="sync-inbox-status"></span>
             <button id="btn-regenerate" class="regenerate-btn" type="button" onclick="regenerateReport(this)">Regenerate report</button>
@@ -84,6 +99,20 @@
         <section id="panel-interview" class="grid hidden">{{ interview_cards }}</section>
         <section id="panel-stopped" class="grid hidden">{{ stopped_cards }}</section>
         <section id="panel-skills" class="skills-wrap hidden">{{ skills_table_html }}</section>
+        <section id="panel-portrait" class="portrait-wrap hidden">
+            <div class="portrait-toolbar">
+                <button id="btn-portrait-generate" class="portrait-btn" type="button" onclick="regeneratePortrait(this)">Regenerate portrait</button>
+                <button id="btn-portrait-save" class="portrait-btn portrait-save-btn" type="button" onclick="savePortrait(this)">Save portrait</button>
+                <span id="portrait-status" class="portrait-status"></span>
+            </div>
+            {% if not has_portrait %}
+            <p class="portrait-empty">No portrait yet. Add CV text, skills, or applied jobs, then Regenerate portrait.</p>
+            {% endif %}
+            <div id="portrait-diff-wrap" class="portrait-diff-wrap hidden">
+                <div id="portrait-diff"></div>
+            </div>
+            <textarea id="portrait-editor" class="portrait-editor">{{ portrait_text }}</textarea>
+        </section>
 
         <script>
             const btnRelevant = document.getElementById('btn-relevant');
@@ -92,13 +121,22 @@
             const btnInterview = document.getElementById('btn-interview');
             const btnStopped = document.getElementById('btn-stopped');
             const btnSkills = document.getElementById('btn-skills');
+            const btnPortrait = document.getElementById('btn-portrait');
             const panelRelevant = document.getElementById('panel-relevant');
             const panelNotRelevant = document.getElementById('panel-not-relevant');
             const panelApplied = document.getElementById('panel-applied');
             const panelInterview = document.getElementById('panel-interview');
             const panelStopped = document.getElementById('panel-stopped');
             const panelSkills = document.getElementById('panel-skills');
+            const panelPortrait = document.getElementById('panel-portrait');
+            const portraitEditor = document.getElementById('portrait-editor');
+            const portraitDiffWrap = document.getElementById('portrait-diff-wrap');
+            const portraitDiff = document.getElementById('portrait-diff');
+            const portraitStatus = document.getElementById('portrait-status');
             const appliedStagePanels = [panelApplied, panelInterview, panelStopped];
+            let portraitCommitted = portraitEditor ? portraitEditor.value : '';
+            let portraitDraftPending = false;
+            let currentMode = 'relevant';
 
             function apiUrl(path) {
                 if (window.location.protocol === 'file:') {
@@ -340,25 +378,136 @@
                 if (appliedStagePanels.includes(card.parentElement)) card.remove();
             }
 
+            function portraitHasUnsavedChanges() {
+                if (!portraitEditor) return false;
+                return portraitDraftPending || portraitEditor.value !== portraitCommitted;
+            }
+
             function setMode(mode) {
+                if (currentMode === 'portrait' && mode !== 'portrait' && portraitHasUnsavedChanges()) {
+                    const leave = window.confirm('Portrait has unsaved changes. Leave without saving?');
+                    if (!leave) return;
+                }
+                const enteringPortrait = mode === 'portrait' && currentMode !== 'portrait';
+                currentMode = mode;
                 const isRelevant = mode === 'relevant';
                 const isNotRelevant = mode === 'not relevant';
                 const isApplied = mode === 'applied';
                 const isInterview = mode === 'interview';
                 const isStopped = mode === 'stopped';
                 const isSkills = mode === 'skills';
+                const isPortrait = mode === 'portrait';
                 panelRelevant.classList.toggle('hidden', !isRelevant);
                 panelNotRelevant.classList.toggle('hidden', !isNotRelevant);
                 panelApplied.classList.toggle('hidden', !isApplied);
                 panelInterview.classList.toggle('hidden', !isInterview);
                 panelStopped.classList.toggle('hidden', !isStopped);
                 panelSkills.classList.toggle('hidden', !isSkills);
+                panelPortrait.classList.toggle('hidden', !isPortrait);
                 btnRelevant.classList.toggle('active', isRelevant);
                 btnNotRelevant.classList.toggle('active', isNotRelevant);
                 btnApplied.classList.toggle('active', isApplied);
                 btnInterview.classList.toggle('active', isInterview);
                 btnStopped.classList.toggle('active', isStopped);
                 btnSkills.classList.toggle('active', isSkills);
+                btnPortrait.classList.toggle('active', isPortrait);
+                if (enteringPortrait) {
+                    refreshPortraitFromServer();
+                }
+            }
+
+            function updatePortraitStatus() {
+                if (!portraitStatus || !portraitEditor) return;
+                if (portraitDraftPending) {
+                    portraitStatus.textContent = 'Review draft — edit if needed, then Save portrait';
+                    return;
+                }
+                if (portraitEditor.value !== portraitCommitted) {
+                    portraitStatus.textContent = 'Unsaved edits';
+                    return;
+                }
+                portraitStatus.textContent = portraitCommitted.trim() ? 'Saved' : '';
+            }
+
+            async function refreshPortraitFromServer() {
+                if (!portraitEditor || portraitDraftPending) return;
+                try {
+                    const response = await fetch(apiUrl('/api/portrait'), { cache: 'no-store' });
+                    if (!response.ok) return;
+                    const data = await response.json();
+                    if (!data.ok) return;
+                    portraitCommitted = data.text || '';
+                    portraitEditor.value = portraitCommitted;
+                    updatePortraitStatus();
+                } catch (_err) {
+                    // Static file:// report or server unavailable — keep embedded text.
+                }
+            }
+
+            async function regeneratePortrait(btnEl) {
+                if (!portraitEditor) return;
+                if (
+                    portraitEditor.value !== portraitCommitted
+                    && !portraitDraftPending
+                    && !window.confirm('Replace unsaved edits with a new generated draft?')
+                ) {
+                    return;
+                }
+                btnEl.disabled = true;
+                portraitStatus.textContent = 'Generating…';
+                try {
+                    const response = await fetch(apiUrl('/api/portrait/generate'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || 'Generation failed');
+                    }
+                    portraitEditor.value = data.draft || '';
+                    portraitDraftPending = true;
+                    if (portraitDiff && portraitDiffWrap) {
+                        portraitDiff.innerHTML = data.diff_html || '';
+                        portraitDiffWrap.classList.remove('hidden');
+                    }
+                    updatePortraitStatus();
+                } catch (err) {
+                    portraitStatus.textContent = '';
+                    alert(`Failed to generate portrait: ${err.message}`);
+                } finally {
+                    btnEl.disabled = false;
+                }
+            }
+
+            async function savePortrait(btnEl) {
+                if (!portraitEditor) return;
+                btnEl.disabled = true;
+                portraitStatus.textContent = 'Saving…';
+                try {
+                    const response = await fetch(apiUrl('/api/portrait/save'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text: portraitEditor.value }),
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || 'Save failed');
+                    }
+                    portraitCommitted = data.text || portraitEditor.value;
+                    portraitDraftPending = false;
+                    if (portraitDiffWrap) {
+                        portraitDiffWrap.classList.add('hidden');
+                    }
+                    if (portraitDiff) {
+                        portraitDiff.innerHTML = '';
+                    }
+                    portraitStatus.textContent = 'Saved';
+                } catch (err) {
+                    portraitStatus.textContent = '';
+                    alert(`Failed to save portrait: ${err.message}`);
+                } finally {
+                    btnEl.disabled = false;
+                }
             }
 
             function focusSkillRow(skillKey) {
@@ -391,6 +540,10 @@
             btnInterview.addEventListener('click', () => setMode('interview'));
             btnStopped.addEventListener('click', () => setMode('stopped'));
             btnSkills.addEventListener('click', () => setMode('skills'));
+            btnPortrait.addEventListener('click', () => setMode('portrait'));
+            if (portraitEditor) {
+                portraitEditor.addEventListener('input', updatePortraitStatus);
+            }
 
             async function setUserSkill(skillKey, hasSkill, inputEl) {
                 inputEl.disabled = true;
@@ -903,6 +1056,13 @@
             window.saveCoverLetter = saveCoverLetter;
             window.regenerateReport = regenerateReport;
             window.syncInbox = syncInbox;
+            window.regeneratePortrait = regeneratePortrait;
+            window.savePortrait = savePortrait;
+            window.addEventListener('beforeunload', (event) => {
+                if (!portraitHasUnsavedChanges()) return;
+                event.preventDefault();
+                event.returnValue = '';
+            });
             initSkillsTableSort();
             initInboxSyncStatus();
             refreshCounts();

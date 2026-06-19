@@ -7,6 +7,9 @@ import json
 import os
 from typing import Optional
 
+from spejder.config import AppConfig
+from spejder.workflows.user_portrait import embed_portrait_for_textarea, load_portrait, portrait_file_path
+
 from .dashboard_cards import _build_job_cards, _render_html_from_items
 from .dashboard_sorting import _sort_applied_positions, _sort_positions_unviewed_then_score
 from .dashboard_templates import jinja_env
@@ -109,6 +112,7 @@ def _render_html_dashboard(
     not_relevant_total_count: Optional[int] = None,
     interview_items: Optional[list[dict]] = None,
     stopped_items: Optional[list[dict]] = None,
+    runtime_profile: Optional[AppConfig] = None,
 ):
     os.makedirs(os.path.dirname(os.path.abspath(out_html)), exist_ok=True)
     relevant_items = _sort_positions_unviewed_then_score(relevant_items)
@@ -201,6 +205,11 @@ def _render_html_dashboard(
         else '<p class="empty">No skills found.</p>'
     )
 
+    portrait_text = ""
+    if runtime_profile is not None:
+        portrait_text = load_portrait(portrait_file_path(runtime_profile))
+    textarea_portrait_text = embed_portrait_for_textarea(portrait_text)
+
     template = jinja_env.get_template("dashboard.html")
     content = template.render(
         title=html_lib.escape(title),
@@ -219,6 +228,8 @@ def _render_html_dashboard(
         interview_cards=interview_cards,
         stopped_cards=stopped_cards,
         skills_table_html=skills_table_html,
+        portrait_text=textarea_portrait_text,
+        has_portrait=bool(portrait_text.strip()),
     )
 
     with open(out_html, "w", encoding="utf-8") as f:

@@ -35,6 +35,7 @@ Core orchestration for CLI commands, GUI background sync, and heavy multi-step p
 | `formatting.py` | Dashboard title HTML line rendering |
 | `llm_utils.py` | CLI LLM init helpers |
 | `summarization.py` | File/folder summarization commands |
+| `user_portrait.py` | User portrait context, LLM generation, diff, file I/O |
 
 **Context:**
 `cli.py` is a thin argparse layer delegating here. Workflows are callable from tests and `server.py` without going through the CLI.

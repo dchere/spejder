@@ -210,19 +210,31 @@ def get_job_skills(db_path: str, job_id: int) -> list[str]:
     """Return the cached skill names for a job, or empty list if not yet stored."""
     if not job_id:
         return []
+    return get_job_skills_for_jobs(db_path, [int(job_id)]).get(int(job_id), [])
+
+
+def get_job_skills_for_jobs(db_path: str, job_ids: list[int]) -> dict[int, list[str]]:
+    """Return cached skill names for many jobs in one query (job_id -> ordered names)."""
+    ids = sorted({int(job_id) for job_id in job_ids if int(job_id or 0) > 0})
+    if not ids:
+        return {}
     conn = _connect(db_path)
     try:
         cur = conn.cursor()
+        placeholders = ",".join("?" for _ in ids)
         cur.execute(
-            """
-            SELECT sp.name FROM job_skills js
+            f"""
+            SELECT js.job_id, sp.name FROM job_skills js
             JOIN skill_patterns sp ON sp.id = js.skill_id
-            WHERE js.job_id = ?
-            ORDER BY sp.name
+            WHERE js.job_id IN ({placeholders})
+            ORDER BY js.job_id, sp.name
             """,
-            (job_id,),
+            ids,
         )
-        return [r[0] for r in cur.fetchall()]
+        result: dict[int, list[str]] = {job_id: [] for job_id in ids}
+        for job_id, name in cur.fetchall():
+            result[int(job_id)].append(str(name))
+        return result
     finally:
         conn.close()
 

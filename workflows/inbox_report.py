@@ -234,6 +234,7 @@ def write_inbox_dashboard_report(
         report_max_not_relevant_positions=_report_max_not_relevant_positions(profile),
         interview_items=interview_records,
         stopped_items=stopped_records,
+        runtime_profile=profile,
     )
     print(f"Report written: {dashboard_path}")
     return dashboard_path

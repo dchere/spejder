@@ -246,6 +246,7 @@ def refresh_descriptions(profile: str = None, db: str = None, model: str = "", s
             report_max_not_relevant_positions=_report_max_not_relevant_positions(runtime_profile),
             interview_items=interview_records,
             stopped_items=stopped_records,
+            runtime_profile=runtime_profile,
         )
         print(f"Report written: {dashboard_path}")
 

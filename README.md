@@ -207,7 +207,10 @@ Main dashboard API endpoints (JSON `POST` unless noted):
 - Interview: `/api/interview`, `/api/interview/stopped`, `/api/interview/feedback`
 - Applied enrichment: `/api/applied/raw-text`, `/api/applied/cover-letter/request`, `/api/applied/cover-letter`
 - Skills tab: `/api/skill/user`, `/api/skill/learn`, `/api/skill/block`, `/api/skill/delete`
+- Portrait tab: `GET /api/portrait`, `POST /api/portrait/generate`, `POST /api/portrait/save`
 - Pages: `GET /report.html`, `GET /company.html?company=…`
+
+The dashboard includes a **Portrait** tab for a committed professional summary stored in `./portrait.txt` (configurable via `default_portrait_path`). Click **Regenerate portrait** to synthesize a draft from your CV (`./CV`), profile skills, applied jobs, cover letters, and stopped-interview feedback. Review the git-style diff, edit the textarea if needed, then **Save portrait** to commit. Regeneration preserves prior wording where still accurate (minimal-change prompt). Requires `default_model` in profile. Unsaved portrait edits prompt before leaving the tab or reloading the page.
 
 The dashboard uses these endpoints while you triage; you normally do not call them manually. Request body shapes are documented in [`server.md`](server.md).
 

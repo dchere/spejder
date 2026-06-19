@@ -32,5 +32,10 @@ Replaces the old dictionary-based profile system (`FALLBACK_DEFAULT_PROFILE`). A
 - No per-job skill count cap; extraction returns all skills that pass filters
 - `skill_new_max_per_job` — **removed**; ignored if still present in an old `profile.json` (dropped on next profile save)
 
+**Portrait profile fields:**
+- `default_cv_path` — CV file or folder for portrait generation (default `./CV`)
+- `default_portrait_path` — committed portrait text file (default `./portrait.txt`)
+- `portrait_max_tokens` — LLM output budget for portrait regeneration (default `1200`)
+
 **Dependencies:**
 - `pydantic`, `json`, `os`

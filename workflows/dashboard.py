@@ -280,6 +280,7 @@ class DashboardRebuildQueue:
                         not_relevant_total_count=category_totals.get("not relevant", 0),
                         interview_items=refreshed_interview_records,
                         stopped_items=refreshed_stopped_records,
+                        runtime_profile=self.runtime_profile,
                     )
                 if should_log_rebuild and not reason.startswith("new record"):
                     print(f"Dashboard rebuild: done ({reason})")

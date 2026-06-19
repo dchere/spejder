@@ -10,6 +10,8 @@ Implements the Repository Pattern, acting as the strict single source of truth f
 - `set_job_place(db_path, job_id, place)`
 - `batch_update_and_delete_jobs(db_path, updates, deletes)`
 - `replace_job_skills(db_path, job_id, skill_names) -> bool` — delete/replace job skill links; returns `False` when normalized key set unchanged; `set_job_skills` delegates here
+- `get_job_skills(db_path, job_id)` — cached skill names for one job
+- `get_job_skills_for_jobs(db_path, job_ids)` — batch variant; returns `{job_id: [names]}` in one query
 - `delete_skill_from_db(db_path, skill_name)` — removes `skill_patterns` rows and all `job_skills` links for one normalized skill key; returns `{skill_rows_deleted, job_skill_links_deleted, affected_job_ids}`
 - `count_jobs_with_skill_links(db_path)` — distinct jobs with at least one `job_skills` row (denominator for Skills tab job share %)
 - `get_top_skills_by_job_links(db_path, limit, exclude_keys=None)` — skill names ranked by `job_skills` link count; excluding normalized keys; used by antipattern sync for good-skill selection. **Dual filter for eligible skills:** `INNER JOIN job_skills` (only skills with at least one job link) **and** `COALESCE(sp.occurrences, 0) >= 1` (pattern-learning counter must be positive — excludes orphan `skill_patterns` rows that never graduated from the learning pipeline). **Tie-break:** equal link counts sort alphabetically by `sp.name` (`ORDER BY link_count DESC, sp.name ASC`).
