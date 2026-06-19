@@ -19,7 +19,7 @@ Core orchestration for CLI commands, GUI background sync, and heavy multi-step p
 |--------|------|
 | `dashboard.py` | Dashboard record building + rebuild queue worker |
 | `gui.py` | GUI/server thread orchestration |
-| `gui_sync.py` | Background inbox sync pipeline (7 steps) |
+| `gui_sync.py` | Background inbox sync pipeline (8 steps) |
 | `ingest_utils.py` | Per-file ingest stats + inbox file cleanup |
 | `inbox_report.py` | Inbox relevant-job summaries + HTML dashboard write |
 | `job_enrichment.py` | Facade re-exporting job enrichment helpers |
@@ -45,7 +45,8 @@ Core orchestration for CLI commands, GUI background sync, and heavy multi-step p
 1. Ingest inbox (or backfill missing descriptions)
 2. Delete processed inbox files
 3. Company+title position dedupe
-4. Queue dashboard rebuild
-5. Relevance scoring
-6. Skill materialization, description generation, skill-pattern learning
-7. Optional antipattern sync (async)
+4. Skill materialization (+ dashboard rebuild when `skills_updated > 0`)
+5. Description generation (+ rebuild when updated)
+6. Skill-pattern learning (+ rebuild when new patterns)
+7. Blocked-skills DB cleanup + rescore (+ rebuild when DB changed)
+8. Optional antipattern sync (async)

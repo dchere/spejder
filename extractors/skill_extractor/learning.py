@@ -12,6 +12,7 @@ from spejder.db import (
 )
 from spejder.llm import LocalLLM
 
+from .filtering import _blocked_skill_keys
 from .normalization import _normalize_skill_name
 from .patterns import _get_skill_patterns
 from .utils import _skill_to_regex
@@ -55,8 +56,18 @@ def _learn_skill_patterns_from_positions(
     min_occurrences = int(runtime_profile.skill_learning_min_occurrences or 3)
     max_new = int(runtime_profile.skill_learning_max_new_patterns or 20)
 
+    blocked_keys = _blocked_skill_keys(runtime_profile)
     counts: Counter[str] = Counter()
     considered = 0
+
+    def _skills_for_learning(skill_names: list[str]) -> list[str]:
+        out = []
+        for raw in skill_names:
+            normalized = _normalize_skill_name(raw)
+            if not normalized or normalized.lower() in blocked_keys:
+                continue
+            out.append(normalized)
+        return out
 
     if progress:
         print(f"{progress_label}: starting (positions={min(len(rows), max_positions)})")
@@ -65,7 +76,7 @@ def _learn_skill_patterns_from_positions(
         job_id = int(row.get("id", 0) or 0)
         cached = get_job_skills(db_path, job_id) if job_id else []
         if cached:
-            skills = [_normalize_skill_name(s) for s in cached if _normalize_skill_name(s)]
+            skills = _skills_for_learning(cached)
         else:
             from spejder.workflows.job_enrichment import materialize_job_skills
 
@@ -80,9 +91,9 @@ def _learn_skill_patterns_from_positions(
                 title_translation_cache=title_translation_cache,
                 rescore=False,
             )
-            skills = [
-                _normalize_skill_name(s) for s in skills_text.split(",") if _normalize_skill_name(s)
-            ]
+            skills = _skills_for_learning(
+                [s.strip() for s in skills_text.split(",") if s.strip()]
+            )
 
         for skill in skills:
             counts[skill] += int(weight)

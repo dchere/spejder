@@ -161,18 +161,7 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
         except Exception as exc:
             print(f"Background sync: cross-source dedupe failed: {exc}")
 
-        _emit_stage(context, "blocked_skills", "Cleaning blocked skills from database")
-        blocked_cleanup = cleanup_blocked_skills_from_db(
-            context.db_path,
-            list(context.runtime_profile.blocked_skills or []),
-        )
-        print(
-            "Background sync: blocked-skills cleanup "
-            f"(processed={blocked_cleanup.get('skills_processed', 0)}, "
-            f"links_deleted={blocked_cleanup.get('job_skill_links_deleted', 0)}, "
-            f"patterns_deleted={blocked_cleanup.get('skill_rows_deleted', 0)}, "
-            f"affected_jobs={len(blocked_cleanup.get('affected_job_ids', []))})"
-        )
+        blocked_rescored = 0
 
         _emit_stage(context, "skills", "Materializing skills and rescoring jobs")
         skill_rows = get_jobs_for_active_rescore(context.db_path)
@@ -183,20 +172,8 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
         )
         print(f"Background sync: missing skills populated ({skills_updated} jobs updated)")
 
-        blocked_rescored = rescore_jobs_if_active(
-            context.db_path,
-            context.runtime_profile,
-            list(blocked_cleanup.get("affected_job_ids", [])),
-        )
-        if blocked_rescored:
-            print(f"Background sync: rescored blocked-skill jobs ({blocked_rescored})")
-
-        context.queue_dashboard_rebuild(
-            reason=(
-                f"skills materialized={skills_updated}, "
-                f"blocked_rescored={blocked_rescored}"
-            )
-        )
+        if skills_updated > 0:
+            context.queue_dashboard_rebuild(reason=f"skills materialized={skills_updated}")
 
         _emit_stage(context, "descriptions", "Generating missing descriptions")
         desc_updated, desc_skipped = _generate_missing_descriptions_for_ingest(
@@ -228,6 +205,41 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
             f"new={skill_learning.get('new_skill_patterns', 0)}, "
             f"total={skill_learning.get('total_known_skill_patterns', 0)})"
         )
+
+        _emit_stage(context, "blocked_skills", "Cleaning blocked skills from database")
+        blocked_cleanup = cleanup_blocked_skills_from_db(
+            context.db_path,
+            list(context.runtime_profile.blocked_skills or []),
+        )
+        print(
+            "Background sync: blocked-skills cleanup "
+            f"(processed={blocked_cleanup.get('skills_processed', 0)}, "
+            f"links_deleted={blocked_cleanup.get('job_skill_links_deleted', 0)}, "
+            f"patterns_deleted={blocked_cleanup.get('skill_rows_deleted', 0)}, "
+            f"affected_jobs={len(blocked_cleanup.get('affected_job_ids', []))})"
+        )
+
+        blocked_rescored = rescore_jobs_if_active(
+            context.db_path,
+            context.runtime_profile,
+            list(blocked_cleanup.get("affected_job_ids", [])),
+        )
+        if blocked_rescored:
+            print(f"Background sync: rescored blocked-skill jobs ({blocked_rescored})")
+
+        if (
+            blocked_rescored
+            or int(blocked_cleanup.get("job_skill_links_deleted", 0) or 0) > 0
+            or int(blocked_cleanup.get("skill_rows_deleted", 0) or 0) > 0
+        ):
+            context.queue_dashboard_rebuild(
+                reason=(
+                    f"blocked-skills cleanup "
+                    f"(rescored={blocked_rescored}, "
+                    f"links_deleted={blocked_cleanup.get('job_skill_links_deleted', 0)}, "
+                    f"patterns_deleted={blocked_cleanup.get('skill_rows_deleted', 0)})"
+                )
+            )
 
         if llm_for_sync and should_sync_skill_antipatterns(context.runtime_profile, llm_for_sync):
             _emit_stage(context, "antipatterns", "Starting antipattern sync in background")
