@@ -19,7 +19,7 @@ This module is responsible for parsing and extracting specialized entities (such
   - `antipattern_validation.py` — synthetic job generation, LLM blocked-phrase matching, and multi-run extraction validation
   - `antipattern_sync.py` — orchestration, gates, CLI entry; re-exports synthesis/validation helpers
   - `user_sync.py` / `cleanup.py` — CLI commands for CV sync and DB cleanup
-  - `ui.py` — skills tab data for the dashboard (`position_pct` = share of jobs with extracted skills; `occurrences` = pattern-learning counter shown as **Learned**)
+  - `ui.py` — skills tab data for the dashboard (`position_pct` = share of jobs with extracted skills; `occurrences` = pattern-learning counter shown as **Learned**; `added_at` copied from DB `created_at`, empty for profile-only rows; `SKILLS_EMPTY_ADDED_AT_SORT` (`"0000"`) sentinel for profile-only sort keys — no real ISO date starts with `0000`; default server-side order uses stable double-sort: name A→Z first, then `added_at` DESC with profile-only rows last; sentinel forwarded to `dashboard.html` via `dashboard_manager` Jinja context for client-side sort)
 
 ## Blocked skills vs antipatterns
 

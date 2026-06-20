@@ -21,7 +21,7 @@ def get_skill_patterns(db_path: str, enabled_only: bool = True) -> list[dict]:
     try:
         cur = conn.cursor()
         q = (
-            "SELECT name, pattern, source, occurrences, weight, enabled, last_seen_at "
+            "SELECT name, pattern, source, occurrences, weight, enabled, last_seen_at, created_at "
             "FROM skill_patterns"
         )
         params: list = []
@@ -39,6 +39,7 @@ def get_skill_patterns(db_path: str, enabled_only: bool = True) -> list[dict]:
                 "weight": float(r[4] or 0),
                 "enabled": int(r[5] or 0),
                 "last_seen_at": r[6] or "",
+                "created_at": r[7] or "",
             }
             for r in rows
         ]

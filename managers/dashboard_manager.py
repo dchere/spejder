@@ -8,7 +8,7 @@ import os
 from typing import Optional
 
 from spejder.config import AppConfig
-from spejder.workflows.user_portrait import embed_portrait_for_textarea, load_portrait, portrait_file_path
+from spejder.extractors.skill_extractor.ui import SKILLS_EMPTY_ADDED_AT_SORT
 
 from .dashboard_cards import _build_job_cards, _render_html_from_items
 from .dashboard_sorting import _sort_applied_positions, _sort_positions_unviewed_then_score
@@ -152,6 +152,15 @@ def _render_html_dashboard(
         want_to_learn = bool(item.get("want_to_learn"))
         has_skill_checked = "checked" if has_skill else ""
         learn_checked = "checked" if want_to_learn else ""
+        added_at_raw = str(item.get("added_at", "") or "")
+        if added_at_raw:
+            added_display = html_lib.escape(added_at_raw[:10])
+            added_title = html_lib.escape(f"Added to skill_patterns: {added_at_raw}")
+            sort_added_at = html_lib.escape(added_at_raw, quote=True)
+        else:
+            added_display = "—"
+            added_title = html_lib.escape("Profile-only skill (not stored in skill_patterns)")
+            sort_added_at = SKILLS_EMPTY_ADDED_AT_SORT
         if jobs_with_skills > 0:
             position_display = f"{position_pct:.1f}%"
             position_title = html_lib.escape(
@@ -164,12 +173,14 @@ def _render_html_dashboard(
             f"""
             <tr data-skill-key="{skill_key}"
                 data-sort-name="{html_lib.escape(str(item.get('name', '')), quote=True)}"
+                data-sort-added-at="{sort_added_at}"
                 data-sort-source="{html_lib.escape(str(item.get('source', '')), quote=True)}"
                 data-sort-position-pct="{position_pct:.1f}"
                 data-sort-occurrences="{occurrences}"
                 data-sort-has-skill="{'1' if has_skill else '0'}"
                 data-sort-want-learn="{'1' if want_to_learn else '0'}">
                 <td>{skill_name}</td>
+                <td title="{added_title}">{added_display}</td>
                 <td>{source}</td>
                 <td title="{position_title}">{position_display}</td>
                 <td>{occurrences}</td>
@@ -185,7 +196,8 @@ def _render_html_dashboard(
         <table class="skills-table" id="skills-table">
             <thead>
                 <tr>
-                    <th class="skills-sortable skills-sort-active" data-sort-key="name" title="Skill name (normalized). Click to sort.">Skill<span class="skills-sort-indicator" aria-hidden="true"></span></th>
+                    <th class="skills-sortable" data-sort-key="name" title="Skill name (normalized). Click to sort.">Skill<span class="skills-sort-indicator" aria-hidden="true"></span></th>
+                    <th class="skills-sortable skills-sort-active" data-sort-key="added_at" title="When the skill was first stored in skill_patterns (profile-only skills show —). Click to sort.">Added<span class="skills-sort-indicator" aria-hidden="true"></span></th>
                     <th class="skills-sortable" data-sort-key="source" title="Where defined: db (SQLite pattern) or profile (your lists / seed patterns). Click to sort.">Source<span class="skills-sort-indicator" aria-hidden="true"></span></th>
                     <th class="skills-sortable" data-sort-key="position_pct" title="Share of jobs with extracted skills that list this skill. Cell tooltip shows exact counts. Click to sort.">Job share<span class="skills-sort-indicator" aria-hidden="true"></span></th>
                     <th class="skills-sortable" data-sort-key="occurrences" title="Pattern-learning score from applied/relevant positions (not the same as job share). Click to sort.">Learned<span class="skills-sort-indicator" aria-hidden="true"></span></th>
@@ -203,6 +215,12 @@ def _render_html_dashboard(
         """
         if skills_rows
         else '<p class="empty">No skills found.</p>'
+    )
+
+    from spejder.workflows.user_portrait import (
+        embed_portrait_for_textarea,
+        load_portrait,
+        portrait_file_path,
     )
 
     portrait_text = ""
@@ -228,6 +246,7 @@ def _render_html_dashboard(
         interview_cards=interview_cards,
         stopped_cards=stopped_cards,
         skills_table_html=skills_table_html,
+        skills_empty_added_at_sort=SKILLS_EMPTY_ADDED_AT_SORT,
         portrait_text=textarea_portrait_text,
         has_portrait=bool(portrait_text.strip()),
     )

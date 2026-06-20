@@ -16,7 +16,8 @@ Implements the Repository Pattern, acting as the strict single source of truth f
 - `count_jobs_with_skill_links(db_path)` — distinct jobs with at least one `job_skills` row (denominator for Skills tab job share %)
 - `get_top_skills_by_job_links(db_path, limit, exclude_keys=None)` — skill names ranked by `job_skills` link count; excluding normalized keys; used by antipattern sync for good-skill selection. **Dual filter for eligible skills:** `INNER JOIN job_skills` (only skills with at least one job link) **and** `COALESCE(sp.occurrences, 0) >= 1` (pattern-learning counter must be positive — excludes orphan `skill_patterns` rows that never graduated from the learning pipeline). **Tie-break:** equal link counts sort alphabetically by `sp.name` (`ORDER BY link_count DESC, sp.name ASC`).
 - `cleanup_blocked_skills_from_db(db_path, blocked_skills)` — dedupes blocked skill names via `_normalize_skill_name_key`, delegates each to `delete_skill_from_db`, returns aggregated `{skills_processed, skill_rows_deleted, job_skill_links_deleted, affected_job_ids}`
-(And many more database query functions)
+- `get_skill_patterns(db_path, enabled_only=True)` — returns skill pattern rows including `created_at` (ISO timestamp when first stored in `skill_patterns`); default SQL order remains `weight DESC, occurrences DESC, name ASC` for callers that rely on it
+- (And many more database query functions)
 
 **Context:**
 Extracted from `jobs.py`. The rest of the application (including business logic in `jobs.py` and `workflows.py`) only interacts with abstract Python data structures (lists, dicts, tuples) and never executes SQL directly. This ensures complete isolation of the persistence layer.

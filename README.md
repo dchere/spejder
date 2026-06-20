@@ -130,7 +130,8 @@ Open `http://127.0.0.1:8765/report.html`.
 - If the requested port is busy, the server automatically tries the next ports up to 20 times.
 - Clicking a company name opens a filtered company page for that employer's jobs.
 - Applied jobs have a "Paste full description" form that feeds the full text to the LLM, regenerating the summary, description, and skill tags.
-- **Skills** tab columns (sortable; default order is skill name A→Z):
+- **Skills** tab columns (sortable; default order is **Added** newest first):
+  - **Added** — date the skill was first stored in SQLite `skill_patterns` (`YYYY-MM-DD`). Profile-only skills (your lists / seed patterns without a DB row) show **—**; hover for the tooltip.
   - **Job share** — share of jobs with extracted skills that list this skill. Hover a cell for exact counts.
   - **Learned** — pattern-learning score from applied/relevant jobs (not the same as job share; see [Profile fields](#profile-fields-related-to-skills)).
   - **I have** / **Want to learn** — toggles for your profile skill list and want-to-learn suggestions.
