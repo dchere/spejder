@@ -30,7 +30,7 @@
             .raw-append-input, .cover-letter-text { width: 100%; min-height: 120px; resize: vertical; border: 1px solid #c9d6f0; border-radius: 6px; padding: 8px; font-size: 12px; font-family: monospace; box-sizing: border-box; }
             .raw-append-btn, .cover-letter-btn { margin-top: 8px; border: 1px solid #0a58ca; color: #0a58ca; background: #fff; border-radius: 6px; padding: 6px 10px; cursor: pointer; }
             .raw-append-btn:disabled, .cover-letter-btn:disabled { opacity: 0.55; cursor: not-allowed; }
-            .relevance-score { position: absolute; top: 8px; right: 10px; font-size: 11px; color: #9aa0a6; }
+            {% include "partials/dashboard_card_corners.css" %}
             .feedback { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
             .relevant-wrap { font-size: 13px; color: #333; display: inline-flex; gap: 5px; align-items: center; }
             .viewed-wrap { font-size: 13px; color: #333; display: inline-flex; gap: 5px; align-items: center; }

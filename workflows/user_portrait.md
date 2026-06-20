@@ -1,7 +1,7 @@
 # spejder.workflows.user_portrait
 
 **Purpose:**
-Build, regenerate, and persist a user professional portrait from CV text, profile skills, applied jobs, cover letters, and stopped-interview feedback. Used for cover-letter context (future) and manual review in the dashboard Portrait tab.
+Build, regenerate, and persist a user professional portrait from CV text, profile skills, applied jobs, cover letters, and stopped-interview feedback. Used for cover-letter context (future) and manual review in the dashboard Portrait panel (toolbar icon).
 
 **API:**
 - `portrait_file_path(profile)` / `cv_file_path(profile)` — resolved paths via `resolve_user_path`
@@ -18,14 +18,14 @@ Build, regenerate, and persist a user professional portrait from CV text, profil
 - CV input: `./CV` (`AppConfig.default_cv_path`) via `load_cv_text`
 
 **GUI:**
-- Portrait tab in `templates/dashboard.html`
-- Unsaved draft or manual edits trigger a confirm when leaving the Portrait tab and a `beforeunload` prompt on page close/reload
+- Portrait panel in `templates/dashboard.html` (opened via toolbar icon `#btn-portrait`, not the mode tab row)
+- Unsaved draft or manual edits trigger a confirm when leaving the Portrait panel and a `beforeunload` prompt on page close/reload
 - `GET /api/portrait` — committed text
 - `POST /api/portrait/generate` — sync LLM; returns `{ draft, committed, diff_html }` (does not write file)
 - `POST /api/portrait/save` — writes committed portrait (no dashboard rebuild)
 
 **Context:**
-Regeneration instructs the LLM to preserve accurate prior wording. Draft is client-side until Save. Dashboard embeds committed text on rebuild (textarea-safe embed); tab refresh uses GET when the server is running. `POST /api/portrait/generate` is synchronous and blocks the request worker until the LLM returns; concurrent requests receive 409.
+Regeneration instructs the LLM to preserve accurate prior wording. Draft is client-side until Save. Dashboard embeds committed text on rebuild (textarea-safe embed); panel refresh uses GET when the server is running. `POST /api/portrait/generate` is synchronous and blocks the request worker until the LLM returns; concurrent requests receive 409.
 
 **Dependencies:**
 - `spejder.config`, `spejder.core`, `spejder.db`, `spejder.llm`, `spejder.parsers.cv_parser`
