@@ -10,6 +10,12 @@ from spejder.extractors.skill_extractor import _normalize_skill_name
 
 from .dashboard_templates import jinja_env
 
+# Corner overlay class names and tooltip titles (shared with dashboard_card_corners.css).
+RELEVANCE_SCORE_CLASS = "relevance-score"
+APPLIED_DATE_CLASS = "applied-date"
+RELEVANCE_SCORE_TITLE = "Relevance score"
+APPLIED_DATE_TITLE = "Applied date"
+
 
 def _format_applied_date(applied_at: str) -> str:
     s = str(applied_at or "").strip()
@@ -200,31 +206,33 @@ def _build_job_cards(
             """.strip()
 
         place_line = f"<p><strong>Place:</strong> {place}</p>" if place else ""
-        applied_date_line = ""
+        applied_date_span = ""
         if card_panel in ("applied", "interview", "stopped") or is_applied:
             applied_date = _format_applied_date(str(item.get("applied_at", "") or ""))
             if applied_date:
-                applied_date_line = (
-                    f'<p class="applied-date"><strong>Applied:</strong> '
-                    f"{html_lib.escape(applied_date)}</p>"
+                applied_date_span = (
+                    f'<span class="{APPLIED_DATE_CLASS}" title="{APPLIED_DATE_TITLE}">Applied: '
+                    f"{html_lib.escape(applied_date)}</span>"
                 )
+        if applied_date_span:
+            card_class = f"{card_class} has-applied-date"
         cards.append(
             f"""
             <article class="{card_class}" data-job-id="{job_id}"{company_feedback_attr}>
-                <span class="relevance-score" title="Relevance score">{relevance_score:.2f}</span>
+                <span class="{RELEVANCE_SCORE_CLASS}" title="{RELEVANCE_SCORE_TITLE}">{relevance_score:.2f}</span>
                 <p><strong>Title:</strong> <a href="{safe_link}" target="_blank" rel="noopener noreferrer">{role}</a> {easy_apply_badge}</p>
                 {title_english_html}
                 <p><strong>Source:</strong> {source}</p>
                 <p><strong>Company:</strong> {company_html}</p>
                 {place_line}
                 <p><strong>Type:</strong> {work_type}</p>
-                {applied_date_line}
                 <p><strong>Description:</strong> {description}</p>
                 {manual_status if is_applied else ""}
                 {manual_controls}
                 {cover_letter_controls}
                 {feedback_controls}
                 <p><strong>Skills:</strong> <span class="skill-tags">{skills_html or '<span class="skills-empty">No skills extracted</span>'}</span></p>
+                {applied_date_span}
                 <div class="feedback">
                     <label class="relevant-wrap"><input type="checkbox" {"checked" if str(item.get("category", "")).strip().lower() == "relevant" else ""} onchange="setRelevant({job_id}, this.checked, this)"/> Relevant</label>
                     <label class="viewed-wrap"><input type="checkbox" {"checked" if int(item.get("viewed", 0) or 0) == 1 else ""} onchange="setViewed({job_id}, this.checked, this)"/> Viewed</label>

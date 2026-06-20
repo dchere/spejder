@@ -119,10 +119,11 @@ Open `http://127.0.0.1:8765/report.html`.
 - Marking a job as `Viewed` removes it from those tabs.
 - Marking a job as `Applied` moves it into the `Applied` tab and also marks it as relevant and viewed.
 - Applied jobs can be moved to `Interview` (on interview) or `Stopped` (process ended); the two flags are mutually exclusive. Cards live in one applied-stage panel at a time.
-- Applied, Interview, and Stopped cards show **Applied: YYYY-MM-DD** when an apply date is recorded.
+- Applied, Interview, and Stopped cards show **Applied: YYYY-MM-DD** in the bottom-right corner when an apply date is recorded.
 - Stopped cards support free-text `Company feedback` saved via the dashboard.
 - Unmarking `Applied`, unmarking `Viewed`, or marking `Not relevant` clears interview/stopped state, company feedback, and the recorded apply date (`applied_at`).
 - Feedback writes are saved immediately; `report.html` regeneration is queued and runs in the background.
+- Toolbar icon buttons (right side of the tab bar): **Portrait** (user silhouette), **Regenerate report** (refresh icon), and **Sync inbox** (inbox icon). Regenerate and Sync inbox show a status line in the toolbar when running or complete; Portrait shows status inside the panel.
 - **Regenerate report** queues a dashboard rebuild from the current DB and reloads the page when the new `report.html` is ready (requires `serve-gui`).
 - **Sync inbox** (requires `serve-gui`) processes new inbox files on demand: ingest, dedupe, skills, descriptions, and related background steps. The button stays disabled while sync runs and until dashboard rebuild is idle; the status line shows stage progress. Reload the page manually when sync completes to see new positions — the page does not auto-reload.
 - When `serve-gui` starts, it rebuilds the dashboard snapshot from the current DB (blocking), starts the HTTP server, then triggers the same inbox sync pipeline as **Sync inbox** (ingest, dedupe, skills, descriptions, and related background steps). Reload the page manually when sync completes to see new positions.
@@ -208,10 +209,10 @@ Main dashboard API endpoints (JSON `POST` unless noted):
 - Interview: `/api/interview`, `/api/interview/stopped`, `/api/interview/feedback`
 - Applied enrichment: `/api/applied/raw-text`, `/api/applied/cover-letter/request`, `/api/applied/cover-letter`
 - Skills tab: `/api/skill/user`, `/api/skill/learn`, `/api/skill/block`, `/api/skill/delete`
-- Portrait tab: `GET /api/portrait`, `POST /api/portrait/generate`, `POST /api/portrait/save`
+- Portrait panel: `GET /api/portrait`, `POST /api/portrait/generate`, `POST /api/portrait/save`
 - Pages: `GET /report.html`, `GET /company.html?company=…`
 
-The dashboard includes a **Portrait** tab for a committed professional summary stored in `./portrait.txt` (configurable via `default_portrait_path`). Click **Regenerate portrait** to synthesize a draft from your CV (`./CV`), profile skills, applied jobs, cover letters, and stopped-interview feedback. Review the git-style diff, edit the textarea if needed, then **Save portrait** to commit. Regeneration preserves prior wording where still accurate (minimal-change prompt). Requires `default_model` in profile. Unsaved portrait edits prompt before leaving the tab or reloading the page.
+The dashboard includes a **Portrait** panel (open via the **Portrait** toolbar icon, not a mode tab) for a committed professional summary stored in `./portrait.txt` (configurable via `default_portrait_path`). Click **Regenerate portrait** to synthesize a draft from your CV (`./CV`), profile skills, applied jobs, cover letters, and stopped-interview feedback. Review the git-style diff, edit the textarea if needed, then **Save portrait** to commit. Regeneration preserves prior wording where still accurate (minimal-change prompt). Requires `default_model` in profile. Unsaved portrait edits prompt before leaving the panel or reloading the page.
 
 The dashboard uses these endpoints while you triage; you normally do not call them manually. Request body shapes are documented in [`server.md`](server.md).
 

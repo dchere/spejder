@@ -1,0 +1,7 @@
+.relevance-score, .applied-date { position: absolute; right: 10px; font-size: 11px; color: #9aa0a6; }
+.relevance-score { top: 8px; }
+.applied-date { bottom: 8px; }
+.card:has(.applied-date) .feedback,
+.card.has-applied-date .feedback { padding-right: 7.5rem; padding-bottom: 1.5rem; }
+.card:has(.applied-date) .company-feedback-input,
+.card.has-applied-date .company-feedback-input { margin-bottom: 1.25rem; }
