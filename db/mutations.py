@@ -12,7 +12,7 @@ from .deduplication_utils import _keeper_sort_key, _merge_duplicate_into_keeper,
 
 _INTERVIEW_FIELDS_CLEAR = (
     "on_interview=0, interview_stopped=0, company_feedback=NULL, "
-    "cover_letter=NULL, cover_letter_requested=0"
+    "cover_letter=NULL, cover_letter_requested=0, applied_at=NULL"
 )
 
 
@@ -419,10 +419,11 @@ def set_job_applied(db_path: str, job_id: int, applied: bool) -> bool:
             cur.execute(
                 """
                 UPDATE jobs
-                SET applied=1, viewed=1, relevant=1, category='relevant', relevance_reason='manual_feedback=relevant', updated_at=?
+                SET applied=1, viewed=1, relevant=1, category='relevant', relevance_reason='manual_feedback=relevant',
+                    applied_at=COALESCE(applied_at, ?), updated_at=?
                 WHERE id=?
                 """,
-                (now, int(job_id)),
+                (now, now, int(job_id)),
             )
         else:
             cur.execute(

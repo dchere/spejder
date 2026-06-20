@@ -119,8 +119,9 @@ Open `http://127.0.0.1:8765/report.html`.
 - Marking a job as `Viewed` removes it from those tabs.
 - Marking a job as `Applied` moves it into the `Applied` tab and also marks it as relevant and viewed.
 - Applied jobs can be moved to `Interview` (on interview) or `Stopped` (process ended); the two flags are mutually exclusive. Cards live in one applied-stage panel at a time.
+- Applied, Interview, and Stopped cards show **Applied: YYYY-MM-DD** when an apply date is recorded.
 - Stopped cards support free-text `Company feedback` saved via the dashboard.
-- Unmarking `Applied`, unmarking `Viewed`, or marking `Not relevant` clears interview/stopped state and company feedback.
+- Unmarking `Applied`, unmarking `Viewed`, or marking `Not relevant` clears interview/stopped state, company feedback, and the recorded apply date (`applied_at`).
 - Feedback writes are saved immediately; `report.html` regeneration is queued and runs in the background.
 - **Regenerate report** queues a dashboard rebuild from the current DB and reloads the page when the new `report.html` is ready (requires `serve-gui`).
 - **Sync inbox** (requires `serve-gui`) processes new inbox files on demand: ingest, dedupe, skills, descriptions, and related background steps. The button stays disabled while sync runs and until dashboard rebuild is idle; the status line shows stage progress. Reload the page manually when sync completes to see new positions — the page does not auto-reload.
@@ -347,11 +348,14 @@ Main fields in the `jobs` table include:
 - `summary`
 - `viewed`
 - `applied`
+- `applied_at` — ISO timestamp when the job was first marked applied (shown on applied-stage cards as `Applied: YYYY-MM-DD`)
 - `on_interview`
 - `interview_stopped`
 - `company_feedback`
 - `created_at`
 - `updated_at`
+
+Jobs older than 90 days by `created_at` are auto-pruned on DB open (`ensure_db`), except interview and stopped applied rows (`applied=1` with `on_interview=1` or `interview_stopped=1`). Plain applied jobs still age out. Unchecking **On interview** or **Stopped** on an old retained job removes that exemption — the next `ensure_db` prunes it like any other plain applied row.
 
 Additional table:
 

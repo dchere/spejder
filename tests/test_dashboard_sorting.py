@@ -84,6 +84,40 @@ class DashboardSortingTest(unittest.TestCase):
         sorted_items = _sort_applied_positions(items)
         self.assertEqual(sorted_items[0]["relevance_score"], 0.8)
 
+    def test_applied_sort_tiebreaks_by_applied_at_desc(self):
+        base = {
+            "raw_text": MANUAL_APPLIED_RAW_MARKER,
+            "cover_letter_requested": 0,
+            "cover_letter": "",
+            "viewed": 1,
+            "relevance_score": 0.5,
+        }
+        items = [
+            {**base, "applied_at": "2024-01-01T00:00:00+00:00"},
+            {**base, "applied_at": "2024-06-01T00:00:00+00:00"},
+        ]
+        sorted_items = _sort_applied_positions(items)
+        self.assertEqual(
+            [i["applied_at"] for i in sorted_items],
+            ["2024-06-01T00:00:00+00:00", "2024-01-01T00:00:00+00:00"],
+        )
+
+    def test_applied_sort_empty_applied_at_after_dated(self):
+        base = {
+            "raw_text": MANUAL_APPLIED_RAW_MARKER,
+            "cover_letter_requested": 0,
+            "cover_letter": "",
+            "viewed": 1,
+            "relevance_score": 0.5,
+        }
+        items = [
+            {**base, "applied_at": ""},
+            {**base, "applied_at": "2024-03-01T00:00:00+00:00"},
+        ]
+        sorted_items = _sort_applied_positions(items)
+        self.assertEqual(sorted_items[0]["applied_at"], "2024-03-01T00:00:00+00:00")
+        self.assertEqual(sorted_items[1]["applied_at"], "")
+
 
 if __name__ == "__main__":
     unittest.main()

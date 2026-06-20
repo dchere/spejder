@@ -88,6 +88,7 @@ def build_dashboard_record(
         "company_feedback": row.get("company_feedback", "") or "",
         "cover_letter": row.get("cover_letter", "") or "",
         "cover_letter_requested": int(row.get("cover_letter_requested", 0) or 0),
+        "applied_at": row.get("applied_at", "") or "",
     }
 
 

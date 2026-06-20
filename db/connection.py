@@ -231,6 +231,12 @@ def ensure_db(db_path: str):
             cur.execute("ALTER TABLE jobs ADD COLUMN cover_letter TEXT")
         if "cover_letter_requested" not in cols:
             cur.execute("ALTER TABLE jobs ADD COLUMN cover_letter_requested INTEGER DEFAULT 0")
+        if "applied_at" not in cols:
+            cur.execute("ALTER TABLE jobs ADD COLUMN applied_at TEXT")
+
+        cur.execute(
+            "UPDATE jobs SET applied_at = updated_at WHERE applied = 1 AND applied_at IS NULL"
+        )
 
         cur.execute(
             """
@@ -298,12 +304,14 @@ def ensure_db(db_path: str):
         )
 
         # Auto-prune old positions by creation date to keep DB focused on recent jobs.
+        # Interview/stopped applied jobs are retained; plain applied rows still age out.
         cur.execute(
             """
             DELETE FROM jobs
             WHERE created_at IS NOT NULL
               AND TRIM(created_at) <> ''
               AND datetime(replace(created_at, 'T', ' ')) < datetime('now', ?)
+              AND NOT (applied = 1 AND (on_interview = 1 OR interview_stopped = 1))
             """,
             (f"-{int(JOB_RETENTION_DAYS)} days",),
         )

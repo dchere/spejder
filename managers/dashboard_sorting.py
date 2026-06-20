@@ -1,5 +1,7 @@
 """Sort helpers for dashboard job lists."""
 
+from datetime import datetime
+
 from spejder.core import MANUAL_APPLIED_RAW_MARKER
 
 
@@ -19,11 +21,22 @@ def _sort_positions_unviewed_then_score(items: list[dict]) -> list[dict]:
     return sorted(list(items), key=_key)
 
 
+def _applied_at_desc_sort_key(item: dict) -> tuple[int, float]:
+    s = str(item.get("applied_at", "") or "").strip()
+    if not s:
+        return (1, 0.0)
+    try:
+        ts = datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
+        return (0, -ts)
+    except ValueError:
+        return (1, 0.0)
+
+
 def _sort_applied_positions(items: list[dict]) -> list[dict]:
     def _key(item: dict):
         is_complete = _applied_position_is_complete(item)
         viewed = int(item.get("viewed", 0) or 0)
         score = float(item.get("relevance_score", 0) or 0.0)
-        return (is_complete, viewed, -score)
+        return (is_complete, viewed, -score, _applied_at_desc_sort_key(item))
 
     return sorted(list(items), key=_key)

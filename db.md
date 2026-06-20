@@ -27,6 +27,7 @@ Extracted from `jobs.py`. The rest of the application (including business logic 
   - `get_all_applied_jobs()` — all `applied=1` rows (skill learning, enrichment, raw-text)
   - `get_interview_jobs()` — `applied=1 AND on_interview=1`
   - `get_stopped_interview_jobs()` — `applied=1 AND interview_stopped=1`
+  - Applied-stage listings sort by `(applied_at IS NULL), applied_at DESC, updated_at DESC` (dated rows first; null `applied_at` last)
 - `queries_refresh.py` — description refresh, scoring candidate rows, active rescore scope
   - `get_jobs_for_active_rescore()` — jobs where `applied=1 OR on_interview=1 OR interview_stopped=1 OR viewed=0`
 - `queries_signals.py` — dedupe, merge, and suggestion queries
@@ -59,7 +60,9 @@ Extracted from `jobs.py`. The rest of the application (including business logic 
 - `on_interview INTEGER DEFAULT 0` — mutually exclusive with `interview_stopped`; only settable when `applied=1`
 - `interview_stopped INTEGER DEFAULT 0` — clears `on_interview` when set; only settable when `applied=1`
 - `company_feedback TEXT` — free-text notes on stopped cards; only writable when `interview_stopped=1`
-- `set_job_applied(False)`, `set_job_viewed(False)`, `set_job_feedback("not relevant")`, and `batch_update_and_delete_jobs` update tuples with `applied=0` all clear interview fields via shared `_INTERVIEW_FIELDS_CLEAR` (`on_interview=0`, `interview_stopped=0`, `company_feedback=NULL`, `cover_letter=NULL`, `cover_letter_requested=0`) alongside `applied=0`
+- `set_job_applied(False)`, `set_job_viewed(False)`, `set_job_feedback("not relevant")`, and `batch_update_and_delete_jobs` update tuples with `applied=0` all clear interview fields via shared `_INTERVIEW_FIELDS_CLEAR` (`on_interview=0`, `interview_stopped=0`, `company_feedback=NULL`, `cover_letter=NULL`, `cover_letter_requested=0`, `applied_at=NULL`) alongside `applied=0`
+- `set_job_applied(True)` sets `applied_at=COALESCE(applied_at, ?)` so re-saving an already-applied job does not shift the date; first apply and re-apply after unapply get a fresh timestamp
+- `ensure_db` backfills `applied_at` from `updated_at` for existing `applied=1` rows when the column is missing or null
 - `set_job_interview_stopped(False)` (unstop) clears only `interview_stopped`; preserves `company_feedback`
 - Mutations: `set_job_on_interview`, `set_job_interview_stopped`, `set_job_company_feedback`
 - Legacy `description_raw` → `jobs_new` migration copies `on_interview`, `interview_stopped`, and `company_feedback` when source columns exist
@@ -69,3 +72,14 @@ Extracted from `jobs.py`. The rest of the application (including business logic 
 - `cover_letter TEXT` — saved cover letter text for an applied job; one-time write via `set_job_cover_letter`
 - `cover_letter_requested INTEGER DEFAULT 0` — user checked “Cover letter” on the applied card; toggled via `set_job_cover_letter_requested` until text is saved
 - Cleared with `_INTERVIEW_FIELDS_CLEAR` when `applied=0`
+
+**Applied date (`jobs.applied_at`):**
+- `applied_at TEXT` — ISO timestamp set on first apply; preserved on re-apply while still applied; cleared when `applied=0`
+- Listed in `_JOB_SELECT_COLS` (shared by all full-row listing queries in `queries_listings.py`) and mapped in `_map_full_job_row` / `_map_applied_job_row`
+- **Two-layer sort for applied-stage dashboard tabs:** DB queries above establish primary order by apply date; `dashboard_sorting._sort_applied_positions` re-sorts in Python for completion/viewed/score rules and uses `applied_at` as a tiebreaker (newer first; missing dates last)
+
+**90-day retention (`ensure_db`):**
+- Auto-prunes rows where `created_at` is older than `JOB_RETENTION_DAYS` (90)
+- Exempt: `applied=1 AND (on_interview=1 OR interview_stopped=1)` — interview/stopped pipeline jobs are kept
+- Plain `applied=1` rows (not on interview/stopped) still age out by `created_at`
+- Demotion edge case: unchecking **On interview** or **Stopped** on an old retained job removes the exemption; the next `ensure_db` prunes it like any other plain applied row

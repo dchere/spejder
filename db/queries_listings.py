@@ -5,7 +5,7 @@ from .utils import _provider_from_link
 _JOB_SELECT_COLS = (
     "id, source, company, title, title_english, place, work_type, position_link, raw_text, "
     "relevance_score, relevance_reason, summary, viewed, applied, on_interview, interview_stopped, "
-    "company_feedback, description, cover_letter, cover_letter_requested"
+    "company_feedback, description, cover_letter, cover_letter_requested, applied_at"
 )
 
 
@@ -132,7 +132,7 @@ def get_applied_jobs(db_path: str, limit: int = 0) -> list[dict]:
         q = (
             f"SELECT {_JOB_SELECT_COLS}, category "
             "FROM jobs WHERE applied=1 AND on_interview=0 AND interview_stopped=0 "
-            "ORDER BY updated_at DESC"
+            "ORDER BY (applied_at IS NULL), applied_at DESC, updated_at DESC"
         )
         params: list = []
         if limit and limit > 0:
@@ -151,7 +151,7 @@ def get_all_applied_jobs(db_path: str, limit: int = 0) -> list[dict]:
         cur = conn.cursor()
         q = (
             f"SELECT {_JOB_SELECT_COLS}, category "
-            "FROM jobs WHERE applied=1 ORDER BY updated_at DESC"
+            "FROM jobs WHERE applied=1 ORDER BY (applied_at IS NULL), applied_at DESC, updated_at DESC"
         )
         params: list = []
         if limit and limit > 0:
@@ -170,7 +170,7 @@ def get_interview_jobs(db_path: str, limit: int = 0) -> list[dict]:
         cur = conn.cursor()
         q = (
             f"SELECT {_JOB_SELECT_COLS}, category "
-            "FROM jobs WHERE applied=1 AND on_interview=1 ORDER BY updated_at DESC"
+            "FROM jobs WHERE applied=1 AND on_interview=1 ORDER BY (applied_at IS NULL), applied_at DESC, updated_at DESC"
         )
         params: list = []
         if limit and limit > 0:
@@ -189,7 +189,7 @@ def get_stopped_interview_jobs(db_path: str, limit: int = 0) -> list[dict]:
         cur = conn.cursor()
         q = (
             f"SELECT {_JOB_SELECT_COLS}, category "
-            "FROM jobs WHERE applied=1 AND interview_stopped=1 ORDER BY updated_at DESC"
+            "FROM jobs WHERE applied=1 AND interview_stopped=1 ORDER BY (applied_at IS NULL), applied_at DESC, updated_at DESC"
         )
         params: list = []
         if limit and limit > 0:

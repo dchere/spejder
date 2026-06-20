@@ -2,12 +2,27 @@
 
 import html as html_lib
 import os
+from datetime import datetime
 from typing import Optional
 
 from spejder.core import MANUAL_APPLIED_RAW_MARKER
 from spejder.extractors.skill_extractor import _normalize_skill_name
 
 from .dashboard_templates import jinja_env
+
+
+def _format_applied_date(applied_at: str) -> str:
+    s = str(applied_at or "").strip()
+    if not s:
+        return ""
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00")).date().isoformat()
+    except ValueError:
+        if "T" in s:
+            return s.split("T", 1)[0]
+        if " " in s:
+            return s.split(" ", 1)[0]
+        return s[:10] if len(s) >= 10 else s
 
 
 def _render_html_from_items(items, out_html: str, title: str):
@@ -185,6 +200,14 @@ def _build_job_cards(
             """.strip()
 
         place_line = f"<p><strong>Place:</strong> {place}</p>" if place else ""
+        applied_date_line = ""
+        if card_panel in ("applied", "interview", "stopped") or is_applied:
+            applied_date = _format_applied_date(str(item.get("applied_at", "") or ""))
+            if applied_date:
+                applied_date_line = (
+                    f'<p class="applied-date"><strong>Applied:</strong> '
+                    f"{html_lib.escape(applied_date)}</p>"
+                )
         cards.append(
             f"""
             <article class="{card_class}" data-job-id="{job_id}"{company_feedback_attr}>
@@ -195,6 +218,7 @@ def _build_job_cards(
                 <p><strong>Company:</strong> {company_html}</p>
                 {place_line}
                 <p><strong>Type:</strong> {work_type}</p>
+                {applied_date_line}
                 <p><strong>Description:</strong> {description}</p>
                 {manual_status if is_applied else ""}
                 {manual_controls}
