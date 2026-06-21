@@ -92,6 +92,19 @@ class DashboardTemplatesTest(unittest.TestCase):
         self.assertIn("padding-bottom: 1.5rem", html)
         self.assertIn(".card.has-applied-date .company-feedback-input", html)
         self.assertIn("text-overflow: ellipsis", html)
+        self.assertNotIn('id="btn-block-selected"', html)
+
+    def test_dashboard_html_shows_skills_bulk_bar_when_skills_present(self):
+        template = jinja_env.get_template("dashboard.html")
+        context = _minimal_dashboard_context()
+        context["len_skills_items"] = 2
+        context["skills_table_html"] = (
+            '<table class="skills-table" id="skills-table"><tbody><tr></tr></tbody></table>'
+        )
+        html = template.render(**context)
+
+        self.assertIn('id="btn-block-selected"', html)
+        self.assertIn('id="btn-delete-selected"', html)
 
     def test_company_dashboard_html_includes_corner_css_from_partial(self):
         template = jinja_env.get_template("company_dashboard.html")

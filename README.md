@@ -209,7 +209,7 @@ Main dashboard API endpoints (JSON `POST` unless noted):
 - Triage: `/api/feedback`, `/api/viewed`, `/api/applied`
 - Interview: `/api/interview`, `/api/interview/stopped`, `/api/interview/feedback`
 - Applied enrichment: `/api/applied/raw-text`, `/api/applied/cover-letter/request`, `/api/applied/cover-letter`
-- Skills tab: `/api/skill/user`, `/api/skill/learn`, `/api/skill/block`, `/api/skill/delete`
+- Skills tab: `/api/skill/user`, `/api/skill/learn`, `/api/skill/block`, `/api/skill/delete`, `/api/skill/block-batch`, `/api/skill/delete-batch`
 - Portrait panel: `GET /api/portrait`, `POST /api/portrait/generate`, `POST /api/portrait/save`
 - Pages: `GET /report.html`, `GET /company.html?company=…`
 

@@ -14,8 +14,10 @@ Provides an interactive dashboard (web GUI) to review extracted jobs and view th
 - All interview endpoints queue dashboard rebuild like `/api/applied`
 - `POST /api/viewed` with `viewed=false` and `POST /api/feedback` with `signal=not relevant` clear interview fields in DB (same as unapply)
 - `POST /api/skill/user` — after profile persist, runs `rescore_active_jobs` then dashboard rebuild
-- `POST /api/skill/block` — profile-only block via `_block_skill_in_profile`, then `delete_skill_from_db`, `rescore_jobs_if_active` on `affected_job_ids`, dashboard rebuild; response includes `block_info` and `db_deleted` (`skill_rows_deleted`, `job_skill_links_deleted`, `affected_job_ids`)
-- `POST /api/skill/delete` — profile cleanup + `delete_skill_from_db` + `rescore_jobs_if_active` on affected jobs
+- `POST /api/skill/block` — delegates to shared block runner (`_run_skill_block` with one skill); profile block + `delete_skill_from_db`, `rescore_jobs_if_active` on `affected_job_ids`, dashboard rebuild; response includes `block_info` and `db_deleted`
+- `POST /api/skill/delete` — delegates to shared delete runner (`_run_skill_delete` with one skill); profile cleanup + DB delete + rescore + rebuild
+- `POST /api/skill/block-batch` — `{ skills: string[] }`; same `_run_skill_block` path as single block
+- `POST /api/skill/delete-batch` — same request shape; same `_run_skill_delete` path as single delete
 - `POST /api/applied/raw-text` — `{ job_id, text }`; requires `applied=1` and non-empty `text`; appends `[MANUAL_APPLIED_DESCRIPTION]` block to `raw_text`, clears `job_skills`, rematerializes skills, then rescoring via `materialize_job_skills(..., rescore=True, first_materialize=True)` so keyword-only score updates even when LLM returns no skills. Returns 400 when text empty or job not applied; 500 if save succeeded but the job row cannot be loaded for enrichment (skills cache already cleared in that case).
 - `POST /api/report/rebuild` — queues dashboard rebuild (`reason="manual rebuild"`); no DB mutation; used by the report page **Regenerate report** button
 - `POST /api/inbox/sync` — starts a background inbox sync when `trigger_inbox_sync` is wired (`serve-gui`); returns 503 when inbox sync is not configured; returns 409 when a sync is already running

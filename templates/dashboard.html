@@ -64,6 +64,9 @@
             .skills-table tbody tr.skill-row-focus { outline: 2px solid #0a58ca; outline-offset: -2px; background: #eef4ff; transition: background-color 0.8s ease; }
             .delete-skill-btn { border: 1px solid #cc8c8c; color: #7b1111; background: #fff; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
             .block-skill-btn { border: 1px solid #d2a24a; color: #7a5200; background: #fff7e8; border-radius: 6px; padding: 4px 8px; cursor: pointer; margin-right: 6px; }
+            .skills-bulk-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+            .skills-bulk-bar button:disabled { opacity: 0.55; cursor: not-allowed; }
+            #skills-selected-label { font-size: 13px; color: #555; min-width: 6rem; }
             .controls-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
             .toolbar-action-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 36px; min-height: 36px; padding: 8px; border: 1px solid #0a58ca; color: #0a58ca; background: #fff; border-radius: 8px; cursor: pointer; }
             .toolbar-action-btn.active { background: #eef4ff; box-shadow: inset 0 0 0 1px #0a58ca; }
@@ -118,7 +121,16 @@
         <section id="panel-applied" class="grid hidden">{{ applied_cards }}</section>
         <section id="panel-interview" class="grid hidden">{{ interview_cards }}</section>
         <section id="panel-stopped" class="grid hidden">{{ stopped_cards }}</section>
-        <section id="panel-skills" class="skills-wrap hidden">{{ skills_table_html }}</section>
+        <section id="panel-skills" class="skills-wrap hidden">
+            {% if len_skills_items > 0 %}
+            <div class="skills-bulk-bar">
+                <span id="skills-selected-label">0 selected</span>
+                <button type="button" id="btn-block-selected" class="block-skill-btn" disabled onclick="blockSelectedSkills(this)">Block selected</button>
+                <button type="button" id="btn-delete-selected" class="delete-skill-btn" disabled onclick="deleteSelectedSkills(this)">Delete selected</button>
+            </div>
+            {% endif %}
+            {{ skills_table_html }}
+        </section>
         <section id="panel-portrait" class="portrait-wrap hidden">
             <div class="portrait-toolbar">
                 <button id="btn-portrait-generate" class="portrait-btn" type="button" onclick="regeneratePortrait(this)">Regenerate portrait</button>
@@ -613,6 +625,124 @@
                 }
             }
 
+            function getSelectedSkillKeys() {
+                const table = document.getElementById('skills-table');
+                if (!table) return [];
+                return Array.from(table.querySelectorAll('tbody tr'))
+                    .filter((row) => {
+                        const checkbox = row.querySelector('.skill-row-select');
+                        return checkbox && checkbox.checked;
+                    })
+                    .map((row) => row.dataset.skillKey || '')
+                    .filter(Boolean);
+            }
+
+            function updateSkillsBulkBar() {
+                const keys = getSelectedSkillKeys();
+                const label = document.getElementById('skills-selected-label');
+                const blockBtn = document.getElementById('btn-block-selected');
+                const deleteBtn = document.getElementById('btn-delete-selected');
+                const selectAll = document.getElementById('skills-select-all');
+                const table = document.getElementById('skills-table');
+                const rowCheckboxes = table ? Array.from(table.querySelectorAll('.skill-row-select')) : [];
+                const count = keys.length;
+                if (label) {
+                    label.textContent = count === 1 ? '1 selected' : `${count} selected`;
+                }
+                if (blockBtn) blockBtn.disabled = count === 0;
+                if (deleteBtn) deleteBtn.disabled = count === 0;
+                if (selectAll && rowCheckboxes.length > 0) {
+                    const checkedCount = rowCheckboxes.filter((checkbox) => checkbox.checked).length;
+                    selectAll.checked = checkedCount === rowCheckboxes.length;
+                    selectAll.indeterminate = checkedCount > 0 && checkedCount < rowCheckboxes.length;
+                } else if (selectAll) {
+                    selectAll.checked = false;
+                    selectAll.indeterminate = false;
+                }
+            }
+
+            function toggleSelectAllSkills(checked) {
+                const table = document.getElementById('skills-table');
+                if (!table) return;
+                table.querySelectorAll('.skill-row-select').forEach((checkbox) => {
+                    checkbox.checked = checked;
+                });
+                updateSkillsBulkBar();
+            }
+
+            function bulkSkillConfirmMessage(action, keys) {
+                const preview = keys.length <= 5
+                    ? keys.join(', ')
+                    : `${keys.slice(0, 5).join(', ')} and ${keys.length - 5} more`;
+                if (action === 'block') {
+                    return `Block ${keys.length} skill(s) (${preview}) and hide them from all positions and the skills tab?`;
+                }
+                return `Delete ${keys.length} skill(s) (${preview}) from profile and DB?`;
+            }
+
+            function removeSkillRows(skillKeys) {
+                const removed = new Set(skillKeys);
+                const table = document.getElementById('skills-table');
+                if (!table) return;
+                Array.from(table.querySelectorAll('tbody tr')).forEach((row) => {
+                    if (removed.has(row.dataset.skillKey)) {
+                        row.remove();
+                    }
+                });
+            }
+
+            async function blockSelectedSkills(btnEl) {
+                const keys = getSelectedSkillKeys();
+                if (keys.length === 0) return;
+                if (!confirm(bulkSkillConfirmMessage('block', keys))) return;
+                if (btnEl) btnEl.disabled = true;
+                const deleteBtn = document.getElementById('btn-delete-selected');
+                if (deleteBtn) deleteBtn.disabled = true;
+                try {
+                    const response = await fetch(apiUrl('/api/skill/block-batch'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ skills: keys }),
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || 'Request failed');
+                    }
+                    removeSkillRows(data.skills || keys);
+                    refreshCounts();
+                } catch (err) {
+                    alert(`Failed to block skills: ${err.message}`);
+                } finally {
+                    updateSkillsBulkBar();
+                }
+            }
+
+            async function deleteSelectedSkills(btnEl) {
+                const keys = getSelectedSkillKeys();
+                if (keys.length === 0) return;
+                if (!confirm(bulkSkillConfirmMessage('delete', keys))) return;
+                if (btnEl) btnEl.disabled = true;
+                const blockBtn = document.getElementById('btn-block-selected');
+                if (blockBtn) blockBtn.disabled = true;
+                try {
+                    const response = await fetch(apiUrl('/api/skill/delete-batch'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ skills: keys }),
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || 'Request failed');
+                    }
+                    removeSkillRows(data.skills || keys);
+                    refreshCounts();
+                } catch (err) {
+                    alert(`Failed to delete skills: ${err.message}`);
+                } finally {
+                    updateSkillsBulkBar();
+                }
+            }
+
             async function deleteSkill(skillKey, btnEl) {
                 if (!confirm(`Delete skill '${skillKey}' from profile and DB?`)) return;
                 btnEl.disabled = true;
@@ -629,6 +759,7 @@
                     const row = btnEl.closest('tr');
                     if (row) row.remove();
                     refreshCounts();
+                    updateSkillsBulkBar();
                 } catch (err) {
                     alert(`Failed to delete skill: ${err.message}`);
                     btnEl.disabled = false;
@@ -651,6 +782,7 @@
                     const row = btnEl.closest('tr');
                     if (row) row.remove();
                     refreshCounts();
+                    updateSkillsBulkBar();
                 } catch (err) {
                     alert(`Failed to block skill: ${err.message}`);
                     btnEl.disabled = false;
@@ -1089,6 +1221,10 @@
             window.openCompanyPage = openCompanyPage;
             window.blockSkill = blockSkill;
             window.deleteSkill = deleteSkill;
+            window.updateSkillsBulkBar = updateSkillsBulkBar;
+            window.toggleSelectAllSkills = toggleSelectAllSkills;
+            window.blockSelectedSkills = blockSelectedSkills;
+            window.deleteSelectedSkills = deleteSelectedSkills;
             window.appendAppliedRawText = appendAppliedRawText;
             window.setCoverLetterRequested = setCoverLetterRequested;
             window.saveCoverLetter = saveCoverLetter;

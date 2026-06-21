@@ -46,6 +46,26 @@ from .workflows.user_portrait import (
 )
 
 
+def _normalize_skill_batch(skills: list[str]) -> list[str]:
+    seen: set[str] = set()
+    normalized_skills: list[str] = []
+    for raw in skills or []:
+        skill = _normalize_skill_name(str(raw))
+        key = skill.lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        normalized_skills.append(skill)
+    return normalized_skills
+
+
+def _merge_db_deleted(totals: dict, deleted: dict) -> None:
+    totals["skill_rows_deleted"] += int(deleted.get("skill_rows_deleted", 0))
+    totals["job_skill_links_deleted"] += int(deleted.get("job_skill_links_deleted", 0))
+    for job_id in deleted.get("affected_job_ids", []):
+        totals["affected_job_ids"].add(int(job_id))
+
+
 def create_app(
     db_path: str,
     profile_path: str,
@@ -289,27 +309,90 @@ def create_app(
     class SkillBlockRequest(BaseModel):
         skill: str
 
+    class SkillDeleteRequest(BaseModel):
+        skill: str
+
+    class SkillBatchRequest(BaseModel):
+        skills: list[str]
+
+    def _delete_skills_from_db(skills: list[str]) -> dict:
+        db_deleted = {
+            "skill_rows_deleted": 0,
+            "job_skill_links_deleted": 0,
+            "affected_job_ids": set(),
+        }
+        for skill in skills:
+            _merge_db_deleted(db_deleted, delete_skill_from_db(db_path, skill))
+        affected_job_ids = sorted(db_deleted.pop("affected_job_ids"))
+        db_deleted["affected_job_ids"] = affected_job_ids
+        return db_deleted
+
+    def _run_skill_block(skills: list[str], rebuild_reason: str, log_label: str) -> dict:
+        block_info = {"blocked_added": 0, "removed": 0}
+        for skill in skills:
+            info = _block_skill_in_profile(runtime_profile, skill)
+            block_info["blocked_added"] += int(info.get("blocked_added", 0))
+            block_info["removed"] += int(info.get("removed", 0))
+
+        persist_runtime_profile()
+        reload_runtime_profile()
+        db_deleted = _delete_skills_from_db(skills)
+        rescored = rescore_jobs_if_active(
+            db_path,
+            runtime_profile,
+            list(db_deleted.get("affected_job_ids", [])),
+        )
+        print(
+            f"API: rescore_jobs_if_active after {log_label} "
+            f"(rescored={rescored}, count={len(skills)})"
+        )
+        queue_dashboard_rebuild(reason=rebuild_reason)
+        return {
+            "skills": skills,
+            "count": len(skills),
+            "block_info": block_info,
+            "db_deleted": db_deleted,
+        }
+
+    def _run_skill_delete(skills: list[str], rebuild_reason: str, log_label: str) -> dict:
+        profile_removed = {"removed": 0}
+        for skill in skills:
+            info = _remove_skill_from_profile(runtime_profile, skill)
+            profile_removed["removed"] += int(info.get("removed", 0))
+
+        persist_runtime_profile()
+        reload_runtime_profile()
+        db_deleted = _delete_skills_from_db(skills)
+        rescored = rescore_jobs_if_active(
+            db_path,
+            runtime_profile,
+            list(db_deleted.get("affected_job_ids", [])),
+        )
+        print(
+            f"API: rescore_jobs_if_active after {log_label} "
+            f"(rescored={rescored}, count={len(skills)})"
+        )
+        queue_dashboard_rebuild(reason=rebuild_reason)
+        return {
+            "skills": skills,
+            "count": len(skills),
+            "profile_removed": profile_removed,
+            "db_deleted": db_deleted,
+        }
+
     @app.post("/api/skill/block")
     def api_skill_block(req: SkillBlockRequest):
         skill = _normalize_skill_name(req.skill)
         if not skill:
             return JSONResponse(status_code=400, content={"ok": False, "error": "skill is required"})
 
-        block_info = _block_skill_in_profile(runtime_profile, skill)
-        persist_runtime_profile()
-        reload_runtime_profile()
-        db_deleted = delete_skill_from_db(db_path, skill)
-        rescored = rescore_jobs_if_active(
-            db_path,
-            runtime_profile,
-            list(db_deleted.get("affected_job_ids", [])),
-        )
-        print(f"API: rescore_jobs_if_active after skill block (rescored={rescored})")
-        queue_dashboard_rebuild(reason=f"skill blocked {skill}")
-        return {"ok": True, "skill": skill, "block_info": block_info, "db_deleted": db_deleted}
-
-    class SkillDeleteRequest(BaseModel):
-        skill: str
+        result = _run_skill_block([skill], f"skill blocked {skill}", "skill block")
+        return {
+            "ok": True,
+            "skill": skill,
+            "block_info": result["block_info"],
+            "db_deleted": result["db_deleted"],
+        }
 
     @app.post("/api/skill/delete")
     def api_skill_delete(req: SkillDeleteRequest):
@@ -317,18 +400,39 @@ def create_app(
         if not skill:
             return JSONResponse(status_code=400, content={"ok": False, "error": "skill is required"})
 
-        profile_removed = _remove_skill_from_profile(runtime_profile, skill)
-        persist_runtime_profile()
-        reload_runtime_profile()
-        db_deleted = delete_skill_from_db(db_path, skill)
-        rescored = rescore_jobs_if_active(
-            db_path,
-            runtime_profile,
-            list(db_deleted.get("affected_job_ids", [])),
+        result = _run_skill_delete([skill], f"skill deleted cleanup {skill}", "skill delete")
+        return {
+            "ok": True,
+            "skill": skill,
+            "profile_removed": result["profile_removed"],
+            "db_deleted": result["db_deleted"],
+        }
+
+    @app.post("/api/skill/block-batch")
+    def api_skill_block_batch(req: SkillBatchRequest):
+        skills = _normalize_skill_batch(req.skills)
+        if not skills:
+            return JSONResponse(status_code=400, content={"ok": False, "error": "skills is required"})
+
+        result = _run_skill_block(
+            skills,
+            f"skill block batch ({len(skills)})",
+            "skill block batch",
         )
-        print(f"API: rescore_jobs_if_active after skill delete (rescored={rescored})")
-        queue_dashboard_rebuild(reason=f"skill deleted cleanup {skill}")
-        return {"ok": True, "skill": skill, "profile_removed": profile_removed, "db_deleted": db_deleted}
+        return {"ok": True, **result}
+
+    @app.post("/api/skill/delete-batch")
+    def api_skill_delete_batch(req: SkillBatchRequest):
+        skills = _normalize_skill_batch(req.skills)
+        if not skills:
+            return JSONResponse(status_code=400, content={"ok": False, "error": "skills is required"})
+
+        result = _run_skill_delete(
+            skills,
+            f"skill delete batch ({len(skills)})",
+            "skill delete batch",
+        )
+        return {"ok": True, **result}
 
     @app.post("/api/report/rebuild")
     def api_report_rebuild():
