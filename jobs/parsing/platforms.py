@@ -5,7 +5,15 @@ from bs4 import BeautifulSoup
 
 from spejder.db import _extract_jobindex_id, _normalize_position_link, _provider_from_link
 
-from .utils import split_title_trailing_i_place
+from .utils import (
+    merge_jobindex_place,
+    peel_jobindex_i_city_trailing_district,
+    peel_jobindex_trailing_place,
+    pick_jobindex_title,
+    split_jobindex_trailing_postcode,
+    split_title_trailing_i_place,
+    strip_jobindex_company_prefix,
+)
 
 
 def _extract_jobindex_entries_by_link(html_text: str) -> dict[str, dict[str, str]]:
@@ -34,6 +42,19 @@ def _extract_jobindex_entries_by_link(html_text: str) -> dict[str, dict[str, str
         if len(compact) < 30:
             continue
 
+        company = ""
+        for link_node in block.find_all("a", href=True):
+            href2 = link_node.get("href") or ""
+            txt2 = " ".join(link_node.get_text(" ", strip=True).split())
+            if txt2 and "jobindex.dk" not in href2.lower():
+                company = txt2[:180]
+                break
+        if not company:
+            fragments = [s.strip()
+                         for s in block.stripped_strings if s and s.strip()]
+            if fragments:
+                company = fragments[0][:180]
+
         title = ""
         title_candidates = []
         for link_node in block.find_all("a", href=True):
@@ -53,33 +74,72 @@ def _extract_jobindex_entries_by_link(html_text: str) -> dict[str, dict[str, str
                 }
             ):
                 title_candidates.append(txt2)
-        if title_candidates:
-            title = max(title_candidates, key=len)[:180]
-
-        company = ""
-        for link_node in block.find_all("a", href=True):
-            href2 = link_node.get("href") or ""
-            txt2 = " ".join(link_node.get_text(" ", strip=True).split())
-            if txt2 and "jobindex.dk" not in href2.lower():
-                company = txt2[:180]
-                break
-        if not company:
-            fragments = [s.strip()
-                         for s in block.stripped_strings if s and s.strip()]
-            if fragments:
-                company = fragments[0][:180]
-
+        title = pick_jobindex_title(title_candidates, company=company)
         place = ""
-        if title:
-            m_place = re.search(
-                re.escape(title) + r"\s+(.{2,80}?)\s+\d+\s+min\b",
+        if (
+            len(title_candidates) == 1
+            and company
+            and title_candidates[0].strip().casefold() == company.strip().casefold()
+        ):
+            m_compact_title = re.search(
+                r"^(?:(?:"
+                + re.escape(company)
+                + r")\s+)+(?P<title>.+?)\s+\d+\s+min\b",
                 compact,
                 flags=re.IGNORECASE,
             )
-            if m_place:
-                place = m_place.group(1).strip(" -|:")[:180]
+            if not m_compact_title:
+                m_compact_title = re.search(
+                    re.escape(company) + r"\s+(?P<title>.+?)\s+\d+\s+min\b",
+                    compact,
+                    flags=re.IGNORECASE,
+                )
+            if m_compact_title:
+                title = (m_compact_title.group("title") or "").strip(" -|:")
+                title, compact_place = split_jobindex_trailing_postcode(title)
+                if not compact_place:
+                    peeled_title, peeled_place = peel_jobindex_trailing_place(title)
+                    if peeled_place:
+                        title = peeled_title
+                        compact_place = peeled_place
+                if not compact_place:
+                    peeled_title, peeled_place = peel_jobindex_i_city_trailing_district(
+                        title
+                    )
+                    if peeled_place:
+                        title = peeled_title
+                        compact_place = peeled_place
+                if compact_place:
+                    place = merge_jobindex_place(title, compact_place)
+
+        if title:
             if not place:
-                _, place = split_title_trailing_i_place(title)
+                m_place = re.search(
+                    re.escape(title) + r"\s+(.{2,200}?)\s+\d+\s+min\b",
+                    compact,
+                    flags=re.IGNORECASE,
+                )
+                if m_place:
+                    place = strip_jobindex_company_prefix(
+                        m_place.group(1).strip(" -|:")[:180],
+                        company,
+                    )
+            place = merge_jobindex_place(title, place)
+            if not place:
+                _, split_place = split_title_trailing_i_place(title)
+                place = merge_jobindex_place(title, split_place)
+            if not place:
+                peeled_title, peeled_place = peel_jobindex_trailing_place(title)
+                if peeled_place:
+                    title = peeled_title
+                    place = peeled_place
+            if not place:
+                peeled_title, peeled_district = peel_jobindex_i_city_trailing_district(
+                    title
+                )
+                if peeled_district:
+                    title = peeled_title
+                    place = merge_jobindex_place(title, peeled_district)
 
         m_desc = re.search(
             r"settings\s*\)\s*(.*?)\s*PUBLISHED\s*:", compact, flags=re.IGNORECASE
@@ -102,7 +162,7 @@ def _extract_jobindex_entries_by_link(html_text: str) -> dict[str, dict[str, str
             raw_text = merged[:2500]
 
         by_link[normalized] = {
-            "title": title,
+            "title": title[:180],
             "company": company,
             "place": place,
             "work_type": "Unknown",
