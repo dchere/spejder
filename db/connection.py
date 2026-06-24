@@ -270,6 +270,18 @@ def ensure_db(db_path: str):
 
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS bad_ngram_weights (
+                ngram TEXT NOT NULL,
+                gram_size INTEGER NOT NULL,
+                weight INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (ngram, gram_size)
+            )
+            """
+        )
+
+        cur.execute(
+            """
             DELETE FROM jobs
             WHERE NOT (
                 lower(position_link) LIKE '%linkedin.com/%jobs/view/%'

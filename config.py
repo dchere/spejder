@@ -3,13 +3,18 @@ import os
 import json
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 DEFAULT_PROFILE_FILE = "default_profile.json"
+SKILL_BIGRAM_THRESHOLD_MARGIN_DEFAULT = 0.5
 
-SKILL_ANTIPATTERN_GOOD_SKILLS_COUNT_DEFAULT = 20
-SKILL_ANTIPATTERN_GOOD_SKILLS_COUNT_MAX = 150
-ANTIPATTERN_PROMPT_LIST_MAX = SKILL_ANTIPATTERN_GOOD_SKILLS_COUNT_MAX
+_LEGACY_ANTIPATTERN_KEYS = (
+    "skill_extraction_antipatterns",
+    "skill_antipattern_synthesis_count",
+    "skill_antipattern_validation_runs",
+    "skill_antipattern_prompt_max_items",
+    "skill_antipattern_good_skills_count",
+)
 
 def _default_profile_file_path() -> str:
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), DEFAULT_PROFILE_FILE)
@@ -65,23 +70,9 @@ class AppConfig(BaseModel):
     
     user_skills: list[str] = Field(default_factory=list)
     blocked_skills: list[str] = Field(default_factory=list)
-    skill_extraction_antipatterns: list[str] = Field(default_factory=list)
-    skill_antipattern_synthesis_count: int = 3
-    skill_antipattern_validation_runs: int = 3
-    skill_antipattern_prompt_max_items: int = 40
-    skill_antipattern_good_skills_count: int = Field(
-        default=SKILL_ANTIPATTERN_GOOD_SKILLS_COUNT_DEFAULT,
-        ge=1,
-        le=SKILL_ANTIPATTERN_GOOD_SKILLS_COUNT_MAX,
-    )
-
-    @field_validator("skill_antipattern_good_skills_count", mode="before")
-    @classmethod
-    def _coerce_good_skills_count_field(cls, raw: object) -> int:
-        coerced = coerce_skill_antipattern_good_skills_count(raw)
-        if coerced is None:
-            return SKILL_ANTIPATTERN_GOOD_SKILLS_COUNT_DEFAULT
-        return coerced
+    skill_bigram_toxicity_threshold: Optional[float] = None
+    skill_bigram_threshold_margin: float = SKILL_BIGRAM_THRESHOLD_MARGIN_DEFAULT
+    bad_cloud_seeded: bool = False
 
     missing_skills_suggestions: list[str] = Field(default_factory=list)
     known_skill_patterns: list[dict] = Field(default_factory=list)
@@ -107,7 +98,7 @@ class AppConfig(BaseModel):
             data["report_max_not_relevant_positions"] = data["report_max_positions"]
 
         _migrate_translation_model_fields(data)
-        _normalize_skill_antipattern_fields(data)
+        _drop_legacy_antipattern_fields(data)
 
         return cls(**data)
 
@@ -117,30 +108,8 @@ class AppConfig(BaseModel):
         with open(profile_path, "w", encoding="utf-8") as f:
             json.dump(self.model_dump(), f, indent=2, ensure_ascii=False)
 
-def coerce_skill_antipattern_good_skills_count(raw: object) -> Optional[int]:
-    """Normalize skill_antipattern_good_skills_count.
-
-    Valid int or integer-valued float → clamped 1..SKILL_ANTIPATTERN_GOOD_SKILLS_COUNT_MAX.
-    None return → caller uses field default.
-    """
-    if isinstance(raw, bool):
-        return None
-    if not isinstance(raw, (int, float)):
-        return None
-    if isinstance(raw, float) and not raw.is_integer():
-        return None
-    return min(
-        SKILL_ANTIPATTERN_GOOD_SKILLS_COUNT_MAX,
-        max(1, int(raw)),
-    )
-
-
-def _normalize_skill_antipattern_fields(data: dict) -> None:
-    """Drop invalid skill_antipattern_good_skills_count keys on profile load."""
-    key = "skill_antipattern_good_skills_count"
-    if key not in data:
-        return
-    if coerce_skill_antipattern_good_skills_count(data[key]) is None:
+def _drop_legacy_antipattern_fields(data: dict) -> None:
+    for key in _LEGACY_ANTIPATTERN_KEYS:
         data.pop(key, None)
 
 

@@ -12,6 +12,7 @@ from spejder.db import (
     append_applied_job_raw_text,
     clear_job_skills_for_job,
     delete_skill_from_db,
+    ensure_db,
     get_all_applied_jobs,
     get_jobs_by_company,
     set_job_applied,
@@ -25,6 +26,7 @@ from spejder.db import (
 )
 from spejder.jobs import rescore_active_jobs, rescore_jobs_if_active
 from .extractors.skill_extractor import _normalize_skill_name
+from .extractors.skill_extractor.bad_cloud import on_skills_blocked
 from .llm import LocalLLM
 from .managers.dashboard_manager import _render_company_dashboard_html
 from .managers.profile_manager import (
@@ -329,10 +331,17 @@ def create_app(
 
     def _run_skill_block(skills: list[str], rebuild_reason: str, log_label: str) -> dict:
         block_info = {"blocked_added": 0, "removed": 0}
+        newly_blocked: list[str] = []
         for skill in skills:
             info = _block_skill_in_profile(runtime_profile, skill)
             block_info["blocked_added"] += int(info.get("blocked_added", 0))
             block_info["removed"] += int(info.get("removed", 0))
+            if info.get("blocked_added"):
+                newly_blocked.append(skill)
+
+        if newly_blocked:
+            ensure_db(db_path)
+            on_skills_blocked(runtime_profile, db_path, newly_blocked)
 
         persist_runtime_profile()
         reload_runtime_profile()

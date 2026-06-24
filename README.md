@@ -273,24 +273,6 @@ Notes:
 - The command protects profile seed skills and explicit user skills.
 - Removed skills are added to `blocked_skills` so they stay hidden and are not reintroduced into the dashboard.
 
-### `sync-antipatterns`
-
-Distill `blocked_skills` into LLM antipattern rules using per-candidate synthetic test jobs, validate each candidate independently, and prune blocked entries the prompt now filters.
-
-```bash
-python3 -m spejder.cli sync-antipatterns \
-  --profile ./profile.json \
-  --db ./jobs.db \
-  --model /path/to/model.gguf \
-  --dry-run
-```
-
-Options: `--profile`, `--db`, `--model`, `--dry-run`, `--force` (skip gate thresholds).
-
-Each candidate rule triggers its own LLM match pass against the **full** blocked list (chunked at 150 phrases per call), synthetic job generation, and multi-run extraction validation (~3× LLM work vs the old single shared test job). That figure is an upper bound; skip reasons at sync and per-candidate gates reduce actual LLM calls.
-
-Runs automatically at the end of GUI background sync when blocked skills grow enough (rare maintenance).
-
 ### `dedupe-jobs`
 
 Run company+title position deduplication on demand (e.g. after manual DB edits).
@@ -362,6 +344,7 @@ Jobs older than 90 days by `created_at` are auto-pruned on DB open (`ensure_db`)
 Additional table:
 
 - `skill_patterns`: known skill names + regex patterns, source, popularity stats (`occurrences`, `weight`), and enable flag.
+- `bad_ngram_weights`: accumulated bigram/unigram weights from manually blocked skills (`ngram`, `gram_size`, `weight`, `updated_at`).
 
 ## Profile fields related to skills
 
@@ -370,12 +353,10 @@ Default profile values are stored in `spejder/default_profile.json`. Runtime loa
 In `profile.json`:
 
 - `user_skills`: your editable skill list used for scoring.
-- `blocked_skills`: skills hidden from the Skills tab and filtered out from extracted skill results; blocking also deletes matching rows from SQLite `skill_patterns` and `job_skills`.
-- `skill_extraction_antipatterns`: LLM-synthesized rules injected into the job skill extraction prompt.
-- `skill_antipattern_synthesis_count`: antipattern rules to synthesize per sync (default `3`).
-- `skill_antipattern_validation_runs`: stable extraction runs per validation step (default `3`).
-- `skill_antipattern_prompt_max_items`: max antipatterns included in the extraction prompt (default `40`).
-- `skill_antipattern_good_skills_count`: top DB skills by job link count used in per-candidate synthetic validation jobs (default `20`, range `1`–`150`). Values in `profile.json` are clamped to that range on load; bool, non-integer floats, numeric strings (e.g. `"50"`), and other invalid values reset to the default. Integer-valued floats (e.g. `20.0`) are accepted and coerced to `20`.
+- `blocked_skills`: skills hidden from the Skills tab and filtered out from extracted skill results; blocking also deletes matching rows from SQLite `skill_patterns` and `job_skills`, ingests bigrams into `bad_ngram_weights`, and may prune redundant blocked entries once the cloud learns them.
+- `skill_bigram_toxicity_threshold`: optional toxicity cutoff for unseen extracted skills (`null` = auto-calibrate on first block or GUI sync seed; set back to `null` to recalibrate after the cloud grows).
+- `skill_bigram_threshold_margin`: calibration margin between good and bad skill score distributions (default `0.5`).
+- `bad_cloud_seeded`: set automatically after one-time seeding of `bad_ngram_weights` from existing `blocked_skills` during GUI sync.
 - `missing_skills_suggestions`: generated from applied jobs.
 - `skill_new_confidence_threshold`: minimum LLM confidence for accepting a novel skill candidate (default `0.9`).
 - `skill_match_weight`: bonus per matched required skill.
@@ -391,7 +372,7 @@ In `profile.json`:
 ## Notes
 
 - `serve-gui` and the in-browser dashboard expect the API server to be running; if you open `report.html` directly as a file, feedback actions will try `http://127.0.0.1:8765`.
-- Skill tags on a job card come from cached extraction. If tags look incomplete after an upgrade, paste a full description on an applied card or run `refresh-descriptions` with a model to re-extract skills for matching jobs.
+- Skill tags on a job card come from cached extraction. Cached skills are re-filtered through the bad-cloud toxicity gate on read, so cloud upgrades apply without full re-extraction. If tags still look incomplete after an upgrade, paste a full description on an applied card or run `refresh-descriptions` with a model to re-extract skills for matching jobs.
 - Re-extracting skills (manual description paste, `refresh-descriptions`, or clearing cached skills) can change `relevance_score` when more or fewer skills match your profile.
 - Processed inbox files are removed automatically after successful ingestion when using background sync or `process-inbox`.
 - Inbox ingestion accepts `.eml` files only. Save emails as `.eml` (e.g. drag from Mail.app, or **File → Save As** in Thunderbird) rather than "Save as HTML".

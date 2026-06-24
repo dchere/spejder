@@ -50,4 +50,4 @@ Core orchestration for CLI commands, GUI background sync, and heavy multi-step p
 5. Description generation (+ rebuild when updated)
 6. Skill-pattern learning (+ rebuild when new patterns)
 7. Blocked-skills DB cleanup + rescore (+ rebuild when DB changed)
-8. Optional antipattern sync (async)
+8. Bad cloud seed / threshold calibration (sync)

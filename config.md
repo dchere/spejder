@@ -7,12 +7,8 @@ Defines the central configuration schema (`AppConfig`) using Pydantic. It provid
 - `AppConfig`: Pydantic BaseModel containing properties like `include_keywords`, `n_ctx`, `server_port`, etc.
 - `AppConfig.load(profile_path)`
 - `AppConfig.save(profile_path)`
-- `SKILL_ANTIPATTERN_GOOD_SKILLS_COUNT_DEFAULT` (`20`) and `SKILL_ANTIPATTERN_GOOD_SKILLS_COUNT_MAX` (`150`) — single source for the good-skills cap
-- `ANTIPATTERN_PROMPT_LIST_MAX` — alias of `SKILL_ANTIPATTERN_GOOD_SKILLS_COUNT_MAX`; antipattern prompt input limits in `antipattern_synthesis.py` import this neutral name. **Coupling:** intentionally equals `SKILL_ANTIPATTERN_GOOD_SKILLS_COUNT_MAX` (150); raising the profile max also raises LLM prompt list chunk caps unless split later
-- `coerce_skill_antipattern_good_skills_count(raw)` — shared coercion for `skill_antipattern_good_skills_count`: valid `int` or integer-valued `float` → clamped `1`–`SKILL_ANTIPATTERN_GOOD_SKILLS_COUNT_MAX`; `None` return → caller uses field default (bool, non-integer floats, strings, and other non-numeric types)
-- **Tests:** `spejder.tests.test_config_coercion`
-- `@field_validator("skill_antipattern_good_skills_count", mode="before")` on `AppConfig` — delegates to `coerce_skill_antipattern_good_skills_count`; when coercion returns `None`, uses `SKILL_ANTIPATTERN_GOOD_SKILLS_COUNT_DEFAULT` (bool must not become `1`)
-- `_normalize_skill_antipattern_fields(data)` — on profile load, drops `skill_antipattern_good_skills_count` when `coerce_skill_antipattern_good_skills_count` returns `None` (field default applies). Does not rewrite valid values; clamping happens in the field validator on `AppConfig(...)` construction. **Dual normalization:** profile load drops invalid keys only; direct `AppConfig(...)` and post-load construction both clamp via the field validator
+- `SKILL_BIGRAM_THRESHOLD_MARGIN_DEFAULT` (`0.5`) — default margin for auto threshold calibration
+- `_drop_legacy_antipattern_fields(data)` — on profile load, removes deprecated antipattern keys from older `profile.json` files
 
 **Context:**
 Replaces the old dictionary-based profile system (`FALLBACK_DEFAULT_PROFILE`). All modules now pass around the formalized `AppConfig` object rather than a dictionary, eliminating `profile.get(...)` calls throughout the codebase.
@@ -25,12 +21,12 @@ Replaces the old dictionary-based profile system (`FALLBACK_DEFAULT_PROFILE`). A
 
 **Skill extraction profile fields:**
 - `skill_new_confidence_threshold` — minimum LLM confidence for novel skill candidates (default `0.9`); quality/evidence checks in `filtering._is_candidate_strong` still apply
-- `skill_antipattern_synthesis_count` — antipattern rules to synthesize per sync (default `3`)
-- `skill_antipattern_validation_runs` — stable extraction runs per validation step (default `3`)
-- `skill_antipattern_prompt_max_items` — max antipatterns injected into the job extraction prompt (default `40`)
-- `skill_antipattern_good_skills_count` — top DB skills by job link count woven into per-candidate synthetic validation jobs (default `SKILL_ANTIPATTERN_GOOD_SKILLS_COUNT_DEFAULT`, clamped `1`–`SKILL_ANTIPATTERN_GOOD_SKILLS_COUNT_MAX` via `coerce_skill_antipattern_good_skills_count` on profile load and `AppConfig` construction; bool, non-integer floats, strings, and other invalid types use the default)
+- `skill_bigram_toxicity_threshold` — optional float; when `null`, auto-calibrated from good vs bad skill score distributions on block/seed. Set back to `null` in `profile.json` to recalibrate after the cloud grows; otherwise the first calibrated value is kept.
+- `skill_bigram_threshold_margin` — tuning margin for calibration (default `0.5`)
+- `bad_cloud_seeded` — one-time migration flag; when false, GUI sync seeds `bad_ngram_weights` from existing `blocked_skills`
 - No per-job skill count cap; extraction returns all skills that pass filters
 - `skill_new_max_per_job` — **removed**; ignored if still present in an old `profile.json` (dropped on next profile save)
+- Legacy `skill_extraction_antipatterns` and `skill_antipattern_*` keys are dropped on load
 
 **Portrait profile fields:**
 - `default_cv_path` — CV file or folder for portrait generation (default `./CV`)
