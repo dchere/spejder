@@ -117,7 +117,7 @@ Open `http://127.0.0.1:8765/report.html`.
 
 - `Relevant` and `Not relevant` tabs show only unviewed jobs.
 - Marking a job as `Viewed` removes it from those tabs.
-- Marking a job as `Applied` removes it from the current triage tab (Relevant / Not relevant / Viewed), marks it as relevant and viewed, and places it under `Applied` when that tab is opened — the dashboard does not auto-navigate to Applied.
+- Marking a job as `Applied` removes it from the current triage tab (Relevant or Not relevant), marks it as relevant and viewed, and places it in the Applied pipeline (Applied / Interview / Stopped panel) — the dashboard does **not** auto-navigate to Applied.
 - Applied jobs can be moved to `Interview` (on interview) or `Stopped` (process ended); the two flags are mutually exclusive. Cards live in one applied-stage panel at a time.
 - Applied, Interview, and Stopped cards show **Applied: YYYY-MM-DD** in the bottom-right corner when an apply date is recorded.
 - Stopped cards support free-text `Company feedback` saved via the dashboard.

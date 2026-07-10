@@ -27,6 +27,50 @@ def _extract_inlined_corner_css(template_text: str) -> str:
     return template_text[start:end]
 
 
+def _brace_balanced_slice(text: str, open_brace: int) -> str:
+    depth = 0
+    for i in range(open_brace, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[open_brace + 1 : i]
+    raise ValueError("Unbalanced braces")
+
+
+def _extract_js_function_body(text: str, name: str) -> str:
+    pattern = re.compile(
+        rf"(?:async\s+)?function\s+{re.escape(name)}\s*\([^)]*\)\s*\{{",
+        re.MULTILINE,
+    )
+    match = pattern.search(text)
+    if not match:
+        raise ValueError(f"Function {name!r} not found")
+    return _brace_balanced_slice(text, match.end() - 1)
+
+
+def _extract_if_block(body: str, condition_keyword: str) -> str:
+    pattern = re.compile(
+        rf"if\s*\([^)]*\b{re.escape(condition_keyword)}\b[^)]*\)\s*\{{",
+        re.MULTILINE,
+    )
+    match = pattern.search(body)
+    if not match:
+        raise ValueError(f"if block for {condition_keyword!r} not found")
+    return _brace_balanced_slice(body, match.end() - 1)
+
+
+def _read_template(name: str) -> str:
+    templates_dir = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)),
+        "templates",
+    )
+    path = os.path.join(templates_dir, name)
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
 def _minimal_dashboard_context():
     return {
         "title": "Test dashboard",
@@ -127,6 +171,23 @@ class DashboardTemplatesTest(unittest.TestCase):
         )
         self.assertIn(".applied-date { bottom: 8px; }", html)
         self.assertIn(".card.has-applied-date .feedback", html)
+
+    def test_set_applied_true_branch_does_not_call_set_mode(self):
+        for name in ("dashboard.html", "company_dashboard.html"):
+            with self.subTest(template=name):
+                text = _read_template(name)
+                body = _extract_js_function_body(text, "setApplied")
+                applied_branch = _extract_if_block(body, "applied")
+                self.assertNotIn("setMode", applied_branch)
+
+    def test_interview_handlers_still_call_set_mode(self):
+        for name in ("dashboard.html", "company_dashboard.html"):
+            with self.subTest(template=name):
+                text = _read_template(name)
+                for fn in ("setOnInterview", "setInterviewStopped"):
+                    with self.subTest(function=fn):
+                        body = _extract_js_function_body(text, fn)
+                        self.assertIn("setMode", body)
 
 
 if __name__ == "__main__":

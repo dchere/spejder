@@ -124,24 +124,16 @@
                 ensureEmptyState(panelStopped);
             }
 
-            function appliedStagePanel(card) {
+            function resolveAppliedStage(card) {
                 const onInterview = card.querySelector('.interview-wrap input')?.checked;
                 const stopped = card.querySelector('.stopped-wrap input')?.checked;
-                if (onInterview) return panelInterview;
-                if (stopped) return panelStopped;
-                return panelApplied;
-            }
-
-            function appliedStageMode(card) {
-                const onInterview = card.querySelector('.interview-wrap input')?.checked;
-                const stopped = card.querySelector('.stopped-wrap input')?.checked;
-                if (onInterview) return 'interview';
-                if (stopped) return 'stopped';
-                return 'applied';
+                if (onInterview) return { panel: panelInterview, mode: 'interview' };
+                if (stopped) return { panel: panelStopped, mode: 'stopped' };
+                return { panel: panelApplied, mode: 'applied' };
             }
 
             function moveCardToAppliedStage(card) {
-                const targetPanel = appliedStagePanel(card);
+                const targetPanel = resolveAppliedStage(card).panel;
                 if (card.parentElement !== targetPanel) targetPanel.prepend(card);
                 syncAppliedStageUI(card);
             }
@@ -362,7 +354,7 @@
                         const stoppedCheckbox = card.querySelector('.stopped-wrap input');
                         if (onInterview && stoppedCheckbox) stoppedCheckbox.checked = false;
                         moveCardToAppliedStage(card);
-                        setMode(appliedStageMode(card));
+                        setMode(resolveAppliedStage(card).mode);
                     }
                     if (statusEl) statusEl.textContent = `Saved: ${onInterview ? 'on interview' : 'not on interview'}`;
                     refreshCounts();
@@ -390,7 +382,7 @@
                         const interviewCheckbox = card.querySelector('.interview-wrap input');
                         if (stopped && interviewCheckbox) interviewCheckbox.checked = false;
                         moveCardToAppliedStage(card);
-                        setMode(appliedStageMode(card));
+                        setMode(resolveAppliedStage(card).mode);
                     }
                     if (statusEl) statusEl.textContent = `Saved: ${stopped ? 'stopped' : 'not stopped'}`;
                     refreshCounts();
