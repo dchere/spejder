@@ -5,7 +5,7 @@ Provides an interactive dashboard (web GUI) to review extracted jobs and view th
 
 **API:**
 - `start_server(host, port, profile, ...)`
-- `create_app(...)`: FastAPI factory
+- `create_app(...)`: FastAPI factory; `get_report_rebuild_idle` callback (default `lambda: True`) drives `idle` on `GET /api/report/status`
 - `POST /api/interview` — `{ job_id, on_interview }`; requires `applied=1`; clears `interview_stopped` when enabling
 - `POST /api/interview/stopped` — `{ job_id, stopped }`; requires `applied=1`; clears `on_interview` when enabling
 - `POST /api/interview/feedback` — `{ job_id, feedback }`; requires `applied=1` and `interview_stopped=1`
@@ -20,6 +20,7 @@ Provides an interactive dashboard (web GUI) to review extracted jobs and view th
 - `POST /api/skill/delete-batch` — same request shape; same `_run_skill_delete` path as single delete
 - `POST /api/applied/raw-text` — `{ job_id, text }`; requires `applied=1` and non-empty `text`; appends `[MANUAL_APPLIED_DESCRIPTION]` block to `raw_text`, clears `job_skills`, rematerializes skills, then rescoring via `materialize_job_skills(..., rescore=True, first_materialize=True)` so keyword-only score updates even when LLM returns no skills. Returns 400 when text empty or job not applied; 500 if save succeeded but the job row cannot be loaded for enrichment (skills cache already cleared in that case).
 - `POST /api/report/rebuild` — queues dashboard rebuild (`reason="manual rebuild"`); no DB mutation; used by the report page **Regenerate report** button
+- `GET /api/report/status` — `{ ok, idle, last_modified }`; `idle` reflects whether the dashboard rebuild queue is idle (`get_report_rebuild_idle`); `last_modified` is the HTTP-date of `report.html` on disk (empty when missing). Used by tab-switch stale reload logic in `dashboard.html`.
 - `POST /api/inbox/sync` — starts a background inbox sync when `trigger_inbox_sync` is wired (`serve-gui`); returns 503 when inbox sync is not configured; returns 409 when a sync is already running
 - `GET /api/inbox/sync/status` — `{ running, stage_id, stage_message, status, message }`; `status` is `running`, `complete`, `skipped`, `failed`, or `idle`
 - `GET /api/portrait` — `{ ok, text }`; committed portrait from `default_portrait_path`

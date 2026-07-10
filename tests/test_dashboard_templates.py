@@ -92,6 +92,7 @@ def _minimal_dashboard_context():
         "skills_empty_added_at_sort": SKILLS_EMPTY_ADDED_AT_SORT,
         "portrait_text": "",
         "has_portrait": False,
+        "report_mtime": "Wed, 01 Jan 2025 00:00:00 GMT",
     }
 
 
@@ -188,6 +189,37 @@ class DashboardTemplatesTest(unittest.TestCase):
                     with self.subTest(function=fn):
                         body = _extract_js_function_body(text, fn)
                         self.assertIn("setMode", body)
+
+    def test_dashboard_html_embeds_report_mtime_meta(self):
+        template = jinja_env.get_template("dashboard.html")
+        html = template.render(**_minimal_dashboard_context())
+
+        self.assertIn(
+            '<meta name="spejder-report-mtime" content="Wed, 01 Jan 2025 00:00:00 GMT" />',
+            html,
+        )
+
+    def test_dashboard_tab_buttons_use_switch_tab(self):
+        text = _read_template("dashboard.html")
+        for mode in ("relevant", "not relevant", "applied", "interview", "stopped", "skills"):
+            with self.subTest(mode=mode):
+                self.assertIn(f"switchTab('{mode}')", text)
+        self.assertIn("btnPortrait.addEventListener('click', () => setMode('portrait'))", text)
+
+    def test_dashboard_switch_tab_checks_stale_report(self):
+        body = _extract_js_function_body(_read_template("dashboard.html"), "switchTab")
+        self.assertIn("fetchReportStatus", body)
+        self.assertIn("pageReportMtime", body)
+        self.assertIn("reloadWithTab", body)
+        self.assertIn("Refreshing…", body)
+        self.assertIn("tabRefreshStatus.textContent = ''", body)
+
+    def test_dashboard_restores_tab_from_query_param(self):
+        text = _read_template("dashboard.html")
+        self.assertIn("function initTabFromUrl()", text)
+        self.assertIn("params.get('tab')", text)
+        self.assertIn("history.replaceState", text)
+        self.assertIn("DOMContentLoaded", text)
 
 
 if __name__ == "__main__":

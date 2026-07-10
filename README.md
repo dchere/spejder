@@ -123,6 +123,7 @@ Open `http://127.0.0.1:8765/report.html`.
 - Stopped cards support free-text `Company feedback` saved via the dashboard.
 - Unmarking `Applied`, unmarking `Viewed`, or marking `Not relevant` clears interview/stopped state, company feedback, and the recorded apply date (`applied_at`).
 - Feedback writes are saved immediately; `report.html` regeneration is queued and runs in the background.
+- Switching main dashboard tabs auto-refreshes the page when a background rebuild is running or `report.html` has changed on disk (requires `serve-gui`); otherwise tabs switch instantly.
 - Toolbar icon buttons (right side of the tab bar): **Portrait** (user silhouette), **Regenerate report** (refresh icon), and **Sync inbox** (inbox icon). Regenerate and Sync inbox show a status line in the toolbar when running or complete; Portrait shows status inside the panel.
 - **Regenerate report** queues a dashboard rebuild from the current DB and reloads the page when the new `report.html` is ready (requires `serve-gui`).
 - **Sync inbox** (requires `serve-gui`) processes new inbox files on demand: ingest, dedupe, skills, descriptions, and related background steps. The button stays disabled while sync runs and until dashboard rebuild is idle; the status line shows stage progress. Reload the page manually when sync completes to see new positions — the page does not auto-reload.

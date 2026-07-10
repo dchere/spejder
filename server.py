@@ -1,6 +1,8 @@
 """API Server for Spejder"""
 
+import os
 import threading
+from email.utils import formatdate
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -68,6 +70,13 @@ def _merge_db_deleted(totals: dict, deleted: dict) -> None:
         totals["affected_job_ids"].add(int(job_id))
 
 
+def _report_html_mtime_http(report_dir: str) -> str:
+    report_path = os.path.join(report_dir, "report.html")
+    if not os.path.isfile(report_path):
+        return ""
+    return formatdate(os.path.getmtime(report_path), usegmt=True)
+
+
 def create_app(
     db_path: str,
     profile_path: str,
@@ -79,6 +88,7 @@ def create_app(
     reload_runtime_profile,
     queue_dashboard_rebuild,
     cli_verbose: bool,
+    get_report_rebuild_idle=lambda: True,
     trigger_inbox_sync=None,
     get_inbox_sync_status=None,
 ) -> FastAPI:
@@ -447,6 +457,14 @@ def create_app(
     def api_report_rebuild():
         queue_dashboard_rebuild(reason="manual rebuild")
         return {"ok": True, "queued": True}
+
+    @app.get("/api/report/status")
+    def api_report_status():
+        return {
+            "ok": True,
+            "idle": get_report_rebuild_idle(),
+            "last_modified": _report_html_mtime_http(report_dir),
+        }
 
     @app.post("/api/inbox/sync")
     def api_inbox_sync():

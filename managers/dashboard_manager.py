@@ -5,6 +5,7 @@ Dashboard and Reporting views renderer module for creating static HTML reports.
 import html as html_lib
 import json
 import os
+from email.utils import formatdate
 from typing import Optional
 
 from spejder.config import AppConfig
@@ -20,6 +21,9 @@ __all__ = [
     "_render_company_dashboard_html",
     "_render_html_dashboard",
 ]
+
+# Fixed-width placeholder (29 chars, same as HTTP-date) replaced after write.
+_SPEJDER_REPORT_MTIME_PLACEHOLDER = "_____SPEJDER_REPORT_MTIME_P__"
 
 def _render_company_dashboard_html(company_name: str, company_items: list[dict]) -> str:
     company_label = (company_name or "").strip() or "Unknown company"
@@ -251,10 +255,22 @@ def _render_html_dashboard(
         skills_empty_added_at_sort=SKILLS_EMPTY_ADDED_AT_SORT,
         portrait_text=textarea_portrait_text,
         has_portrait=bool(portrait_text.strip()),
+        report_mtime=_SPEJDER_REPORT_MTIME_PLACEHOLDER,
     )
 
     with open(out_html, "w", encoding="utf-8") as f:
         f.write(content)
+
+    mtime = os.path.getmtime(out_html)
+    mtime_str = formatdate(mtime, usegmt=True)
+    with open(out_html, "r+", encoding="utf-8") as f:
+        patched = f.read().replace(_SPEJDER_REPORT_MTIME_PLACEHOLDER, mtime_str, 1)
+        if _SPEJDER_REPORT_MTIME_PLACEHOLDER in patched:
+            raise RuntimeError("report mtime placeholder was not replaced in dashboard HTML")
+        f.seek(0)
+        f.write(patched)
+        f.truncate()
+    os.utime(out_html, (mtime, mtime))
 
     print(
         f"Wrote HTML dashboard: {out_html} "

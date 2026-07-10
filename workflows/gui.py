@@ -100,6 +100,7 @@ def serve_gui(
         "reload_runtime_profile": _reload_runtime_profile,
         "queue_dashboard_rebuild": rebuild_queue.queue,
         "cli_verbose": cli_verbose,
+        "get_report_rebuild_idle": rebuild_queue.is_idle,
         "trigger_inbox_sync": inbox_sync_runner.trigger,
         "get_inbox_sync_status": inbox_sync_runner.get_status,
     }
