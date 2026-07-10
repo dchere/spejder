@@ -9,7 +9,7 @@ Contains the core business domain logic for processing, scoring, classifying, an
 - `job_in_active_rescore_scope(row) -> bool` — `applied OR on_interview OR interview_stopped OR viewed==0`
 - `rescore_jobs_if_active(db_path, profile, job_ids) -> int` — rescore scoped jobs; skips `manual_feedback` rows
 - `rescore_active_jobs(db_path, profile) -> int` — rescore all jobs in active scope
-- `merge_duplicate_positions(...)` — company+title dedup across all sources; oldest row kept; also invoked from GUI background sync via `workflows.deduplication.run_cross_source_dedupe`
+- `merge_duplicate_positions(...)` — company+title dedup across all sources; oldest row kept; also invoked from GUI background sync via `workflows.deduplication.run_cross_source_dedupe`. Title trailing-city stripping and allowlist semantics are defined in `db/deduplication_utils.py` (see `db.md`).
 - `merge_cross_source_duplicates(...)` — deprecated alias for `merge_duplicate_positions`
 - `rescore_job_by_id(...)`
 - `ingest_docs_to_db(...)`
@@ -23,7 +23,7 @@ Originally a monolith mixing SQL execution and logic, `jobs.py` now adheres to t
 
 **Position deduplication (`jobs/deduplication.py`):**
 - `merge_duplicate_positions(db_path)` — batch pass groups by key, keeps oldest `created_at` (then lowest `id`), merges fields, deletes duplicate rows
-- Dedupe keys canonicalize titles first (gender markers stripped, common abbreviations expanded) — see `db/deduplication_utils.py`
+- Dedupe keys canonicalize company names (`part of …` → parent) and titles first (gender markers stripped, common abbreviations expanded, trailing `, City` removed when city is allowlisted or matches row `place`) — see `db/deduplication_utils.py`
 - `merge_cross_source_duplicates(...)` — deprecated alias
 - Key/merge helpers live in [`db/deduplication_utils.py`](../db/deduplication_utils.py) to avoid circular imports with `upsert_job`
 

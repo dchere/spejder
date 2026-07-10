@@ -44,8 +44,11 @@ Extracted from `jobs.py`. The rest of the application (including business logic 
 - `sqlite3`, `spejder.config`
 
 **Position deduplication (`deduplication_utils.py`):**
-- `_position_dedupe_key(company, title)` — normalized `company|title` key for all sources
-- `_canonicalize_title_for_dedupe(title)` — strips EU gender markers like `(m/f/d)` and expands common abbreviations (`SW`→`Software`, `Sr.`→`Senior`) before keying; `(Senior)` role qualifiers are kept
+- `_position_dedupe_key(company, title, place="")` — normalized `company|title` key for all sources
+- `_canonicalize_company_for_dedupe(company)` — when the label contains `part of …` at a phrase boundary (`^` or after `,`/`;`), keys use the parent segment after that phrase (e.g. subsidiary names → parent group); does not match inside words like `Counterpart of`
+- `_canonicalize_title_for_dedupe(title, place="")` — strips EU gender markers like `(m/f/d)`, expands common abbreviations (`SW`→`Software`, `Sr.`→`Senior`), and removes a trailing `, City` when `City` matches `place` (exact or `place` prefix with word boundary after the city key) or when `City` is in `DANISH_CITY_ALLOWLIST_KEYS` and `place` is empty/`unknown` or matches `place`; `(Senior)` role qualifiers are kept
+- `DANISH_CITY_ALLOWLIST_KEYS` — maintain entries as ASCII-normalized keys (`ø`→`o`, `æ`→`ae`, `å`→`a` before keying); runtime folding applies the same transliteration for lookup
+- **Tradeoff:** same title at the same company with different allowlisted trailing cities may still merge when `place` is empty/`unknown` (e.g. `Engineer, Copenhagen` vs `Engineer, Odense`); tightening requires a known `place` that does not match the trailing city
 - `_merge_duplicate_into_keeper`, `_merge_raw_text` — shared merge rules used by `upsert_job` and `jobs/deduplication.merge_duplicate_positions`
 
 **Link normalization (`utils.py`):**

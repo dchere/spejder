@@ -34,7 +34,7 @@ def upsert_job(db_path: str, job: dict) -> bool:
         is_new_record = cur.fetchone() is None
 
         if is_new_record:
-            dedupe_key = _position_dedupe_key(company, title)
+            dedupe_key = _position_dedupe_key(company, title, place)
             if dedupe_key:
                 cur.execute(
                     """
@@ -44,7 +44,9 @@ def upsert_job(db_path: str, job: dict) -> bool:
                 )
                 matches = []
                 for row in cur.fetchall():
-                    existing_key = _position_dedupe_key(str(row[2] or ""), str(row[3] or ""))
+                    existing_key = _position_dedupe_key(
+                        str(row[2] or ""), str(row[3] or ""), str(row[5] or "")
+                    )
                     if existing_key != dedupe_key:
                         continue
                     matches.append({

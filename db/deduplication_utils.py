@@ -42,18 +42,65 @@ _TITLE_ABBREVIATION_REPLACEMENTS = (
     (re.compile(r"\bsr\.?\b", re.IGNORECASE), "senior"),
 )
 
+_TRAILING_CITY_SUFFIX_RE = re.compile(r",\s*(?P<city>[^,]+)$")
 
-def _canonicalize_title_for_dedupe(title: str) -> str:
-    text = sanitize_job_title(title)
-    text = _GENDER_MARKER_RE.sub("", text)
-    text = re.sub(r"\s+", " ", text).strip(" -–—|,;")
-    for pattern, replacement in _TITLE_ABBREVIATION_REPLACEMENTS:
-        text = pattern.sub(replacement, text)
-    return re.sub(r"\s+", " ", text).strip()
+_PART_OF_RE = re.compile(r"(?:^|[,;]\s*)part of\s+", re.IGNORECASE)
+
+_DANISH_CHAR_FOLDS = (
+    ("ø", "o"),
+    ("æ", "ae"),
+    ("å", "a"),
+)
+
+DANISH_CITY_ALLOWLIST_KEYS = frozenset({
+    "aarhus",
+    "aalborg",
+    "billund",
+    "copenhagen",
+    "esbjerg",
+    "fredericia",
+    "frederikshavn",
+    "grenaa",
+    "herning",
+    "hillerod",
+    "hjorring",
+    "holstebro",
+    "horsens",
+    "kobenhavn",
+    "kolding",
+    "lystrup",
+    "middelfart",
+    "naestved",
+    "nordborg",
+    "nyborg",
+    "odense",
+    "randers",
+    "ringkobing",
+    "roskilde",
+    "silkeborg",
+    "skive",
+    "sonderborg",
+    "svendborg",
+    "thisted",
+    "tranbjerg",
+    "vejle",
+    "viby",
+})
 
 
 def _normalize_title_key(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", (value or "").lower())
+
+
+def _fold_danish_chars(value: str) -> str:
+    text = (value or "").lower()
+    for src, dst in _DANISH_CHAR_FOLDS:
+        text = text.replace(src, dst)
+    return text
+
+
+def _normalize_danish_city_key(value: str) -> str:
+    return _normalize_title_key(_fold_danish_chars(value))
 
 
 def _normalize_company_key(value: str) -> str:
@@ -64,18 +111,71 @@ def _normalize_company_key(value: str) -> str:
     return "".join(kept)
 
 
-def _position_dedupe_key(company: str, title: str) -> str:
-    company_key = _normalize_company_key(company)
-    title_key = _normalize_title_key(_canonicalize_title_for_dedupe(title))
+def _canonicalize_company_for_dedupe(company: str) -> str:
+    text = (company or "").strip()
+    matches = list(_PART_OF_RE.finditer(text))
+    if matches:
+        parent = text[matches[-1].end() :].strip(" ,;")
+        if parent:
+            return parent
+    return text
+
+
+def _city_matches_place(city: str, place: str) -> bool:
+    city_folded = _fold_danish_chars(city).strip()
+    place_folded = _fold_danish_chars(place).strip()
+    if not city_folded or not place_folded:
+        return False
+    if _normalize_title_key(city_folded) == _normalize_title_key(place_folded):
+        return True
+    return bool(
+        re.match(rf"^{re.escape(city_folded)}\b", place_folded, flags=re.IGNORECASE)
+    )
+
+
+def _place_unknown(place: str) -> bool:
+    normalized = (place or "").strip().lower()
+    return not normalized or normalized == "unknown"
+
+
+def _should_strip_trailing_city(city: str, place: str) -> bool:
+    city_key = _normalize_danish_city_key(city)
+    if not city_key:
+        return False
+    if city_key in DANISH_CITY_ALLOWLIST_KEYS:
+        return _place_unknown(place) or _city_matches_place(city, place)
+    return _city_matches_place(city, place)
+
+
+def _canonicalize_title_for_dedupe(title: str, place: str = "") -> str:
+    text = sanitize_job_title(title)
+    text = _GENDER_MARKER_RE.sub("", text)
+    text = re.sub(r"\s+", " ", text).strip(" -–—|,;")
+    for pattern, replacement in _TITLE_ABBREVIATION_REPLACEMENTS:
+        text = pattern.sub(replacement, text)
+    text = re.sub(r"\s+", " ", text).strip()
+    match = _TRAILING_CITY_SUFFIX_RE.search(text)
+    if match:
+        city = (match.group("city") or "").strip()
+        if _should_strip_trailing_city(city, place):
+            text = text[: match.start()].strip()
+    return text
+
+
+def _position_dedupe_key(company: str, title: str, place: str = "") -> str:
+    company_key = _normalize_company_key(_canonicalize_company_for_dedupe(company))
+    title_key = _normalize_title_key(_canonicalize_title_for_dedupe(title, place))
     if not company_key or not title_key:
         return ""
     return f"{company_key}|{title_key}"
 
 
-def _cross_source_dedupe_key(source: str, company: str, title: str) -> str:
+def _cross_source_dedupe_key(
+    source: str, company: str, title: str, place: str = ""
+) -> str:
     """Backward-compatible alias; source is ignored."""
     del source
-    return _position_dedupe_key(company, title)
+    return _position_dedupe_key(company, title, place)
 
 
 def _normalize_raw_text_for_compare(value: str) -> str:
