@@ -59,7 +59,8 @@ Extracted from `jobs.py`. The rest of the application (including business logic 
   - **Vestas:** `careers.vestas.com/job/.../{numeric_id}` — strips query/fragment, keeps `scheme://netloc/path`.
   - **Oracle CX:** `*.fa.[a-z0-9]+.oraclecloud.com` with `/CandidateExperience/` and `/job/{id}` — strips `:443`/`:80`, canonical `https://{netloc}{path}`.
   - **Emerson Career Site:** same Oracle FA path shape on host `hdjq.fa.us2.oraclecloud.com` (`EMERSON_ORACLE_FA_HOST` in `utils.py`).
-- `_provider_from_link`: returns display source label (`The Hub`, `Vestas`, `Oracle CX`, `Emerson Career Site`, `Djinni`, etc.). Emerson host is checked before the generic Oracle FA rule.
+  - **Google Careers:** `www.google.com/about/careers/applications/jobs/results/{id}-…` (or same path on `careers.google.com`) — passthrough: keeps original scheme, host, path, and full query string; HTML-entity unescapes the link (`&amp;` → `&`); strips fragment and trailing slash on path only (does not rewrite to `careers.google.com`).
+- `_provider_from_link`: returns display source label (`The Hub`, `Vestas`, `Oracle CX`, `Emerson Career Site`, `Djinni`, `Google Careers`, etc.). Emerson host is checked before the generic Oracle FA rule.
 - `_is_djinni_position_link`: shared Djinni job URL check (`djinni.co/jobs/{numeric_id}`); used by `_is_job_link`, `_normalize_position_link`, and `_provider_from_link`.
 - `get_job_link` (`connection.py`): returns `position_link` row for a job id; lives next to `_connect` to avoid circular imports with `utils.py`.
 - `ensure_db` (`connection.py`): after source backfill from `_provider_from_link`, migrates existing Emerson Oracle FA rows — `source` → `Emerson Career Site` (when blank or `Oracle CX`), `company` → `Emerson` (when blank or `Emerson Career Site`).

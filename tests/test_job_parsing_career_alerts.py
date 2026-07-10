@@ -1,4 +1,4 @@
-"""Tests for career-alert email parsing (The Hub, Vestas, Oracle CX, Djinni)."""
+"""Tests for career-alert email parsing (The Hub, Vestas, Oracle CX, Djinni, Google Careers)."""
 
 import os
 import unittest
@@ -13,6 +13,7 @@ from spejder.jobs.parsing.companies import sanitize_company_name
 from spejder.jobs.parsing.core import extract_job_entries
 from spejder.jobs.parsing.links import _is_job_link
 from spejder.jobs.parsing.jobs2web import _parse_jobs2web_anchor_text
+from spejder.jobs.parsing.platforms import _extract_google_entries_by_link
 from spejder.jobs.parsing.platforms_career_alerts import (
     _extract_danfoss_entries_by_link,
     _extract_djinni_entries_by_link,
@@ -23,6 +24,38 @@ from spejder.jobs.parsing.platforms_career_alerts import (
 )
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures", "career_alerts")
+
+GOOGLE_FACILITIES_MANAGER_LINK = (
+    "https://www.google.com/about/careers/applications/jobs/results/"
+    "101908545586242246-facilities-manager,-data-center-operations"
+    "?utm_campaign=jobalerts"
+    "&utm_content=Facilities+Manager,+Data+Center+Operations"
+    "&utm_medium=email&utm_source=googlejobs"
+    "&src=Online/Direct/Google+Jobs+Site+Alert+Emails"
+    "&location=Denmark&location=Aarhus,+Denmark"
+    "&location=Copenhagen,+Denmark&location=Fredericia,+Denmark"
+    "&sort_by=date"
+)
+
+GOOGLE_FACILITIES_MANAGER_NORMALIZED = (
+    "https://www.google.com/about/careers/applications/jobs/results/"
+    "101908545586242246-facilities-manager,-data-center-operations"
+    "?utm_campaign=jobalerts"
+    "&utm_content=Facilities+Manager,+Data+Center+Operations"
+    "&utm_medium=email&utm_source=googlejobs"
+    "&src=Online/Direct/Google+Jobs+Site+Alert+Emails"
+    "&location=Denmark&location=Aarhus,+Denmark"
+    "&location=Copenhagen,+Denmark&location=Fredericia,+Denmark"
+    "&sort_by=date"
+)
+
+GOOGLE_CAREERS_GOOGLE_COM_LINK = GOOGLE_FACILITIES_MANAGER_LINK.replace(
+    "www.google.com", "careers.google.com"
+)
+
+GOOGLE_CAREERS_GOOGLE_COM_NORMALIZED = GOOGLE_FACILITIES_MANAGER_NORMALIZED.replace(
+    "www.google.com", "careers.google.com"
+)
 
 
 def _read_fixture(name: str) -> str:
@@ -125,6 +158,29 @@ class JobLinkRecognitionTest(unittest.TestCase):
         self.assertTrue(_is_djinni_position_link(link))
         self.assertTrue(_is_job_link(link))
 
+    def test_google_careers_job_link_preserves_host_and_query(self):
+        normalized = _normalize_position_link(GOOGLE_FACILITIES_MANAGER_LINK)
+        self.assertEqual(normalized, GOOGLE_FACILITIES_MANAGER_NORMALIZED)
+        self.assertTrue(_is_job_link(normalized))
+        self.assertEqual(_provider_from_link(normalized), "Google Careers")
+
+    def test_google_careers_careers_google_com_host_passthrough(self):
+        normalized = _normalize_position_link(GOOGLE_CAREERS_GOOGLE_COM_LINK)
+        self.assertEqual(normalized, GOOGLE_CAREERS_GOOGLE_COM_NORMALIZED)
+        self.assertTrue(_is_job_link(normalized))
+        self.assertEqual(_provider_from_link(normalized), "Google Careers")
+
+    def test_google_careers_strips_fragment(self):
+        link = f"{GOOGLE_FACILITIES_MANAGER_LINK}#section"
+        normalized = _normalize_position_link(link)
+        self.assertEqual(normalized, GOOGLE_FACILITIES_MANAGER_NORMALIZED)
+        self.assertNotIn("#", normalized)
+
+    def test_google_careers_unescapes_html_entities_in_query(self):
+        link = GOOGLE_FACILITIES_MANAGER_LINK.replace("&", "&amp;")
+        normalized = _normalize_position_link(link)
+        self.assertEqual(normalized, GOOGLE_FACILITIES_MANAGER_NORMALIZED)
+        self.assertNotIn("&amp;", normalized)
 
 class PlatformExtractorTest(unittest.TestCase):
     def test_vestas_extractor(self):
@@ -200,6 +256,18 @@ class PlatformExtractorTest(unittest.TestCase):
         for entry in by_link.values():
             self.assertEqual(entry["source"], "Djinni")
             self.assertTrue(entry["title"])
+
+    def test_google_careers_extractor(self):
+        html = _read_fixture("google_careers_snippet.html")
+        by_link = _extract_google_entries_by_link(html)
+        self.assertEqual(len(by_link), 1)
+        normalized = _normalize_position_link(GOOGLE_FACILITIES_MANAGER_LINK)
+        self.assertEqual(normalized, GOOGLE_FACILITIES_MANAGER_NORMALIZED)
+        entry = by_link[normalized]
+        self.assertEqual(entry["title"], "Facilities Manager, Data Center Operations")
+        self.assertEqual(entry["company"], "Google")
+        self.assertEqual(entry["place"], "Fredericia")
+        self.assertEqual(entry["source"], "Google Careers")
 
 
 class SanitizeCompanyNameTest(unittest.TestCase):
@@ -279,6 +347,7 @@ class CareerAlertIntegrationTest(unittest.TestCase):
             "oracle_snippet.html",
             "djinni_digest_snippet.html",
             "novonordisk_snippet.html",
+            "google_careers_snippet.html",
         ):
             html = _read_fixture(name)
             doc = {"html": html, "text": "", "title": "", "links": []}
@@ -298,6 +367,9 @@ class CareerAlertIntegrationTest(unittest.TestCase):
                 if name == "novonordisk_snippet.html":
                     self.assertTrue(all(e.get("company") == "Novo Nordisk" for e in entries))
                     self.assertTrue(all(e.get("source") == "Novo Nordisk" for e in entries))
+                if name == "google_careers_snippet.html":
+                    self.assertTrue(all(e.get("company") == "Google" for e in entries))
+                    self.assertTrue(all(e.get("source") == "Google Careers" for e in entries))
 
 
 if __name__ == "__main__":
