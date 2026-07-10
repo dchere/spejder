@@ -132,6 +132,14 @@
                 return panelApplied;
             }
 
+            function appliedStageMode(card) {
+                const onInterview = card.querySelector('.interview-wrap input')?.checked;
+                const stopped = card.querySelector('.stopped-wrap input')?.checked;
+                if (onInterview) return 'interview';
+                if (stopped) return 'stopped';
+                return 'applied';
+            }
+
             function moveCardToAppliedStage(card) {
                 const targetPanel = appliedStagePanel(card);
                 if (card.parentElement !== targetPanel) targetPanel.prepend(card);
@@ -325,6 +333,7 @@
                             removeCardFromAppliedStages(card);
                             const targetPanel = relevantCheckbox && relevantCheckbox.checked ? panelRelevant : panelNotRelevant;
                             if (card.parentElement !== targetPanel) targetPanel.prepend(card);
+                            setMode(relevantCheckbox && relevantCheckbox.checked ? 'relevant' : 'not relevant');
                         }
                     }
                     if (statusEl) statusEl.textContent = `Saved: ${applied ? 'applied' : 'not applied'}`;
@@ -353,6 +362,7 @@
                         const stoppedCheckbox = card.querySelector('.stopped-wrap input');
                         if (onInterview && stoppedCheckbox) stoppedCheckbox.checked = false;
                         moveCardToAppliedStage(card);
+                        setMode(appliedStageMode(card));
                     }
                     if (statusEl) statusEl.textContent = `Saved: ${onInterview ? 'on interview' : 'not on interview'}`;
                     refreshCounts();
@@ -380,6 +390,7 @@
                         const interviewCheckbox = card.querySelector('.interview-wrap input');
                         if (stopped && interviewCheckbox) interviewCheckbox.checked = false;
                         moveCardToAppliedStage(card);
+                        setMode(appliedStageMode(card));
                     }
                     if (statusEl) statusEl.textContent = `Saved: ${stopped ? 'stopped' : 'not stopped'}`;
                     refreshCounts();
