@@ -10,8 +10,11 @@ from spejder.managers.language_manager import (
 )
 from spejder.workflows import (
     dedupe_jobs,
+    disable_career_alert_artifact,
+    enable_career_alert_artifact,
     init_profile,
     initialize_llm_or_exit,
+    list_career_alert_artifacts,
     process_inbox,
     refresh_descriptions,
     render_html,
@@ -99,6 +102,15 @@ def cmd_cleanup_skills(args):
 
 def cmd_dedupe_jobs(args):
     dedupe_jobs(profile=args.profile, db=args.db)
+
+def cmd_list_career_alert_artifacts(args):
+    list_career_alert_artifacts(profile=args.profile)
+
+def cmd_disable_career_alert_artifact(args):
+    disable_career_alert_artifact(artifact_id=args.id, profile=args.profile)
+
+def cmd_enable_career_alert_artifact(args):
+    enable_career_alert_artifact(artifact_id=args.id, profile=args.profile)
 
 def main(argv=None):
     p = argparse.ArgumentParser(prog="spejder")
@@ -197,6 +209,20 @@ def main(argv=None):
     pdj.add_argument("--profile", default=USER_PROFILE_PATH)
     pdj.add_argument("--db", default=None)
     pdj.set_defaults(func=cmd_dedupe_jobs)
+
+    plca = sub.add_parser("list-career-alert-artifacts")
+    plca.add_argument("--profile", default=USER_PROFILE_PATH)
+    plca.set_defaults(func=cmd_list_career_alert_artifacts)
+
+    pdca = sub.add_parser("disable-career-alert-artifact")
+    pdca.add_argument("--id", required=True)
+    pdca.add_argument("--profile", default=USER_PROFILE_PATH)
+    pdca.set_defaults(func=cmd_disable_career_alert_artifact)
+
+    peca = sub.add_parser("enable-career-alert-artifact")
+    peca.add_argument("--id", required=True)
+    peca.add_argument("--profile", default=USER_PROFILE_PATH)
+    peca.set_defaults(func=cmd_enable_career_alert_artifact)
 
     args = p.parse_args(argv)
     if not hasattr(args, "func"):

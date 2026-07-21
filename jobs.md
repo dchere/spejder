@@ -36,10 +36,20 @@ The previously monolithic `parsing.py` has been transitioned into a `spejder.job
 - `linkedin.py`: Rules specific to LinkedIn formatting inside jobs.
 - `companies.py`: Entity and title inferences.
 - `links.py`, `platforms.py`: Source routing via external links.
-- `jobs2web.py`: Oracle Jobs2Web anchor parsing and Vestas/Danfoss/Novo Nordisk extractors.
+- `jobs2web.py`: Oracle Jobs2Web anchor parsing and Vestas/Danfoss/Novo Nordisk extractors (Python fallback; mirrored by shipped artifacts).
 - `djinni_alerts.py`, `thehub_alerts.py`, `oracle_cx_alerts.py`: Other career-alert email extractors.
 - `platforms_career_alerts.py`: Re-export barrel for career-alert extractors (stable import path).
-- `core.py`: The aggregator coordinating all extractors (`extract_job_entries`).
+- `artifact_schema.py` / `artifact_store.py` / `artifact_interpreter.py` / `html_shrink.py` / `artifact_synth.py`: Declarative career-alert artifacts (see [`jobs/parsing/artifacts.md`](jobs/parsing/artifacts.md)).
+- `artifacts/*.json`: Shipped Jobs2Web recipes (Vestas, Danfoss, Novo Nordisk).
+- `core.py`: The aggregator coordinating all extractors (`extract_job_entries`); optional `artifacts=` / overlay dir / disable list. Without `artifacts_dir`, loads **shipped artifacts only** (no default `./career_alert_artifacts` merge).
+
+**Career-alert artifacts:**
+- Shipped JSON under `jobs/parsing/artifacts/`; user overlay dir from `career_alert_artifacts_dir` (default `./career_alert_artifacts`); overlay wins on same `id`. Overlay is loaded only when callers pass that dir (ingest/CLI); bare `extract_job_entries(doc)` is shipped-only.
+- Match lists must be non-empty and non-blank at schema load; interpreter also fails closed on blank-only lists.
+- Interpreter opcodes are a closed set (no `exec`); unknown ops fail validation at load.
+- `extract_job_entries` runs enabled artifacts by priority, then built-ins; **artifact fields fill only when the built-in field is empty**. Links present only in the artifact map still become entries (needed for new-host synth).
+- Opt-in synth (`career_alert_synth_enabled`, requires `default_model`): on ingest `found=0`, shrink HTML → local GGUF → validate link/title ratios → write overlay only; failed synth leaves the `.eml`. Rejects empty/blank match lists and overly broad recovery. Hook lives in `jobs/ingestion.py`, not inside `extract_job_entries`. Ingest loads artifacts once per run (reload after successful synth).
+- Jobindex / LinkedIn / generic HTML stay in Python; Jobs2Web Python modules remain dual-run fallbacks.
 
 **Career-alert sources (email job alerts):**
 | Source | Link pattern | Extractor | Provider label |
@@ -57,7 +67,7 @@ Djinni subscription digests use `div.card` blocks inside `table.table-cards`. Ti
 
 Vestas, Danfoss, and Novo Nordisk career-alert emails share the Oracle Jobs2Web template (`agentjoblink` anchors); extractors key off the job-board host (`careers.vestas.com`, `jobs.danfoss.com`, `careers.novonordisk.com`), not CSS class alone. LinkedIn digests that link to Novo Nordisk career pages may include boilerplate such as `according to your selected` in the company slot; `_extract_novonordisk_entries_by_link` and `sanitize_company_name` normalize that to `Novo Nordisk`. `_parse_jobs2web_anchor_text` prefers middot (`·`) segments over dash splits; single-middot anchors keep the parenthetical-stripped text as title rather than splitting on interior hyphens.
 
-**Merge order in `core.extract_job_entries`:** platform-specific fields from Google → The Hub → Djinni → Danfoss → Vestas → Novo Nordisk → Oracle CX → Demant → Jobindex → generic HTML (only fills fields not already set by a platform extractor), then `_provider_from_link` as fallback source. The links loop uses the same priority when building entries from `doc["links"]`.
+**Merge order in `core.extract_job_entries`:** enabled artifacts (by priority) produce a by-link map first; then platform-specific fields from Google → The Hub → Djinni → Danfoss → Vestas → Novo Nordisk → Oracle CX → Demant → Jobindex → generic HTML (only fills fields not already set by a platform extractor); then artifact fields fill remaining empties; then `_provider_from_link` as fallback source. Artifact-only links (no built-in/`_is_job_link` hit) are appended after the links loop. The links loop uses the same platform priority when building entries from `doc["links"]`.
 
 **Jobindex title/place heuristics:** `pick_jobindex_title` in `parsing/utils.py` avoids selecting company-like `/jobannonce/` anchors (exact company match or suffixes like `ApS`, `A/S`, `GmbH`, `Group`) before taking the longest remaining candidate. `merge_jobindex_place` combines trailing `i City` title suffixes with listing districts via space-join (e.g. `i Aarhus` + `8260 Tranbjerg J` → `Aarhus Tranbjerg J`); when the title already carries `City (District)` the parsed suffix is kept unchanged (e.g. `i Aarhus (Egå)` → `Aarhus (Egå)`). Listings with multi-location text (` or `, `/`) or a city prefix are kept verbatim. `peel_jobindex_trailing_place` splits bare multi-city suffixes (e.g. `Patent Paralegal Aarhus or Copenhagen`) when the place regex fails in single-anchor digests. Single-anchor digests can also recover title+place from compact text between company and `\d+ min`, including embedded ``… i City District`` without a postcode. Stored titles are not truncated when deriving place from `i City` suffixes. Display/report resolution (`_resolve_title_and_place`) still uses spaced ` - ` only — not bare hyphens in compounds like `Social- og`.
 

@@ -129,6 +129,8 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
                 entry_transform=entry_transform,
                 on_new_record=None,
                 on_progress=_on_progress,
+                llm=llm_for_sync,
+                runtime_profile=context.runtime_profile,
             )
         else:
             ingest_stats = {

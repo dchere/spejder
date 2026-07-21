@@ -67,6 +67,12 @@ class AppConfig(BaseModel):
     default_cv_path: str = "./CV"
     default_portrait_path: str = "./portrait.txt"
     portrait_max_tokens: int = 1200
+
+    career_alert_artifacts_dir: str = "./career_alert_artifacts"
+    career_alert_artifacts_disabled: list[str] = Field(default_factory=list)
+    career_alert_synth_enabled: bool = False
+    career_alert_synth_link_ratio: float = 0.8
+    career_alert_synth_title_ratio: float = 0.8
     
     user_skills: list[str] = Field(default_factory=list)
     blocked_skills: list[str] = Field(default_factory=list)

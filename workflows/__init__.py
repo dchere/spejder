@@ -8,3 +8,8 @@ from .gui import (serve_gui)
 from .profile import (init_profile)
 from .enrichment import (refresh_descriptions)
 from .job_enrichment import (_is_easy_apply_item)
+from .career_alert_artifacts import (
+    disable_career_alert_artifact,
+    enable_career_alert_artifact,
+    list_career_alert_artifacts,
+)

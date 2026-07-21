@@ -1,5 +1,10 @@
+from typing import Optional
+
 from spejder.db import _normalize_position_link, _provider_from_link
 
+from .artifact_interpreter import interpret_artifacts
+from .artifact_schema import CareerAlertArtifact
+from .artifact_store import load_artifacts
 from .companies import extract_company_title, sanitize_company_name
 from .html_parser import _extract_html_entries_by_link
 from .links import _is_job_link
@@ -23,12 +28,37 @@ from .platforms_career_alerts import (
 )
 from .text_parser import _extract_entries_from_text
 
+_ENTRY_FIELD_KEYS = ("title", "company", "place", "work_type", "raw_text", "source")
 
-def extract_job_entries(doc: dict) -> list[dict]:
+
+def _fill_empty_fields(entry: dict, fields: dict) -> None:
+    if not fields:
+        return
+    for key in _ENTRY_FIELD_KEYS:
+        value = fields.get(key)
+        if value and not entry.get(key):
+            entry[key] = value
+
+
+def extract_job_entries(
+    doc: dict,
+    *,
+    artifacts: Optional[list[CareerAlertArtifact]] = None,
+    artifacts_dir: Optional[str] = None,
+    artifacts_disabled: Optional[list[str]] = None,
+) -> list[dict]:
     text = doc.get("text", "") or ""
     html_text = doc.get("html", "") or ""
     title_hint = doc.get("title", "") or ""
     links = doc.get("links", []) or []
+    if artifacts is None:
+        artifact_list = load_artifacts(
+            overlay_dir=artifacts_dir,
+            disabled_ids=artifacts_disabled,
+        )
+    else:
+        artifact_list = list(artifacts)
+    artifact_by_link = interpret_artifacts(html_text, artifact_list, links=links)
     html_by_link = _extract_html_entries_by_link(html_text)
     jobindex_by_link = _extract_jobindex_entries_by_link(html_text)
     demant_by_link = _extract_demant_entries_by_link(html_text)
@@ -241,6 +271,8 @@ def extract_job_entries(doc: dict) -> list[dict]:
         if html_fields.get("raw_text") and not platform_raw_text:
             entry["raw_text"] = html_fields["raw_text"]
 
+        _fill_empty_fields(entry, artifact_by_link.get(lnk, {}))
+
         if not entry.get("source"):
             entry["source"] = _provider_from_link(lnk)
 
@@ -264,6 +296,7 @@ def extract_job_entries(doc: dict) -> list[dict]:
         thehub_fields = thehub_by_link.get(normalized, {})
         djinni_fields = djinni_by_link.get(normalized, {})
         oracle_fields = oracle_by_link.get(normalized, {})
+        art_fields = artifact_by_link.get(normalized, {})
         company, title = extract_company_title(text, title_hint)
         wt = html_fields.get("work_type") or _work_type_from_html_for_link(
             html_text, normalized
@@ -279,6 +312,7 @@ def extract_job_entries(doc: dict) -> list[dict]:
             or demant_fields.get("company")
             or ji_fields.get("company")
             or html_fields.get("company")
+            or art_fields.get("company")
             or company,
             "title": google_fields.get("title")
             or thehub_fields.get("title")
@@ -290,6 +324,7 @@ def extract_job_entries(doc: dict) -> list[dict]:
             or demant_fields.get("title")
             or ji_fields.get("title")
             or html_fields.get("title")
+            or art_fields.get("title")
             or title,
             "place": google_fields.get("place")
             or thehub_fields.get("place")
@@ -301,6 +336,7 @@ def extract_job_entries(doc: dict) -> list[dict]:
             or demant_fields.get("place")
             or ji_fields.get("place")
             or html_fields.get("place")
+            or art_fields.get("place")
             or "",
             "work_type": google_fields.get("work_type")
             or thehub_fields.get("work_type")
@@ -310,6 +346,7 @@ def extract_job_entries(doc: dict) -> list[dict]:
             or novonordisk_fields.get("work_type")
             or oracle_fields.get("work_type")
             or demant_fields.get("work_type")
+            or art_fields.get("work_type")
             or (wt if wt else "Unknown"),
             "position_link": normalized,
             "raw_text": google_fields.get("raw_text")
@@ -322,6 +359,7 @@ def extract_job_entries(doc: dict) -> list[dict]:
             or demant_fields.get("raw_text")
             or ji_fields.get("raw_text")
             or html_fields.get("raw_text")
+            or art_fields.get("raw_text")
             or text[:2500],
             "source": google_fields.get("source")
             or thehub_fields.get("source")
@@ -331,7 +369,23 @@ def extract_job_entries(doc: dict) -> list[dict]:
             or novonordisk_fields.get("source")
             or oracle_fields.get("source")
             or demant_fields.get("source")
+            or art_fields.get("source")
             or _provider_from_link(normalized),
+        }
+
+    for normalized, art_fields in artifact_by_link.items():
+        if normalized in by_link:
+            continue
+        if not (art_fields.get("title") or art_fields.get("company")):
+            continue
+        by_link[normalized] = {
+            "company": art_fields.get("company") or "",
+            "title": art_fields.get("title") or "",
+            "place": art_fields.get("place") or "",
+            "work_type": art_fields.get("work_type") or "Unknown",
+            "position_link": normalized,
+            "raw_text": art_fields.get("raw_text") or text[:2500],
+            "source": art_fields.get("source") or _provider_from_link(normalized),
         }
 
     filtered_entries: list[dict] = []

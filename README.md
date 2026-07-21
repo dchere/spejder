@@ -194,6 +194,19 @@ Notes:
 - Position skills are extracted and shown in report cards.
 - Skill patterns are loaded from DB and may be auto-extended from applied/relevant jobs.
 - `profile.json` gets updated with learned include/exclude keywords and `missing_skills_suggestions`.
+- Optional career-alert format learning: set `career_alert_synth_enabled` to `true` (and configure `default_model`) to synthesize overlay artifacts when a file yields zero positions. Artifacts are persisted under `career_alert_artifacts_dir` only after interpreter re-validation. Jobindex and LinkedIn stay built-in Python parsers.
+
+### Career-alert artifacts
+
+List shipped/overlay recipes and toggle the profile disable list (no LLM required):
+
+```bash
+python3 -m spejder.cli list-career-alert-artifacts --profile ./profile.json
+python3 -m spejder.cli disable-career-alert-artifact --id jobs2web_danfoss --profile ./profile.json
+python3 -m spejder.cli enable-career-alert-artifact --id jobs2web_danfoss --profile ./profile.json
+```
+
+Overlay directory defaults to `./career_alert_artifacts`. Disable is profile-based (`career_alert_artifacts_disabled`); files are not deleted.
 
 ### `serve-gui`
 

@@ -50,7 +50,17 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
     entry_transform = make_translate_job_entry_for_storage(
         profile, text_translation_cache, title_translation_cache
     )
-    ingest_stats = ingest_docs_to_db(db_path, docs, entry_transform=entry_transform)
+    llm = LocalLLM(model_path=model_path, n_ctx=int(profile.n_ctx), verbose=bool(verbose)) if model_path else None
+    if not llm:
+        raise SystemExit("Model init: model is required for process-inbox")
+
+    ingest_stats = ingest_docs_to_db(
+        db_path,
+        docs,
+        entry_transform=entry_transform,
+        runtime_profile=profile,
+        llm=llm,
+    )
     print(
         "Ingestion done: "
         f"processed={ingest_stats.get('processed', 0)}, "
@@ -67,10 +77,6 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
         f"missing={delete_stats.get('missing', 0)}, "
         f"failed={delete_stats.get('failed', 0)}"
     )
-
-    llm = LocalLLM(model_path=model_path, n_ctx=int(profile.n_ctx), verbose=bool(verbose)) if model_path else None
-    if not llm:
-        raise SystemExit("Model init: model is required for process-inbox")
 
     desc_updated, desc_skipped = _generate_missing_descriptions_for_ingest(
         db_path, llm=llm, runtime_profile=profile, allow_empty=False

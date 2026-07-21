@@ -1,0 +1,287 @@
+"""LLM synthesis of career-alert artifacts with re-validation gate."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+import os
+import re
+from datetime import datetime, timezone
+from typing import Optional
+from urllib.parse import urlparse
+
+from pydantic import ValidationError
+
+from spejder.config import AppConfig
+from spejder.db import _normalize_position_link
+from spejder.jobs.parsing.artifact_interpreter import href_matches_artifact, interpret_artifact
+from spejder.jobs.parsing.artifact_schema import CareerAlertArtifact
+from spejder.jobs.parsing.artifact_store import (
+    is_shipped_id,
+    resolve_overlay_dir,
+    save_overlay_artifact,
+)
+from spejder.jobs.parsing.html_shrink import shrink_html_for_prompt
+from spejder.llm import LocalLLM
+
+logger = logging.getLogger(__name__)
+
+_SYNTH_PROMPT = """You extract job-alert parsing rules as JSON only.
+Given shrunk HTML from a career-alert email, return a JSON object with:
+{{
+  "positions": [{{"position_link": "...", "title": "..."}}],
+  "artifact": {{
+    "id": "synth_<host>_<short>",
+    "version": 1,
+    "priority": 50,
+    "enabled": true,
+    "match": {{
+      "host_substrings": ["example.com"],
+      "path_includes": ["/job/"]
+    }},
+    "extract": {{"mode": "filtered_links"}},
+    "fields": {{
+      "from_anchor": "jobs2web_middot_or_dash",
+      "company": "Company Name",
+      "source": "Source Label"
+    }}
+  }}
+}}
+Rules:
+- Use only filtered_links extract mode and known from_anchor opcodes.
+- positions must list real hrefs present in the HTML.
+- artifact.match must match those job links.
+- Reply with JSON only, no markdown.
+
+HTML:
+{html}
+"""
+
+
+def _extract_json_object(text: str) -> dict:
+    payload = (text or "").strip()
+    if not payload:
+        return {}
+    start = payload.find("{")
+    end = payload.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return {}
+    candidate = payload[start : end + 1]
+    try:
+        parsed = json.loads(candidate)
+        if isinstance(parsed, dict):
+            return parsed
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return {}
+    return {}
+
+
+def _token_jaccard(a: str, b: str) -> float:
+    ta = {t for t in re.findall(r"[a-z0-9]+", (a or "").casefold()) if t}
+    tb = {t for t in re.findall(r"[a-z0-9]+", (b or "").casefold()) if t}
+    if not ta and not tb:
+        return 1.0
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / len(ta | tb)
+
+
+def titles_agree(a: str, b: str) -> bool:
+    left = (a or "").strip().casefold()
+    right = (b or "").strip().casefold()
+    if left == right:
+        return True
+    return _token_jaccard(left, right) >= 0.7
+
+
+def _position_link_set(positions: list) -> dict[str, str]:
+    """normalized link → title from LLM positions list."""
+    out: dict[str, str] = {}
+    if not isinstance(positions, list):
+        return out
+    for item in positions:
+        if not isinstance(item, dict):
+            continue
+        raw = str(item.get("position_link") or item.get("link") or item.get("href") or "").strip()
+        if not raw:
+            continue
+        normalized = _normalize_position_link(raw)
+        if not normalized:
+            continue
+        title = str(item.get("title") or "").strip()
+        out[normalized] = title
+    return out
+
+
+def validate_synth_thresholds(
+    proposed: dict[str, str],
+    recovered: dict[str, dict[str, str]],
+    *,
+    link_ratio: float,
+    title_ratio: float,
+) -> tuple[bool, str]:
+    p_links = set(proposed.keys())
+    r_links = set(recovered.keys())
+    if len(p_links) < 1 or len(r_links) < 1:
+        return False, "empty_proposed_or_recovered"
+    intersection = p_links & r_links
+    if len(intersection) / len(p_links) < float(link_ratio):
+        return False, "link_ratio"
+    if not intersection:
+        return False, "no_intersection"
+    agreed = 0
+    for link in intersection:
+        if titles_agree(proposed.get(link, ""), recovered.get(link, {}).get("title", "")):
+            agreed += 1
+    if agreed / len(intersection) < float(title_ratio):
+        return False, "title_ratio"
+    return True, "ok"
+
+
+def _draft_matches_recovered(artifact: CareerAlertArtifact, recovered: dict[str, dict[str, str]]) -> bool:
+    for link in recovered:
+        if href_matches_artifact(link, artifact):
+            return True
+    return False
+
+
+def _match_rules_too_broad(artifact: CareerAlertArtifact) -> bool:
+    """Reject empty match lists that would match every href (or every path on a host)."""
+    hosts = [h for h in (artifact.match.host_substrings or []) if str(h).strip()]
+    paths = [p for p in (artifact.match.path_includes or []) if str(p).strip()]
+    return not hosts or not paths
+
+
+def _recovered_too_broad(proposed: dict[str, str], recovered: dict[str, dict[str, str]]) -> bool:
+    """Reject when match rules pull in far more links than the LLM proposed."""
+    n_proposed = len(proposed)
+    n_recovered = len(recovered)
+    if n_proposed < 1:
+        return True
+    return n_recovered > max(3, n_proposed * 2)
+
+
+def _safe_overlay_filename(artifact_id: str) -> str:
+    return "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in artifact_id)
+
+
+def _ensure_synth_id(
+    artifact: CareerAlertArtifact,
+    html_text: str,
+    *,
+    overlay_dir: Optional[str] = None,
+) -> CareerAlertArtifact:
+    """Always assign synth_<host>_<html_hash6> (append counter if overlay file exists)."""
+    host = "unknown"
+    for sub in artifact.match.host_substrings or []:
+        host = re.sub(r"[^a-z0-9]+", "", (sub or "").lower()) or host
+        break
+    if host == "unknown":
+        for link in interpret_artifact(html_text, artifact):
+            host = re.sub(r"[^a-z0-9]+", "", (urlparse(link).netloc or "").lower()) or host
+            break
+    digest = hashlib.sha1((html_text or "").encode("utf-8", errors="ignore")).hexdigest()[:6]
+    base_id = f"synth_{host}_{digest}"
+    candidate = base_id
+    if overlay_dir is not None:
+        directory = resolve_overlay_dir(overlay_dir)
+        n = 2
+        while os.path.exists(os.path.join(directory, f"{_safe_overlay_filename(candidate)}.json")):
+            candidate = f"{base_id}_{n}"
+            n += 1
+    return artifact.model_copy(update={"id": candidate})
+
+
+def try_synthesize_artifact(
+    html_text: str,
+    llm: LocalLLM,
+    profile: AppConfig,
+    *,
+    overlay_dir: Optional[str] = None,
+    max_prompt_chars: Optional[int] = None,
+) -> tuple[Optional[CareerAlertArtifact], str]:
+    """
+    Shrink → LLM → validate → optionally persist overlay.
+    Returns (artifact_or_None, reason).
+    """
+    if not html_text or not llm:
+        return None, "missing_html_or_llm"
+
+    budget = max_prompt_chars
+    if budget is None:
+        n_ctx = int(getattr(profile, "n_ctx", 8192) or 8192)
+        budget = max(2000, min(12000, n_ctx * 2))
+
+    shrunk = shrink_html_for_prompt(html_text, max_chars=budget)
+    if not shrunk.strip():
+        return None, "empty_shrink"
+    if len(shrunk) >= budget and shrunk.endswith("..."):
+        # Still usable; proceed with truncated prompt
+        pass
+
+    prompt = _SYNTH_PROMPT.format(html=shrunk)
+    try:
+        raw = llm.generate(prompt, max_tokens=900)
+    except (RuntimeError, OSError, ValueError, TypeError) as exc:
+        logger.warning("career-alert synth LLM failed: %s", exc)
+        return None, "llm_error"
+
+    payload = _extract_json_object(raw)
+    if not payload:
+        return None, "bad_json"
+
+    proposed = _position_link_set(payload.get("positions") or [])
+    artifact_data = payload.get("artifact")
+    if not isinstance(artifact_data, dict):
+        return None, "missing_artifact"
+
+    try:
+        draft = CareerAlertArtifact.model_validate(artifact_data)
+    except ValidationError as exc:
+        logger.info("career-alert synth schema reject: %s", exc)
+        return None, "schema"
+
+    if draft.extract.mode != "filtered_links":
+        return None, "unsupported_extract_mode"
+
+    if _match_rules_too_broad(draft):
+        return None, "empty_match_rules"
+
+    target_dir = overlay_dir if overlay_dir is not None else profile.career_alert_artifacts_dir
+    draft = _ensure_synth_id(draft, html_text, overlay_dir=target_dir)
+    if is_shipped_id(draft.id):
+        return None, "shipped_id_collision"
+
+    recovered = interpret_artifact(html_text, draft)
+    ok, reason = validate_synth_thresholds(
+        proposed,
+        recovered,
+        link_ratio=float(profile.career_alert_synth_link_ratio),
+        title_ratio=float(profile.career_alert_synth_title_ratio),
+    )
+    if not ok:
+        return None, reason
+    if not _draft_matches_recovered(draft, recovered):
+        return None, "match_rules"
+    if _recovered_too_broad(proposed, recovered):
+        return None, "match_too_broad"
+
+    model_basename = os.path.basename(str(getattr(llm, "model_path", "") or "")) or None
+    eml_hash = hashlib.sha1((html_text or "").encode("utf-8", errors="ignore")).hexdigest()[:16]
+    final = draft.model_copy(
+        update={
+            "source": "llm_synth",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "model_path": model_basename,
+            "parent_eml_hash": eml_hash,
+            "enabled": True,
+        }
+    )
+    try:
+        path = save_overlay_artifact(final, overlay_dir=target_dir)
+    except OSError as exc:
+        logger.warning("career-alert synth persist failed: %s", exc)
+        return None, "persist_error"
+    logger.info("career-alert artifact synthesized: id=%s path=%s", final.id, path)
+    return final, "ok"

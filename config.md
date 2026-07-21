@@ -33,5 +33,12 @@ Replaces the old dictionary-based profile system (`FALLBACK_DEFAULT_PROFILE`). A
 - `default_portrait_path` — committed portrait text file (default `./portrait.txt`)
 - `portrait_max_tokens` — LLM output budget for portrait regeneration (default `1200`)
 
+**Career-alert artifact profile fields:**
+- `career_alert_artifacts_dir` — user overlay directory for synthesized/edited JSON artifacts (default `./career_alert_artifacts`)
+- `career_alert_artifacts_disabled` — list of artifact ids to skip (default `[]`)
+- `career_alert_synth_enabled` — opt-in auto-synthesis on ingest when a file yields zero positions (default `false`)
+- `career_alert_synth_link_ratio` — minimum fraction of LLM-proposed links the interpreter must recover (default `0.8`)
+- `career_alert_synth_title_ratio` — minimum title-agreement fraction on recovered ∩ proposed links (default `0.8`)
+
 **Dependencies:**
 - `pydantic`, `json`, `os`

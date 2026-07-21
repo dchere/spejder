@@ -26,4 +26,5 @@ Background inbox synchronization pipeline extracted from `gui.py`, preserving ex
 - Keep invocation-scoped mutable caches (`text_translation_cache`, `title_translation_cache`) inside `run_inbox_sync`; do not promote to module globals.
 - Build ingest translation transform via `spejder.workflows.job_enrichment.make_translate_job_entry_for_storage` to keep GUI sync and inbox ingest logic aligned.
 - Use `spejder.workflows.ingest_utils` for ingest per-file stats logging and inbox cleanup.
+- Pass `llm` + `runtime_profile` into `ingest_docs_to_db` so opt-in career-alert synthesis can run on `found=0` during background sync.
 - Treat `GuiSyncContext` callbacks as the only bridge back into GUI orchestration.
