@@ -21,8 +21,8 @@ Replaces the old dictionary-based profile system (`FALLBACK_DEFAULT_PROFILE`). A
 
 **Skill extraction profile fields:**
 - `skill_new_confidence_threshold` — minimum LLM confidence for novel skill candidates (default `0.9`); quality/evidence checks in `filtering._is_candidate_strong` still apply
-- `skill_bigram_toxicity_threshold` — optional float; when `null`, auto-calibrated from good vs bad skill score distributions on block/seed. Set back to `null` in `profile.json` to recalibrate after the cloud grows; otherwise the first calibrated value is kept.
-- `skill_bigram_threshold_margin` — tuning margin for calibration (default `0.5`)
+- `skill_bigram_toxicity_threshold` — last sync-computed toxicity cutoff (auto-written cache for extraction between syncs; not a hand-edit knob). GUI background sync overwrites it via `recalibrate_and_store_threshold`.
+- `skill_bigram_threshold_margin` — operator-tunable margin for the p95 good / p50 bad formula (default `0.5`)
 - `bad_cloud_seeded` — one-time migration flag; when false, GUI sync seeds `bad_ngram_weights` from existing `blocked_skills`
 - No per-job skill count cap; extraction returns all skills that pass filters
 - `skill_new_max_per_job` — **removed**; ignored if still present in an old `profile.json` (dropped on next profile save)

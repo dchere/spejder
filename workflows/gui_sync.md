@@ -17,7 +17,7 @@ Background inbox synchronization pipeline extracted from `gui.py`, preserving ex
 5. Generate missing descriptions; dashboard rebuild when descriptions updated
 6. Learn skill patterns from applied/relevant positions; dashboard rebuild when new patterns added
 7. Clean blocked skills from SQLite (`cleanup_blocked_skills_from_db` on `runtime_profile.blocked_skills`); rescore affected jobs (`rescore_jobs_if_active`); dashboard rebuild when links/patterns deleted or jobs rescored (deferred hygiene — does not block earlier enrichment)
-8. Initialize bad cloud (`ensure_bad_cloud_initialized`): one-time seed from `blocked_skills`, auto-calibrate threshold, prune redundant blocked entries outside the seeded batch; save profile, reload runtime profile, and queue rebuild when pruned
+8. Initialize bad cloud (`ensure_bad_cloud_initialized`): one-time seed from `blocked_skills`, prune redundant blocked entries outside the seeded batch; then **always** recalibrate `skill_bigram_toxicity_threshold` via `recalibrate_and_store_threshold` (mature non-blocked DB skills vs blocked list). Save profile / reload / rebuild when seed, prune, or threshold changed.
 
 **Removed from pipeline:** full-DB `apply_relevance` on every sync; early dashboard rebuild after ingest/dedupe.
 

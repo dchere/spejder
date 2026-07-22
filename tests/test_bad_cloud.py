@@ -8,6 +8,7 @@ from spejder.config import AppConfig
 from spejder.db import count_bad_ngrams, ensure_db, replace_job_skills, upsert_job, upsert_skill_pattern
 from spejder.db.connection import _connect
 from spejder.extractors.skill_extractor.bad_cloud import (
+    _mature_good_skill_names,
     _ngrams_for_cloud,
     _tokenize_for_cloud,
     calibrate_threshold,
@@ -16,6 +17,7 @@ from spejder.extractors.skill_extractor.bad_cloud import (
     ingest_blocked_skills,
     on_skills_blocked,
     prune_blocked_skills_by_cloud,
+    recalibrate_and_store_threshold,
     toxicity_score,
     toxicity_scores_by_key,
 )
@@ -211,6 +213,52 @@ class CalibrateThresholdTest(unittest.TestCase):
             toxicity_score("we are looking", self.db_path),
             toxicity_score("python", self.db_path),
         )
+
+    def test_mature_good_skills_prefer_older_than_one_day(self):
+        upsert_skill_pattern(self.db_path, "python", r"\bpython\b", source="seed")
+        upsert_skill_pattern(self.db_path, "rust", r"\brust\b", source="seed")
+        conn = _connect(self.db_path)
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE skill_patterns SET created_at=? WHERE name_key=?",
+                ("2020-01-01T00:00:00+00:00", "python"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        profile = AppConfig()
+        mature = _mature_good_skill_names(self.db_path, profile)
+        self.assertEqual(mature, ["python"])
+
+    def test_recalibrate_and_store_writes_profile_threshold(self):
+        ingest_blocked_skill("we are looking", self.db_path)
+        upsert_skill_pattern(self.db_path, "python", r"\bpython\b", source="seed")
+        conn = _connect(self.db_path)
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE skill_patterns SET created_at=? WHERE name_key=?",
+                ("2020-01-01T00:00:00+00:00", "python"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        profile = AppConfig(
+            blocked_skills=["we are looking"],
+            skill_bigram_toxicity_threshold=0.1,
+        )
+        stored = recalibrate_and_store_threshold(profile, self.db_path)
+        self.assertEqual(profile.skill_bigram_toxicity_threshold, stored)
+        self.assertGreaterEqual(stored, 0.1)
+
+    def test_on_skills_blocked_does_not_write_threshold(self):
+        profile = AppConfig(
+            blocked_skills=["we are looking"],
+            skill_bigram_toxicity_threshold=0.42,
+        )
+        on_skills_blocked(profile, self.db_path, ["we are looking"])
+        self.assertEqual(profile.skill_bigram_toxicity_threshold, 0.42)
 
 
 class OnSkillsBlockedTest(unittest.TestCase):

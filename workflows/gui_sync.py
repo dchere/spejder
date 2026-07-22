@@ -12,7 +12,10 @@ from spejder.db import (
     get_jobs_for_description_refresh,
 )
 from spejder.extractors.skill_extractor import _learn_skill_patterns_from_positions
-from spejder.extractors.skill_extractor.bad_cloud import ensure_bad_cloud_initialized
+from spejder.extractors.skill_extractor.bad_cloud import (
+    ensure_bad_cloud_initialized,
+    recalibrate_and_store_threshold,
+)
 from spejder.jobs import ingest_docs_to_db, rescore_jobs_if_active
 from spejder.llm import LocalLLM
 from spejder.parsers import email_parser
@@ -246,18 +249,34 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
             context.runtime_profile,
             context.db_path,
         )
-        if cloud_stats.get("seeded") or cloud_stats.get("pruned"):
+        previous_threshold = getattr(
+            context.runtime_profile, "skill_bigram_toxicity_threshold", None
+        )
+        new_threshold = recalibrate_and_store_threshold(
+            context.runtime_profile,
+            context.db_path,
+        )
+        threshold_changed = (
+            previous_threshold != context.runtime_profile.skill_bigram_toxicity_threshold
+        )
+        print(
+            "Background sync: bad-cloud threshold recalibrated "
+            f"(threshold={new_threshold}, changed={threshold_changed})"
+        )
+        if cloud_stats.get("seeded") or cloud_stats.get("pruned") or threshold_changed:
             save_profile(context.runtime_profile, context.profile_path)
             context.reload_runtime_profile()
-            print(
-                "Background sync: bad cloud initialized "
-                f"(seeded={cloud_stats.get('seeded')}, "
-                f"ngram_keys={cloud_stats.get('ngram_keys_upserted', 0)}, "
-                f"threshold={cloud_stats.get('threshold')}, "
-                f"pruned={len(cloud_stats.get('pruned', []))})"
-            )
+            if cloud_stats.get("seeded") or cloud_stats.get("pruned"):
+                print(
+                    "Background sync: bad cloud initialized "
+                    f"(seeded={cloud_stats.get('seeded')}, "
+                    f"ngram_keys={cloud_stats.get('ngram_keys_upserted', 0)}, "
+                    f"pruned={len(cloud_stats.get('pruned', []))})"
+                )
             if cloud_stats.get("pruned"):
                 context.queue_dashboard_rebuild(reason="bad cloud prune")
+            elif threshold_changed:
+                context.queue_dashboard_rebuild(reason="bad cloud threshold recalibrated")
 
         print(
             f"Background sync done: input_files={len(docs)}, processed={ingest_stats.get('processed', 0)}, "

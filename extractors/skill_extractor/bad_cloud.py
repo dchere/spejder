@@ -1,6 +1,7 @@
 """Deterministic bigram/unigram toxicity scoring for skill extraction."""
 
 import re
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from spejder.config import AppConfig
@@ -16,6 +17,7 @@ from .normalization import _normalize_skill_name
 
 THRESHOLD_FLOOR = 0.1
 DEFAULT_THRESHOLD_MARGIN = 0.5
+MATURE_GOOD_SKILL_MIN_AGE_DAYS = 1
 
 
 def _tokenize_for_cloud(skill: str) -> list[str]:
@@ -120,16 +122,76 @@ def _threshold_margin(profile: AppConfig) -> float:
     return margin
 
 
+def _blocked_keys(profile: AppConfig) -> set[str]:
+    return {
+        _normalize_skill_name(str(item)).lower()
+        for item in profile.blocked_skills or []
+        if _normalize_skill_name(str(item))
+    }
+
+
+def _parse_iso_timestamp(raw: str) -> Optional[datetime]:
+    text = (raw or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _eligible_good_skill_rows(
+    db_path: str,
+    profile: AppConfig,
+    *,
+    require_mature: bool,
+    min_age_days: int = MATURE_GOOD_SKILL_MIN_AGE_DAYS,
+) -> list[str]:
+    blocked = _blocked_keys(profile)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max(0, int(min_age_days)))
+    names: list[str] = []
+    seen: set[str] = set()
+    for row in get_skill_patterns(db_path, enabled_only=True):
+        name = _normalize_skill_name(str(row.get("name", "")))
+        key = name.lower()
+        if not name or key in blocked or key in seen:
+            continue
+        source = str(row.get("source", "") or "").strip().lower()
+        occurrences = int(row.get("occurrences", 0) or 0)
+        if source == "detected" and occurrences < 1:
+            continue
+        if require_mature:
+            created = _parse_iso_timestamp(str(row.get("created_at", "") or ""))
+            if created is None or created > cutoff:
+                continue
+        seen.add(key)
+        names.append(name)
+    return names
+
+
+def _mature_good_skill_names(
+    db_path: str,
+    profile: AppConfig,
+    min_age_days: int = MATURE_GOOD_SKILL_MIN_AGE_DAYS,
+) -> list[str]:
+    mature = _eligible_good_skill_rows(
+        db_path, profile, require_mature=True, min_age_days=min_age_days
+    )
+    if mature:
+        return mature
+    return _eligible_good_skill_rows(
+        db_path, profile, require_mature=False, min_age_days=min_age_days
+    )
+
+
 def calibrate_threshold(db_path: str, profile: AppConfig) -> float:
     if count_bad_ngrams(db_path) == 0:
         return float("inf")
 
-    good_scores: list[float] = []
-    good_names = [
-        _normalize_skill_name(str(row.get("name", "")))
-        for row in get_skill_patterns(db_path, enabled_only=True)
-    ]
-    good_names = [name for name in good_names if name]
+    good_names = _mature_good_skill_names(db_path, profile)
     good_score_map = toxicity_scores_by_key(good_names, db_path)
     good_scores = list(good_score_map.values())
 
@@ -153,7 +215,19 @@ def calibrate_threshold(db_path: str, profile: AppConfig) -> float:
     return max(THRESHOLD_FLOOR, p95_good + margin)
 
 
+def recalibrate_and_store_threshold(profile: AppConfig, db_path: str) -> float:
+    """Compute and persist the toxicity threshold (single write path for sync)."""
+    ensure_db(db_path)
+    new_threshold = calibrate_threshold(db_path, profile)
+    if new_threshold == float("inf"):
+        profile.skill_bigram_toxicity_threshold = None
+        return new_threshold
+    profile.skill_bigram_toxicity_threshold = float(new_threshold)
+    return float(new_threshold)
+
+
 def resolve_toxicity_threshold(db_path: str, profile: Optional[AppConfig]) -> float:
+    """Read stored threshold; compute once for cold start without writing profile."""
     if not profile:
         return float("inf")
     explicit = getattr(profile, "skill_bigram_toxicity_threshold", None)
@@ -211,9 +285,12 @@ def seed_bad_cloud_from_blocked_skills(db_path: str, blocked_skills: list[str]) 
 
 
 def ensure_bad_cloud_initialized(profile: AppConfig, db_path: str) -> dict:
-    """One-time seed from blocked_skills, calibrate threshold, prune redundant blocked entries."""
+    """One-time seed from blocked_skills and prune redundant blocked entries.
+
+    Threshold calibration is owned by GUI sync via recalibrate_and_store_threshold.
+    """
     ensure_db(db_path)
-    stats = {"seeded": False, "ngram_keys_upserted": 0, "pruned": [], "threshold": None}
+    stats = {"seeded": False, "ngram_keys_upserted": 0, "pruned": []}
     if getattr(profile, "bad_cloud_seeded", False):
         return stats
 
@@ -228,14 +305,9 @@ def ensure_bad_cloud_initialized(profile: AppConfig, db_path: str) -> dict:
     profile.bad_cloud_seeded = True
     stats["seeded"] = True
 
-    if profile.skill_bigram_toxicity_threshold is None and count_bad_ngrams(db_path) > 0:
-        profile.skill_bigram_toxicity_threshold = calibrate_threshold(db_path, profile)
-
-    stats["threshold"] = resolve_toxicity_threshold(db_path, profile)
     stats["pruned"] = prune_blocked_skills_by_cloud(
         profile,
         db_path,
-        stats["threshold"],
         protect_keys=seed_protect_keys,
     )
     return stats
@@ -245,14 +317,13 @@ def on_skills_blocked(
     profile: AppConfig,
     db_path: str,
     skills: list[str],
-    *,
-    recalibrate: bool = True,
 ) -> dict:
+    """Ingest blocked skills into the cloud and prune covered blocked entries.
+
+    Does not recalibrate the threshold — GUI sync owns that write path.
+    """
     ensure_db(db_path)
     ingested = ingest_blocked_skills(skills, db_path)
-
-    if recalibrate and profile.skill_bigram_toxicity_threshold is None and ingested > 0:
-        profile.skill_bigram_toxicity_threshold = calibrate_threshold(db_path, profile)
 
     threshold = resolve_toxicity_threshold(db_path, profile)
     protect_keys = {
