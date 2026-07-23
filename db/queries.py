@@ -3,6 +3,8 @@
 from .queries_listings import (
     get_all_applied_jobs,
     get_applied_jobs,
+    get_hidden_jobs,
+    get_hidden_jobs_count,
     get_interview_jobs,
     get_jobs_by_category,
     get_jobs_by_category_paged,
@@ -33,6 +35,8 @@ __all__ = [
     "get_jobs_count_by_category",
     "get_jobs_by_category_paged",
     "get_jobs_by_company",
+    "get_hidden_jobs",
+    "get_hidden_jobs_count",
     "get_applied_jobs",
     "get_all_applied_jobs",
     "get_interview_jobs",

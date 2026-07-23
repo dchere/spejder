@@ -27,6 +27,7 @@ def _row_to_dedupe_item(row: tuple) -> dict:
         "viewed": int(row[8] or 0),
         "applied": int(row[9] or 0),
         "created_at": str(row[10] or ""),
+        "hidden": int(row[11] or 0),
     }
 
 
@@ -68,6 +69,7 @@ def merge_duplicate_positions(db_path: str) -> dict[str, int]:
             u["raw_text"],
             u["viewed"],
             u["applied"],
+            int(u.get("hidden") or 0),
             now,
             job_id,
         )

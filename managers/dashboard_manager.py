@@ -28,40 +28,49 @@ _SPEJDER_REPORT_MTIME_PLACEHOLDER = "_____SPEJDER_REPORT_MTIME_P__"
 def _render_company_dashboard_html(company_name: str, company_items: list[dict]) -> str:
     company_label = (company_name or "").strip() or "Unknown company"
     safe_company_label = html_lib.escape(company_label)
+    hidden_items = [
+        item for item in company_items if int(item.get("hidden", 0) or 0) == 1
+    ]
     applied_items = [
         item
         for item in company_items
-        if int(item.get("applied", 0) or 0) == 1
+        if int(item.get("hidden", 0) or 0) == 0
+        and int(item.get("applied", 0) or 0) == 1
         and int(item.get("on_interview", 0) or 0) == 0
         and int(item.get("interview_stopped", 0) or 0) == 0
     ]
     interview_items = [
         item
         for item in company_items
-        if int(item.get("applied", 0) or 0) == 1
+        if int(item.get("hidden", 0) or 0) == 0
+        and int(item.get("applied", 0) or 0) == 1
         and int(item.get("on_interview", 0) or 0) == 1
     ]
     stopped_items = [
         item
         for item in company_items
-        if int(item.get("applied", 0) or 0) == 1
+        if int(item.get("hidden", 0) or 0) == 0
+        and int(item.get("applied", 0) or 0) == 1
         and int(item.get("interview_stopped", 0) or 0) == 1
     ]
     relevant_items = [
         item
         for item in company_items
-        if str(item.get("category", "")).strip().lower() == "relevant"
+        if int(item.get("hidden", 0) or 0) == 0
+        and str(item.get("category", "")).strip().lower() == "relevant"
         and int(item.get("applied", 0) or 0) != 1
     ]
     not_relevant_items = [
         item
         for item in company_items
-        if str(item.get("category", "")).strip().lower() == "not relevant"
+        if int(item.get("hidden", 0) or 0) == 0
+        and str(item.get("category", "")).strip().lower() == "not relevant"
         and int(item.get("applied", 0) or 0) != 1
     ]
 
     relevant_items = _sort_positions_unviewed_then_score(relevant_items)
     not_relevant_items = _sort_positions_unviewed_then_score(not_relevant_items)
+    hidden_items = _sort_positions_unviewed_then_score(hidden_items)
     applied_items = _sort_applied_positions(applied_items)
     interview_items = _sort_applied_positions(interview_items)
     stopped_items = _sort_applied_positions(stopped_items)
@@ -81,6 +90,9 @@ def _render_company_dashboard_html(company_name: str, company_items: list[dict])
     stopped_cards = _build_job_cards(
         stopped_items, company_links=False, skill_buttons=False, card_panel="stopped"
     )
+    hidden_cards = _build_job_cards(
+        hidden_items, company_links=False, skill_buttons=False, card_panel="hidden"
+    )
 
     template = jinja_env.get_template("company_dashboard.html")
     return template.render(
@@ -92,11 +104,13 @@ def _render_company_dashboard_html(company_name: str, company_items: list[dict])
         len_applied_items=len(applied_items),
         len_interview_items=len(interview_items),
         len_stopped_items=len(stopped_items),
+        len_hidden_items=len(hidden_items),
         relevant_cards=relevant_cards,
         not_relevant_cards=not_relevant_cards,
         applied_cards=applied_cards,
         interview_cards=interview_cards,
         stopped_cards=stopped_cards,
+        hidden_cards=hidden_cards,
         skills_table_html=locals().get("skills_table_html", ""),
         len_skills_items=0
     )
@@ -116,6 +130,7 @@ def _render_html_dashboard(
     not_relevant_total_count: Optional[int] = None,
     interview_items: Optional[list[dict]] = None,
     stopped_items: Optional[list[dict]] = None,
+    hidden_items: Optional[list[dict]] = None,
     runtime_profile: Optional[AppConfig] = None,
 ):
     os.makedirs(os.path.dirname(os.path.abspath(out_html)), exist_ok=True)
@@ -124,6 +139,7 @@ def _render_html_dashboard(
     applied_items = _sort_applied_positions(applied_items)
     interview_items = _sort_applied_positions(interview_items or [])
     stopped_items = _sort_applied_positions(stopped_items or [])
+    hidden_items = _sort_positions_unviewed_then_score(hidden_items or [])
 
     if relevant_total_count is None:
         relevant_total_count = len(relevant_items)
@@ -134,12 +150,14 @@ def _render_html_dashboard(
     applied_items = list(applied_items)
     interview_items = list(interview_items)
     stopped_items = list(stopped_items)
+    hidden_items = list(hidden_items)
 
     relevant_cards = _build_job_cards(relevant_items)
     not_relevant_cards = _build_job_cards(not_relevant_items)
     applied_cards = _build_job_cards(applied_items, card_panel="applied")
     interview_cards = _build_job_cards(interview_items, card_panel="interview")
     stopped_cards = _build_job_cards(stopped_items, card_panel="stopped")
+    hidden_cards = _build_job_cards(hidden_items, card_panel="hidden")
     skills_items = skills_items or []
 
     skills_rows = []
@@ -245,12 +263,14 @@ def _render_html_dashboard(
         len_applied_items=len(applied_items),
         len_interview_items=len(interview_items),
         len_stopped_items=len(stopped_items),
+        len_hidden_items=len(hidden_items),
         len_skills_items=len(skills_items) if skills_items else 0,
         relevant_cards=relevant_cards,
         not_relevant_cards=not_relevant_cards,
         applied_cards=applied_cards,
         interview_cards=interview_cards,
         stopped_cards=stopped_cards,
+        hidden_cards=hidden_cards,
         skills_table_html=skills_table_html,
         skills_empty_added_at_sort=SKILLS_EMPTY_ADDED_AT_SORT,
         portrait_text=textarea_portrait_text,
@@ -276,5 +296,6 @@ def _render_html_dashboard(
         f"Wrote HTML dashboard: {out_html} "
         f"(relevant={len(relevant_items)}, not_relevant={len(not_relevant_items)}, "
         f"applied={len(applied_items)}, interview={len(interview_items)}, "
-        f"stopped={len(stopped_items)}, viewed={int(viewed_total)})"
+        f"stopped={len(stopped_items)}, hidden={len(hidden_items)}, "
+        f"viewed={int(viewed_total)})"
     )

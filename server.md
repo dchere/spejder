@@ -13,6 +13,7 @@ Provides an interactive dashboard (web GUI) to review extracted jobs and view th
 - `POST /api/applied/cover-letter` — `{ job_id, text }`; requires `applied=1`, `cover_letter_requested=1`, and no existing cover letter; queues dashboard rebuild (no skill rematerialization)
 - All interview endpoints queue dashboard rebuild like `/api/applied`
 - `POST /api/viewed` with `viewed=false` and `POST /api/feedback` with `signal=not relevant` clear interview fields in DB (same as unapply)
+- `POST /api/hidden` — `{ job_id, hidden: bool }` → `set_job_hidden` then `queue_dashboard_rebuild` with reason `"job {id} marked hidden"` / `"job {id} unhidden"`; hide clears applied/viewed/interview pipeline fields; apply/viewed-true also clear `hidden`
 - `POST /api/skill/user` — after profile persist, runs `rescore_active_jobs` then dashboard rebuild
 - `POST /api/skill/block` — delegates to shared block runner (`_run_skill_block` with one skill); profile block + `delete_skill_from_db`, `rescore_jobs_if_active` on `affected_job_ids`, dashboard rebuild; response includes `block_info` and `db_deleted`
 - `POST /api/skill/delete` — delegates to shared delete runner (`_run_skill_delete` with one skill); profile cleanup + DB delete + rescore + rebuild

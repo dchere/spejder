@@ -26,7 +26,9 @@ def _learn_skill_patterns_from_positions(
     progress_label: str = "Skill pattern learning",
 ) -> dict:
     applied_rows = get_all_applied_jobs(db_path, limit=0)
-    relevant_rows = get_jobs_by_category(db_path, "relevant", limit=0, unviewed_only=False)
+    relevant_rows = get_jobs_by_category(
+        db_path, "relevant", limit=0, unviewed_only=False, exclude_hidden=False
+    )
 
     rows = []
     seen_ids = set()

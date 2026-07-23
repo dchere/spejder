@@ -14,6 +14,10 @@ _INTERVIEW_FIELDS_CLEAR = (
     "on_interview=0, interview_stopped=0, company_feedback=NULL, "
     "cover_letter=NULL, cover_letter_requested=0, applied_at=NULL"
 )
+# Clears hidden when merge/batch writes viewed=1 or applied=1 (placeholders: viewed, applied).
+_HIDDEN_CLEAR_IF_VIEWED_OR_APPLIED = (
+    "hidden=CASE WHEN ? = 1 OR ? = 1 THEN 0 ELSE hidden END"
+)
 
 
 def upsert_job(db_path: str, job: dict) -> bool:
@@ -78,10 +82,10 @@ def upsert_job(db_path: str, job: dict) -> bool:
                     _merge_duplicate_into_keeper(keeper, incoming)
 
                     cur.execute(
-                        """
+                        f"""
                         UPDATE jobs
                         SET company=?, title=?, title_english=?, place=?, work_type=?, raw_text=?,
-                            viewed=?, applied=?, updated_at=?
+                            viewed=?, applied=?, {_HIDDEN_CLEAR_IF_VIEWED_OR_APPLIED}, updated_at=?
                         WHERE id=?
                         """,
                         (
@@ -91,6 +95,8 @@ def upsert_job(db_path: str, job: dict) -> bool:
                             keeper["place"],
                             keeper["work_type"] or "Unknown",
                             keeper["raw_text"],
+                            keeper["viewed"],
+                            keeper["applied"],
                             keeper["viewed"],
                             keeper["applied"],
                             now,
@@ -402,7 +408,7 @@ def set_job_viewed(db_path: str, job_id: int, viewed: bool) -> bool:
             )
         else:
             cur.execute(
-                "UPDATE jobs SET viewed=1, updated_at=? WHERE id=?",
+                "UPDATE jobs SET viewed=1, hidden=0, updated_at=? WHERE id=?",
                 (now, int(job_id)),
             )
         conn.commit()
@@ -421,7 +427,8 @@ def set_job_applied(db_path: str, job_id: int, applied: bool) -> bool:
             cur.execute(
                 """
                 UPDATE jobs
-                SET applied=1, viewed=1, relevant=1, category='relevant', relevance_reason='manual_feedback=relevant',
+                SET applied=1, viewed=1, hidden=0, relevant=1, category='relevant',
+                    relevance_reason='manual_feedback=relevant',
                     applied_at=COALESCE(applied_at, ?), updated_at=?
                 WHERE id=?
                 """,
@@ -434,6 +441,32 @@ def set_job_applied(db_path: str, job_id: int, applied: bool) -> bool:
                 SET applied=0, {_INTERVIEW_FIELDS_CLEAR}, updated_at=?
                 WHERE id=?
                 """,
+                (now, int(job_id)),
+            )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def set_job_hidden(db_path: str, job_id: int, hidden: bool) -> bool:
+    now = datetime.now(timezone.utc).isoformat()
+    hidden_int = 1 if hidden else 0
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        if hidden_int == 1:
+            cur.execute(
+                f"""
+                UPDATE jobs
+                SET hidden=1, viewed=0, applied=0, {_INTERVIEW_FIELDS_CLEAR}, updated_at=?
+                WHERE id=?
+                """,
+                (now, int(job_id)),
+            )
+        else:
+            cur.execute(
+                "UPDATE jobs SET hidden=0, updated_at=? WHERE id=?",
                 (now, int(job_id)),
             )
         conn.commit()
@@ -560,17 +593,34 @@ def batch_update_and_delete_jobs(db_path: str, updates: list[tuple], deletes: li
     try:
         cur = conn.cursor()
         for u in updates:
-            # (company, title, place, work_type, raw_text, viewed, applied, updated_at, id)
-            applied = int(u[6] or 0)
+            # (company, title, place, work_type, raw_text, viewed, applied, hidden, updated_at, id)
+            company, title, place, work_type, raw_text, viewed, applied, hidden, updated_at, job_id = u
+            viewed = int(viewed or 0)
+            applied = int(applied or 0)
+            hidden = 0 if viewed == 1 or applied == 1 else int(hidden or 0)
+            params = (
+                company,
+                title,
+                place,
+                work_type,
+                raw_text,
+                viewed,
+                applied,
+                hidden,
+                updated_at,
+                job_id,
+            )
             if applied == 0:
                 cur.execute(
-                    f"UPDATE jobs SET company=?, title=?, place=?, work_type=?, raw_text=?, viewed=?, applied=?, {_INTERVIEW_FIELDS_CLEAR}, updated_at=? WHERE id=?",
-                    u,
+                    "UPDATE jobs SET company=?, title=?, place=?, work_type=?, raw_text=?, "
+                    f"viewed=?, applied=?, hidden=?, {_INTERVIEW_FIELDS_CLEAR}, updated_at=? WHERE id=?",
+                    params,
                 )
             else:
                 cur.execute(
-                    "UPDATE jobs SET company=?, title=?, place=?, work_type=?, raw_text=?, viewed=?, applied=?, updated_at=? WHERE id=?",
-                    u,
+                    "UPDATE jobs SET company=?, title=?, place=?, work_type=?, raw_text=?, "
+                    "viewed=?, applied=?, hidden=?, updated_at=? WHERE id=?",
+                    params,
                 )
         for rid in deletes:
             cur.execute("DELETE FROM jobs WHERE id=?", (rid,))

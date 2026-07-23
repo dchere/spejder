@@ -237,6 +237,7 @@ def _build_job_cards(
                     <label class="relevant-wrap"><input type="checkbox" {"checked" if str(item.get("category", "")).strip().lower() == "relevant" else ""} onchange="setRelevant({job_id}, this.checked, this)"/> Relevant</label>
                     <label class="viewed-wrap"><input type="checkbox" {"checked" if int(item.get("viewed", 0) or 0) == 1 else ""} onchange="setViewed({job_id}, this.checked, this)"/> Viewed</label>
                     <label class="applied-wrap"><input type="checkbox" {"checked" if int(item.get("applied", 0) or 0) == 1 else ""} onchange="setApplied({job_id}, this.checked, this)"/> Applied</label>
+                    <label class="hidden-wrap"><input type="checkbox" {"checked" if int(item.get("hidden", 0) or 0) == 1 else ""} onchange="setHidden({job_id}, this.checked, this)"/> Hidden</label>
                     {interview_controls}
                     <span class="feedback-status"></span>
                 </div>

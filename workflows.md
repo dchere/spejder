@@ -42,7 +42,7 @@ Core orchestration for CLI commands, GUI background sync, and heavy multi-step p
 **Context:**
 `cli.py` is a thin argparse layer delegating here. Workflows are callable from tests and `server.py` without going through the CLI.
 
-**Dashboard rebuild:** `DashboardRebuildQueue` (`workflows/dashboard.py`) reloads three applied-stage query subsets — `get_applied_jobs`, `get_interview_jobs`, and `get_stopped_interview_jobs` — when rendering Applied / Interview / Stopped tabs.
+**Dashboard rebuild:** `DashboardRebuildQueue` (`workflows/dashboard.py`) reloads three applied-stage query subsets — `get_applied_jobs`, `get_interview_jobs`, and `get_stopped_interview_jobs` — when rendering Applied / Interview / Stopped tabs, plus Hidden via `build_hidden_dashboard_records`. Inbox report writes (`write_inbox_dashboard_report`) and enrichment report writes (`enrichment.py` after `refresh-descriptions`) use the same helper and pass `hidden_items` to `_render_html_dashboard`.
 
 **GUI background sync** (`run_inbox_sync` in `gui_sync.py`):
 1. Ingest inbox (or backfill missing descriptions)

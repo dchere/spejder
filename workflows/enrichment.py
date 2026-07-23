@@ -16,6 +16,7 @@ from spejder.extractors.skill_extractor import (
 )
 from spejder.llm import LocalLLM
 from spejder.managers.dashboard_manager import _render_html_dashboard
+from spejder.workflows.dashboard import build_hidden_dashboard_records
 from spejder.workflows.job_enrichment import (
     _build_description_summary,
     _build_title_fields,
@@ -233,6 +234,12 @@ def refresh_descriptions(profile: str = None, db: str = None, model: str = "", s
             else:
                 applied_records.append(record)
 
+        hidden_records = build_hidden_dashboard_records(
+            db_path,
+            runtime_profile,
+            title_translation_cache,
+        )
+
         dashboard_path = os.path.join(report_dir, "report.html")
         _render_html_dashboard(
             report_data.get("relevant", []),
@@ -246,6 +253,7 @@ def refresh_descriptions(profile: str = None, db: str = None, model: str = "", s
             report_max_not_relevant_positions=_report_max_not_relevant_positions(runtime_profile),
             interview_items=interview_records,
             stopped_items=stopped_records,
+            hidden_items=hidden_records,
             runtime_profile=runtime_profile,
         )
         print(f"Report written: {dashboard_path}")

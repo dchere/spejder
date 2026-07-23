@@ -82,12 +82,14 @@ def _minimal_dashboard_context():
         "len_applied_items": 0,
         "len_interview_items": 0,
         "len_stopped_items": 0,
+        "len_hidden_items": 0,
         "len_skills_items": 0,
         "relevant_cards": "",
         "not_relevant_cards": "",
         "applied_cards": "",
         "interview_cards": "",
         "stopped_cards": "",
+        "hidden_cards": "",
         "skills_table_html": '<p class="empty">No skills found.</p>',
         "skills_empty_added_at_sort": SKILLS_EMPTY_ADDED_AT_SORT,
         "portrait_text": "",
@@ -162,11 +164,13 @@ class DashboardTemplatesTest(unittest.TestCase):
             len_applied_items=0,
             len_interview_items=0,
             len_stopped_items=0,
+            len_hidden_items=0,
             relevant_cards="",
             not_relevant_cards="",
             applied_cards="",
             interview_cards="",
             stopped_cards="",
+            hidden_cards="",
             skills_table_html="",
             len_skills_items=0,
         )
@@ -180,6 +184,59 @@ class DashboardTemplatesTest(unittest.TestCase):
                 body = _extract_js_function_body(text, "setApplied")
                 applied_branch = _extract_if_block(body, "applied")
                 self.assertNotIn("setMode", applied_branch)
+
+    def test_set_hidden_true_branch_calls_set_mode_hidden(self):
+        for name in ("dashboard.html", "company_dashboard.html"):
+            with self.subTest(template=name):
+                text = _read_template(name)
+                body = _extract_js_function_body(text, "setHidden")
+                hidden_branch = _extract_if_block(body, "hidden")
+                self.assertIn("setMode('hidden')", hidden_branch)
+                self.assertIn("removeAppliedOnlyUI(card)", hidden_branch)
+                self.assertIn("/api/hidden", body)
+                else_branch = body.split("} else {", 1)[1]
+                self.assertIn("panelRelevant", else_branch)
+                self.assertIn("panelNotRelevant", else_branch)
+                self.assertIn("relevantCheckbox.checked", else_branch)
+
+    def test_set_relevant_keeps_still_hidden_cards(self):
+        for name in ("dashboard.html", "company_dashboard.html"):
+            with self.subTest(template=name):
+                text = _read_template(name)
+                body = _extract_js_function_body(text, "setRelevant")
+                self.assertIn("stillHidden", body)
+                self.assertIn("hiddenCheckbox.checked", body)
+                self.assertIn("!stillHidden", body)
+
+    def test_company_set_viewed_true_moves_off_hidden(self):
+        body = _extract_js_function_body(
+            _read_template("company_dashboard.html"), "setViewed"
+        )
+        viewed_true = body.split("} else {", 1)[1]
+        self.assertIn("panelHidden", viewed_true)
+        self.assertIn("panelRelevant", viewed_true)
+        self.assertIn("panelNotRelevant", viewed_true)
+        self.assertIn("hiddenCheckbox.checked = false", viewed_true)
+
+    def test_templates_include_hidden_tab(self):
+        for name in ("dashboard.html", "company_dashboard.html"):
+            with self.subTest(template=name):
+                text = _read_template(name)
+                self.assertIn('id="btn-hidden"', text)
+                self.assertIn('id="panel-hidden"', text)
+                self.assertIn("function setHidden", text)
+                self.assertIn("function removeAppliedOnlyUI", text)
+
+    def test_remove_applied_only_ui_strips_applied_chrome(self):
+        for name in ("dashboard.html", "company_dashboard.html"):
+            with self.subTest(template=name):
+                body = _extract_js_function_body(
+                    _read_template(name), "removeAppliedOnlyUI"
+                )
+                self.assertIn(".applied-date", body)
+                self.assertIn(".interview-wrap", body)
+                self.assertIn(".stopped-wrap", body)
+                self.assertIn("has-applied-date", body)
 
     def test_interview_handlers_still_call_set_mode(self):
         for name in ("dashboard.html", "company_dashboard.html"):
@@ -201,7 +258,7 @@ class DashboardTemplatesTest(unittest.TestCase):
 
     def test_dashboard_tab_buttons_use_switch_tab(self):
         text = _read_template("dashboard.html")
-        for mode in ("relevant", "not relevant", "applied", "interview", "stopped", "skills"):
+        for mode in ("relevant", "not relevant", "applied", "interview", "stopped", "hidden", "skills"):
             with self.subTest(mode=mode):
                 self.assertIn(f"switchTab('{mode}')", text)
         self.assertIn("btnPortrait.addEventListener('click', () => setMode('portrait'))", text)

@@ -232,6 +232,11 @@ def _merge_duplicate_into_keeper(keeper: dict, duplicate: dict) -> None:
 
     keeper["viewed"] = max(int(keeper.get("viewed") or 0), int(duplicate.get("viewed") or 0))
     keeper["applied"] = max(int(keeper.get("applied") or 0), int(duplicate.get("applied") or 0))
+    keeper["hidden"] = (
+        0
+        if int(keeper["viewed"] or 0) == 1 or int(keeper["applied"] or 0) == 1
+        else max(int(keeper.get("hidden") or 0), int(duplicate.get("hidden") or 0))
+    )
     keeper["raw_text"] = _merge_raw_text(
         str(keeper.get("raw_text") or ""),
         str(duplicate.get("raw_text") or ""),

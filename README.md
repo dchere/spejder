@@ -121,6 +121,7 @@ Open `http://127.0.0.1:8765/report.html`.
 - Applied jobs can be moved to `Interview` (on interview) or `Stopped` (process ended); the two flags are mutually exclusive. Cards live in one applied-stage panel at a time.
 - Applied, Interview, and Stopped cards show **Applied: YYYY-MM-DD** in the bottom-right corner when an apply date is recorded.
 - Stopped cards support free-text `Company feedback` saved via the dashboard.
+- Marking a job as `Hidden` parks it on the **Hidden** tab (main and company dashboards) without changing relevance category or scores; it leaves Relevant / Not relevant / Applied / Interview / Stopped and clears applied/interview/cover-letter pipeline state. Unhide returns it to Relevant or Not relevant based on its category. Apply or Viewed clears Hidden.
 - Unmarking `Applied`, unmarking `Viewed`, or marking `Not relevant` clears interview/stopped state, company feedback, and the recorded apply date (`applied_at`).
 - Feedback writes are saved immediately; `report.html` regeneration is queued and runs in the background.
 - Switching main dashboard tabs auto-refreshes the page when a background rebuild is running or `report.html` has changed on disk (requires `serve-gui`); otherwise tabs switch instantly.
@@ -220,7 +221,7 @@ Options: `--report-dir`, `--db`, `--profile`, `--host`, `--port`, `--no-open`, `
 
 Main dashboard API endpoints (JSON `POST` unless noted):
 
-- Triage: `/api/feedback`, `/api/viewed`, `/api/applied`
+- Triage: `/api/feedback`, `/api/viewed`, `/api/applied`, `/api/hidden`
 - Interview: `/api/interview`, `/api/interview/stopped`, `/api/interview/feedback`
 - Applied enrichment: `/api/applied/raw-text`, `/api/applied/cover-letter/request`, `/api/applied/cover-letter`
 - Skills tab: `/api/skill/user`, `/api/skill/learn`, `/api/skill/block`, `/api/skill/delete`, `/api/skill/block-batch`, `/api/skill/delete-batch`
@@ -346,6 +347,7 @@ Main fields in the `jobs` table include:
 - `summary`
 - `viewed`
 - `applied`
+- `hidden` — parked on the Hidden tab without changing category/scores
 - `applied_at` — ISO timestamp when the job was first marked applied (shown on applied-stage cards as `Applied: YYYY-MM-DD`)
 - `on_interview`
 - `interview_stopped`

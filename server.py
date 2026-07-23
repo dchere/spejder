@@ -22,6 +22,7 @@ from spejder.db import (
     set_job_cover_letter,
     set_job_cover_letter_requested,
     set_job_feedback,
+    set_job_hidden,
     set_job_interview_stopped,
     set_job_on_interview,
     set_job_viewed,
@@ -191,6 +192,22 @@ def create_app(
         set_job_viewed(db_path, req.job_id, req.viewed)
         queue_dashboard_rebuild(reason=f"job {req.job_id} marked viewed")
         return {"ok": True, "job_id": req.job_id, "viewed": req.viewed}
+
+    class HiddenRequest(BaseModel):
+        job_id: int = 0
+        hidden: bool
+
+    @app.post("/api/hidden")
+    def api_hidden(req: HiddenRequest):
+        print(f"API: Marked job_id={req.job_id} as hidden={req.hidden}")
+        set_job_hidden(db_path, req.job_id, req.hidden)
+        reason = (
+            f"job {req.job_id} marked hidden"
+            if req.hidden
+            else f"job {req.job_id} unhidden"
+        )
+        queue_dashboard_rebuild(reason=reason)
+        return {"ok": True, "job_id": req.job_id, "hidden": req.hidden}
 
     class AppliedRawTextRequest(BaseModel):
         job_id: int = 0

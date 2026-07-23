@@ -27,11 +27,12 @@ Implements the Repository Pattern, acting as the strict single source of truth f
 Extracted from `jobs.py`. The rest of the application (including business logic in `jobs.py` and `workflows.py`) only interacts with abstract Python data structures (lists, dicts, tuples) and never executes SQL directly. This ensures complete isolation of the persistence layer.
 
 **Query modules (`queries.py` facade):**
-- `queries_listings.py` — category/company/applied listings and viewed counts
-  - `get_applied_jobs()` — `applied=1` and not on interview/stopped (Applied tab)
+- `queries_listings.py` — category/company/applied/hidden listings and viewed counts
+  - `get_applied_jobs()` — `applied=1` and not on interview/stopped (Applied tab); excludes `hidden=1`
   - `get_all_applied_jobs()` — all `applied=1` rows (skill learning, enrichment, raw-text)
-  - `get_interview_jobs()` — `applied=1 AND on_interview=1`
-  - `get_stopped_interview_jobs()` — `applied=1 AND interview_stopped=1`
+  - `get_interview_jobs()` — `applied=1 AND on_interview=1`; excludes `hidden=1`
+  - `get_stopped_interview_jobs()` — `applied=1 AND interview_stopped=1`; excludes `hidden=1`
+  - `get_hidden_jobs()` / `get_hidden_jobs_count()` — `hidden=1` for Hidden tab
   - Applied-stage listings sort by `(applied_at IS NULL), applied_at DESC, updated_at DESC` (dated rows first; null `applied_at` last)
 - `queries_refresh.py` — description refresh, scoring candidate rows, active rescore scope
   - `get_jobs_for_active_rescore()` — jobs where `applied=1 OR on_interview=1 OR interview_stopped=1 OR viewed=0`
@@ -49,7 +50,8 @@ Extracted from `jobs.py`. The rest of the application (including business logic 
 - `_canonicalize_title_for_dedupe(title, place="")` — strips EU gender markers like `(m/f/d)`, expands common abbreviations (`SW`→`Software`, `Sr.`→`Senior`), and removes a trailing `, City` when `City` matches `place` (exact or `place` prefix with word boundary after the city key) or when `City` is in `DANISH_CITY_ALLOWLIST_KEYS` and `place` is empty/`unknown` or matches `place`; `(Senior)` role qualifiers are kept
 - `DANISH_CITY_ALLOWLIST_KEYS` — maintain entries as ASCII-normalized keys (`ø`→`o`, `æ`→`ae`, `å`→`a` before keying); runtime folding applies the same transliteration for lookup
 - **Tradeoff:** same title at the same company with different allowlisted trailing cities may still merge when `place` is empty/`unknown` (e.g. `Engineer, Copenhagen` vs `Engineer, Odense`); tightening requires a known `place` that does not match the trailing city
-- `_merge_duplicate_into_keeper`, `_merge_raw_text` — shared merge rules used by `upsert_job` and `jobs/deduplication.merge_duplicate_positions`
+- `_merge_duplicate_into_keeper`, `_merge_raw_text` — shared merge rules used by `upsert_job` and `jobs/deduplication.merge_duplicate_positions`; merge ORs `hidden` onto the keeper unless viewed/applied wins (then `hidden=0`)
+- `get_all_jobs_for_dedupe` / `_row_to_dedupe_item` include `hidden`; `batch_update_and_delete_jobs` update tuples are `(company, title, place, work_type, raw_text, viewed, applied, hidden, updated_at, id)`
 
 **Link normalization (`utils.py`):**
 - `_decode_mandrill_track_link`: unwraps Mandrill `track/click` URLs (base64 JSON payload → destination URL). Requires `base64` and `html.unescape`.
@@ -69,13 +71,25 @@ Extracted from `jobs.py`. The rest of the application (including business logic 
 - `on_interview INTEGER DEFAULT 0` — mutually exclusive with `interview_stopped`; only settable when `applied=1`
 - `interview_stopped INTEGER DEFAULT 0` — clears `on_interview` when set; only settable when `applied=1`
 - `company_feedback TEXT` — free-text notes on stopped cards; only writable when `interview_stopped=1`
-- `set_job_applied(False)`, `set_job_viewed(False)`, `set_job_feedback("not relevant")`, and `batch_update_and_delete_jobs` update tuples with `applied=0` all clear interview fields via shared `_INTERVIEW_FIELDS_CLEAR` (`on_interview=0`, `interview_stopped=0`, `company_feedback=NULL`, `cover_letter=NULL`, `cover_letter_requested=0`, `applied_at=NULL`) alongside `applied=0`
-- `set_job_applied(True)` sets `applied_at=COALESCE(applied_at, ?)` so re-saving an already-applied job does not shift the date; first apply and re-apply after unapply get a fresh timestamp
+- `set_job_applied(False)`, `set_job_viewed(False)`, `set_job_feedback("not relevant")`, `set_job_hidden(True)`, and `batch_update_and_delete_jobs` update tuples with `applied=0` all clear interview fields via shared `_INTERVIEW_FIELDS_CLEAR` (`on_interview=0`, `interview_stopped=0`, `company_feedback=NULL`, `cover_letter=NULL`, `cover_letter_requested=0`, `applied_at=NULL`) alongside `applied=0`
+- `set_job_applied(True)` sets `applied_at=COALESCE(applied_at, ?)` so re-saving an already-applied job does not shift the date; first apply and re-apply after unapply get a fresh timestamp; also clears `hidden=0`
+- `set_job_viewed(True)` also clears `hidden=0`
 - `ensure_db` backfills `applied_at` from `updated_at` for existing `applied=1` rows when the column is missing or null
 - `set_job_interview_stopped(False)` (unstop) clears only `interview_stopped`; preserves `company_feedback`
 - Mutations: `set_job_on_interview`, `set_job_interview_stopped`, `set_job_company_feedback`
-- Legacy `description_raw` → `jobs_new` migration copies `on_interview`, `interview_stopped`, and `company_feedback` when source columns exist
+- Legacy `description_raw` → `jobs_new` migration copies `on_interview`, `interview_stopped`, and `company_feedback` when source columns exist; both legacy `jobs_new` CREATE TABLE blocks include `hidden INTEGER DEFAULT 0` (value still backfilled via ALTER when missing on live `jobs`)
 - Duplicate link-recognition patterns also live in `jobs/parsing/links.py` (`_is_job_link`) per project convention.
+
+**Hidden column (`jobs.hidden`):**
+- `hidden INTEGER DEFAULT 0` — parks a position on the Hidden tab without changing `category`, scores, description, or `job_skills`
+- `set_job_hidden(True)`: `hidden=1`, `viewed=0`, `applied=0` + `_INTERVIEW_FIELDS_CLEAR`; does not set `viewed=1`
+- `set_job_hidden(False)`: `hidden=0` only (caller UI restores Relevant / Not relevant from existing `category`)
+- Mutual exclusion: `hidden=1` cannot coexist with `applied=1` or `viewed=1` (apply/viewed-true clear hidden; hide clears applied/viewed pipeline; `upsert_job` merge UPDATE uses `_HIDDEN_CLEAR_IF_VIEWED_OR_APPLIED`; `batch_update_and_delete_jobs` writes explicit `hidden` from the merge tuple and forces `0` when `viewed=1` or `applied=1`; `_merge_duplicate_into_keeper` ORs `hidden` from keeper/duplicate in-memory, then clears to `0` when either flag is 1)
+- `get_hidden_jobs` / `get_hidden_jobs_count` — `COALESCE(hidden,0)=1`, order `relevance_score DESC, updated_at DESC`
+- Category helpers (`get_jobs_by_category`, count, paged) default `exclude_hidden=True` → `AND COALESCE(hidden,0)=0`; skill learning passes `exclude_hidden=False`
+- Applied / interview / stopped getters exclude hidden rows; `get_relevant_jobs` (inbox summary) excludes hidden
+- Included in `_JOB_SELECT_COLS` and row mappers; `get_jobs_by_company` returns `hidden` for company dashboard partitioning
+- No 90-day retention exemption for Hidden (same age-out as other non-interview rows)
 
 **Cover letter columns (`jobs` table):**
 - `cover_letter TEXT` — saved cover letter text for an applied job; one-time write via `set_job_cover_letter`

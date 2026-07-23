@@ -14,7 +14,7 @@ This module is responsible for parsing and extracting specialized entities (such
   - `extraction_fallback.py` — regex/phrase fallback
   - `extraction_llm.py` — LLM JSON parse path for job skills
   - `extraction.py` — orchestration facade (LLM + fallback + DB cache); no per-job skill count cap
-  - `learning.py` — batch pattern learning from applied/relevant jobs
+  - `learning.py` — batch pattern learning from applied/relevant jobs (`get_jobs_by_category(..., exclude_hidden=False)` so parked relevant Hidden jobs still contribute)
   - `bad_cloud.py` — bigram/unigram toxicity scoring, cloud ingest, threshold calibration, blocked-list pruning
   - `user_sync.py` / `cleanup.py` — CLI commands for CV sync and DB cleanup
   - `ui.py` — skills tab data for the dashboard (`position_pct` = share of jobs with extracted skills; `occurrences` = pattern-learning counter shown as **Learned**; `added_at` copied from DB `created_at`, empty for profile-only rows; `SKILLS_EMPTY_ADDED_AT_SORT` (`"0000"`) sentinel for profile-only sort keys — no real ISO date starts with `0000`; default server-side order uses stable double-sort: name A→Z first, then `added_at` DESC with profile-only rows last; sentinel forwarded to `dashboard.html` via `dashboard_manager` Jinja context for client-side sort)
