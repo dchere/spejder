@@ -1126,12 +1126,10 @@
                                 bumpPanelTotal(card.parentElement, -1);
                             }
                             if (card.parentElement !== panelHidden) panelHidden.prepend(card);
-                            setMode('hidden');
                         } else {
                             const targetPanel = relevantCheckbox && relevantCheckbox.checked ? panelRelevant : panelNotRelevant;
                             bumpPanelTotal(targetPanel, 1);
                             if (card.parentElement !== targetPanel) targetPanel.prepend(card);
-                            setMode(relevantCheckbox && relevantCheckbox.checked ? 'relevant' : 'not relevant');
                         }
                     }
                     if (statusEl) statusEl.textContent = `Saved: ${hidden ? 'hidden' : 'unhidden'}`;

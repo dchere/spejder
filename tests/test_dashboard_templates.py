@@ -185,13 +185,13 @@ class DashboardTemplatesTest(unittest.TestCase):
                 applied_branch = _extract_if_block(body, "applied")
                 self.assertNotIn("setMode", applied_branch)
 
-    def test_set_hidden_true_branch_calls_set_mode_hidden(self):
+    def test_set_hidden_does_not_call_set_mode(self):
         for name in ("dashboard.html", "company_dashboard.html"):
             with self.subTest(template=name):
                 text = _read_template(name)
                 body = _extract_js_function_body(text, "setHidden")
+                self.assertNotIn("setMode", body)
                 hidden_branch = _extract_if_block(body, "hidden")
-                self.assertIn("setMode('hidden')", hidden_branch)
                 self.assertIn("removeAppliedOnlyUI(card)", hidden_branch)
                 self.assertIn("/api/hidden", body)
                 else_branch = body.split("} else {", 1)[1]
