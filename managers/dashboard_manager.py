@@ -25,9 +25,15 @@ __all__ = [
 # Fixed-width placeholder (29 chars, same as HTTP-date) replaced after write.
 _SPEJDER_REPORT_MTIME_PLACEHOLDER = "_____SPEJDER_REPORT_MTIME_P__"
 
-def _render_company_dashboard_html(company_name: str, company_items: list[dict]) -> str:
+def _render_company_dashboard_html(
+    company_name: str,
+    company_items: list[dict],
+    viewed_today_order: Optional[dict[int, int]] = None,
+) -> str:
     company_label = (company_name or "").strip() or "Unknown company"
     safe_company_label = html_lib.escape(company_label)
+    order = viewed_today_order or {}
+    viewed_today_ids = set(order.keys())
     hidden_items = [
         item for item in company_items if int(item.get("hidden", 0) or 0) == 1
     ]
@@ -53,10 +59,21 @@ def _render_company_dashboard_html(company_name: str, company_items: list[dict])
         and int(item.get("applied", 0) or 0) == 1
         and int(item.get("interview_stopped", 0) or 0) == 1
     ]
+    viewed_today_items = [
+        item
+        for item in company_items
+        if int(item.get("id", 0) or 0) in viewed_today_ids
+        and int(item.get("hidden", 0) or 0) == 0
+        and int(item.get("applied", 0) or 0) == 0
+    ]
+    viewed_today_items.sort(
+        key=lambda item: order.get(int(item.get("id", 0) or 0), 10**9)
+    )
     relevant_items = [
         item
         for item in company_items
         if int(item.get("hidden", 0) or 0) == 0
+        and int(item.get("id", 0) or 0) not in viewed_today_ids
         and str(item.get("category", "")).strip().lower() == "relevant"
         and int(item.get("applied", 0) or 0) != 1
     ]
@@ -64,6 +81,7 @@ def _render_company_dashboard_html(company_name: str, company_items: list[dict])
         item
         for item in company_items
         if int(item.get("hidden", 0) or 0) == 0
+        and int(item.get("id", 0) or 0) not in viewed_today_ids
         and str(item.get("category", "")).strip().lower() == "not relevant"
         and int(item.get("applied", 0) or 0) != 1
     ]
@@ -80,6 +98,9 @@ def _render_company_dashboard_html(company_name: str, company_items: list[dict])
         not_relevant_items,
         company_links=False,
         skill_buttons=False,
+    )
+    viewed_today_cards = _build_job_cards(
+        viewed_today_items, company_links=False, skill_buttons=False
     )
     applied_cards = _build_job_cards(
         applied_items, company_links=False, skill_buttons=False, card_panel="applied"
@@ -101,12 +122,14 @@ def _render_company_dashboard_html(company_name: str, company_items: list[dict])
         len_company_items=len(company_items),
         len_relevant_items=len(relevant_items),
         len_not_relevant_items=len(not_relevant_items),
+        len_viewed_today_items=len(viewed_today_items),
         len_applied_items=len(applied_items),
         len_interview_items=len(interview_items),
         len_stopped_items=len(stopped_items),
         len_hidden_items=len(hidden_items),
         relevant_cards=relevant_cards,
         not_relevant_cards=not_relevant_cards,
+        viewed_today_cards=viewed_today_cards,
         applied_cards=applied_cards,
         interview_cards=interview_cards,
         stopped_cards=stopped_cards,
@@ -131,6 +154,7 @@ def _render_html_dashboard(
     interview_items: Optional[list[dict]] = None,
     stopped_items: Optional[list[dict]] = None,
     hidden_items: Optional[list[dict]] = None,
+    viewed_today_items: Optional[list[dict]] = None,
     runtime_profile: Optional[AppConfig] = None,
 ):
     os.makedirs(os.path.dirname(os.path.abspath(out_html)), exist_ok=True)
@@ -140,6 +164,8 @@ def _render_html_dashboard(
     interview_items = _sort_applied_positions(interview_items or [])
     stopped_items = _sort_applied_positions(stopped_items or [])
     hidden_items = _sort_positions_unviewed_then_score(hidden_items or [])
+    # Preserve DB updated_at DESC from get_viewed_today_jobs / build helper.
+    viewed_today_items = list(viewed_today_items or [])
 
     if relevant_total_count is None:
         relevant_total_count = len(relevant_items)
@@ -154,6 +180,7 @@ def _render_html_dashboard(
 
     relevant_cards = _build_job_cards(relevant_items)
     not_relevant_cards = _build_job_cards(not_relevant_items)
+    viewed_today_cards = _build_job_cards(viewed_today_items)
     applied_cards = _build_job_cards(applied_items, card_panel="applied")
     interview_cards = _build_job_cards(interview_items, card_panel="interview")
     stopped_cards = _build_job_cards(stopped_items, card_panel="stopped")
@@ -260,6 +287,7 @@ def _render_html_dashboard(
         viewed_total=viewed_total,
         len_relevant_items=len(relevant_items),
         len_not_relevant_items=len(not_relevant_items),
+        len_viewed_today_items=len(viewed_today_items),
         len_applied_items=len(applied_items),
         len_interview_items=len(interview_items),
         len_stopped_items=len(stopped_items),
@@ -267,6 +295,7 @@ def _render_html_dashboard(
         len_skills_items=len(skills_items) if skills_items else 0,
         relevant_cards=relevant_cards,
         not_relevant_cards=not_relevant_cards,
+        viewed_today_cards=viewed_today_cards,
         applied_cards=applied_cards,
         interview_cards=interview_cards,
         stopped_cards=stopped_cards,
@@ -295,6 +324,7 @@ def _render_html_dashboard(
     print(
         f"Wrote HTML dashboard: {out_html} "
         f"(relevant={len(relevant_items)}, not_relevant={len(not_relevant_items)}, "
+        f"viewed_today={len(viewed_today_items)}, "
         f"applied={len(applied_items)}, interview={len(interview_items)}, "
         f"stopped={len(stopped_items)}, hidden={len(hidden_items)}, "
         f"viewed={int(viewed_total)})"

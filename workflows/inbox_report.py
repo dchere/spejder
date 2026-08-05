@@ -14,7 +14,10 @@ from spejder.extractors.skill_extractor import _build_skills_tab_items
 from spejder.llm import LocalLLM
 from spejder.managers.dashboard_manager import _render_html_dashboard
 from spejder.managers.language_manager import get_title_english_for_row as _get_title_english_for_row
-from spejder.workflows.dashboard import build_hidden_dashboard_records
+from spejder.workflows.dashboard import (
+    build_hidden_dashboard_records,
+    build_viewed_today_dashboard_records,
+)
 from spejder.workflows.job_enrichment import (
     _build_description_summary,
     _build_title_fields,
@@ -227,6 +230,11 @@ def write_inbox_dashboard_report(
         profile,
         report_title_translation_cache,
     )
+    viewed_today_records = build_viewed_today_dashboard_records(
+        db_path,
+        profile,
+        report_title_translation_cache,
+    )
 
     dashboard_path = os.path.join(report_dir, "report.html")
     _render_html_dashboard(
@@ -242,6 +250,7 @@ def write_inbox_dashboard_report(
         interview_items=interview_records,
         stopped_items=stopped_records,
         hidden_items=hidden_records,
+        viewed_today_items=viewed_today_records,
         runtime_profile=profile,
     )
     print(f"Report written: {dashboard_path}")

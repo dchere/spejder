@@ -79,6 +79,7 @@ def _minimal_dashboard_context():
         "viewed_total": 0,
         "len_relevant_items": 0,
         "len_not_relevant_items": 0,
+        "len_viewed_today_items": 0,
         "len_applied_items": 0,
         "len_interview_items": 0,
         "len_stopped_items": 0,
@@ -86,6 +87,7 @@ def _minimal_dashboard_context():
         "len_skills_items": 0,
         "relevant_cards": "",
         "not_relevant_cards": "",
+        "viewed_today_cards": "",
         "applied_cards": "",
         "interview_cards": "",
         "stopped_cards": "",
@@ -161,12 +163,14 @@ class DashboardTemplatesTest(unittest.TestCase):
             len_company_items=0,
             len_relevant_items=0,
             len_not_relevant_items=0,
+            len_viewed_today_items=0,
             len_applied_items=0,
             len_interview_items=0,
             len_stopped_items=0,
             len_hidden_items=0,
             relevant_cards="",
             not_relevant_cards="",
+            viewed_today_cards="",
             applied_cards="",
             interview_cards="",
             stopped_cards="",
@@ -208,15 +212,31 @@ class DashboardTemplatesTest(unittest.TestCase):
                 self.assertIn("hiddenCheckbox.checked", body)
                 self.assertIn("!stillHidden", body)
 
-    def test_company_set_viewed_true_moves_off_hidden(self):
+    def test_company_set_viewed_true_moves_to_edited_today(self):
         body = _extract_js_function_body(
             _read_template("company_dashboard.html"), "setViewed"
         )
+        self.assertNotIn("setMode", body)
         viewed_true = body.split("} else {", 1)[1]
-        self.assertIn("panelHidden", viewed_true)
-        self.assertIn("panelRelevant", viewed_true)
-        self.assertIn("panelNotRelevant", viewed_true)
+        self.assertIn("panelEditedToday", viewed_true)
         self.assertIn("hiddenCheckbox.checked = false", viewed_true)
+        self.assertNotIn("panelRelevant", viewed_true)
+        self.assertNotIn("panelNotRelevant", viewed_true)
+
+    def test_templates_include_edited_today_tab(self):
+        for name in ("dashboard.html", "company_dashboard.html"):
+            with self.subTest(template=name):
+                text = _read_template(name)
+                self.assertIn('id="btn-edited-today"', text)
+                self.assertIn('id="panel-edited-today"', text)
+                self.assertIn("'edited today'", text)
+
+    def test_set_viewed_true_has_no_set_mode(self):
+        for name in ("dashboard.html", "company_dashboard.html"):
+            with self.subTest(template=name):
+                body = _extract_js_function_body(_read_template(name), "setViewed")
+                self.assertNotIn("setMode", body)
+                self.assertIn("panelEditedToday", body)
 
     def test_templates_include_hidden_tab(self):
         for name in ("dashboard.html", "company_dashboard.html"):
@@ -258,7 +278,7 @@ class DashboardTemplatesTest(unittest.TestCase):
 
     def test_dashboard_tab_buttons_use_switch_tab(self):
         text = _read_template("dashboard.html")
-        for mode in ("relevant", "not relevant", "applied", "interview", "stopped", "hidden", "skills"):
+        for mode in ("relevant", "not relevant", "applied", "interview", "stopped", "hidden", "skills", "edited today"):
             with self.subTest(mode=mode):
                 self.assertIn(f"switchTab('{mode}')", text)
         self.assertIn("btnPortrait.addEventListener('click', () => setMode('portrait'))", text)
@@ -277,6 +297,8 @@ class DashboardTemplatesTest(unittest.TestCase):
         self.assertIn("params.get('tab')", text)
         self.assertIn("history.replaceState", text)
         self.assertIn("DOMContentLoaded", text)
+        self.assertIn("'edited today'", text)
+        self.assertIn("validModes", text)
 
 
 if __name__ == "__main__":

@@ -116,12 +116,13 @@ Open `http://127.0.0.1:8765/report.html`.
 ## Dashboard behavior
 
 - `Relevant` and `Not relevant` tabs show only unviewed jobs.
-- Marking a job as `Viewed` removes it from those tabs.
+- Marking a job as `Viewed` removes it from those tabs and places it on **Edited today** (main and company dashboards) without switching tabs; unchecking Viewed returns it to Relevant or Not relevant by category.
+- **Edited today** lists viewed, non-applied, non-hidden jobs whose `updated_at` falls on the local calendar day (newest first). Applied / Interview / Stopped jobs are excluded. Any write that bumps `updated_at` can surface an already-viewed job here for the local day.
 - Marking a job as `Applied` removes it from the current triage tab (Relevant or Not relevant), marks it as relevant and viewed, and places it in the Applied pipeline (Applied / Interview / Stopped panel) — the dashboard does **not** auto-navigate to Applied.
 - Applied jobs can be moved to `Interview` (on interview) or `Stopped` (process ended); the two flags are mutually exclusive. Cards live in one applied-stage panel at a time.
 - Applied, Interview, and Stopped cards show **Applied: YYYY-MM-DD** in the bottom-right corner when an apply date is recorded.
 - Stopped cards support free-text `Company feedback` saved via the dashboard.
-- Marking a job as `Hidden` parks it on the **Hidden** panel (main and company dashboards) without changing relevance category or scores; it leaves Relevant / Not relevant / Applied / Interview / Stopped and clears applied/interview/cover-letter pipeline state — the dashboard does **not** auto-navigate to Hidden (same as Applied). Unhide returns it to Relevant or Not relevant based on its category, still without switching tabs. Apply or Viewed clears Hidden.
+- Marking a job as `Hidden` parks it on the **Hidden** panel (main and company dashboards) without changing relevance category or scores; it leaves Relevant / Not relevant / Edited today / Applied / Interview / Stopped and clears applied/interview/cover-letter pipeline state — the dashboard does **not** auto-navigate to Hidden (same as Applied). Unhide returns it to Relevant or Not relevant based on its category, still without switching tabs. Apply or Viewed clears Hidden.
 - Unmarking `Applied`, unmarking `Viewed`, or marking `Not relevant` clears interview/stopped state, company feedback, and the recorded apply date (`applied_at`).
 - Feedback writes are saved immediately; `report.html` regeneration is queued and runs in the background.
 - Switching main dashboard tabs auto-refreshes the page when a background rebuild is running or `report.html` has changed on disk (requires `serve-gui`); otherwise tabs switch instantly.

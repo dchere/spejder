@@ -1,6 +1,17 @@
+from datetime import datetime, timezone
+
 from .connection import _connect
 from .queries_rows import _map_applied_job_row, _map_company_job_row, _map_full_job_row
 from .utils import _provider_from_link
+
+
+def local_day_start_utc_iso() -> str:
+    """Local timezone start-of-day as UTC ISO (same style as mutation timestamps)."""
+    local_midnight = datetime.now().astimezone().replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    return local_midnight.astimezone(timezone.utc).isoformat()
+
 
 _JOB_SELECT_COLS = (
     "id, source, company, title, title_english, place, work_type, position_link, raw_text, "
@@ -155,6 +166,28 @@ def get_hidden_jobs(db_path: str, limit: int = 0) -> list[dict]:
             "ORDER BY relevance_score DESC, updated_at DESC"
         )
         params: list = []
+        if limit and limit > 0:
+            q += " LIMIT ?"
+            params.append(int(limit))
+        cur.execute(q, params)
+        rows = cur.fetchall()
+        return [_map_company_job_row(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_viewed_today_jobs(db_path: str, since_iso: str, limit: int = 0) -> list[dict]:
+    """Jobs for Edited today tab: viewed, not applied, not hidden, updated_at >= since_iso."""
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        q = (
+            f"SELECT {_JOB_SELECT_COLS}, category "
+            "FROM jobs WHERE viewed=1 AND applied=0 AND COALESCE(hidden, 0)=0 "
+            "AND updated_at IS NOT NULL AND updated_at >= ? "
+            "ORDER BY updated_at DESC"
+        )
+        params: list = [since_iso]
         if limit and limit > 0:
             q += " LIMIT ?"
             params.append(int(limit))

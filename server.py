@@ -17,6 +17,8 @@ from spejder.db import (
     ensure_db,
     get_all_applied_jobs,
     get_jobs_by_company,
+    get_viewed_today_jobs,
+    local_day_start_utc_iso,
     set_job_applied,
     set_job_company_feedback,
     set_job_cover_letter,
@@ -583,7 +585,14 @@ def create_app(
             return HTMLResponse(status_code=400, content='<!doctype html><html lang="en"><head><meta charset="utf-8" /><title>Company Positions</title></head><body><p>Missing company name.</p><p><a href="/report.html">Back to full report</a></p></body></html>')
 
         company_items = get_jobs_by_company(db_path, company_name, limit=0)
-        html_content = _render_company_dashboard_html(company_name, company_items)
+        since_iso = local_day_start_utc_iso()
+        viewed_today_order = {
+            int(row["id"]): idx
+            for idx, row in enumerate(get_viewed_today_jobs(db_path, since_iso, limit=0))
+        }
+        html_content = _render_company_dashboard_html(
+            company_name, company_items, viewed_today_order=viewed_today_order
+        )
         return HTMLResponse(content=html_content)
 
     # Serve static files from report_dir at the root

@@ -13,6 +13,8 @@ from .queries_listings import (
     get_relevant_jobs,
     get_stopped_interview_jobs,
     get_viewed_jobs_count,
+    get_viewed_today_jobs,
+    local_day_start_utc_iso,
 )
 from .queries_refresh import (
     get_job_for_rescoring,
@@ -37,6 +39,8 @@ __all__ = [
     "get_jobs_by_company",
     "get_hidden_jobs",
     "get_hidden_jobs_count",
+    "get_viewed_today_jobs",
+    "local_day_start_utc_iso",
     "get_applied_jobs",
     "get_all_applied_jobs",
     "get_interview_jobs",

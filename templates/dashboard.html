@@ -101,6 +101,7 @@
             <button id="btn-stopped" class="mode-btn" type="button">Stopped ({{ len_stopped_items }})</button>
             <button id="btn-hidden" class="mode-btn" type="button">Hidden ({{ len_hidden_items }})</button>
             <button id="btn-skills" class="mode-btn" type="button">Skills ({{ len_skills_items }})</button>
+            <button id="btn-edited-today" class="mode-btn" type="button">Edited today ({{ len_viewed_today_items }})</button>
             <span id="tab-refresh-status" class="tab-refresh-status"></span>
             <div class="controls-actions">
                 <button id="btn-portrait" class="toolbar-action-btn" type="button" aria-label="Portrait" title="Portrait">
@@ -136,6 +137,7 @@
             {% endif %}
             {{ skills_table_html }}
         </section>
+        <section id="panel-edited-today" class="grid hidden">{{ viewed_today_cards }}</section>
         <section id="panel-portrait" class="portrait-wrap hidden">
             <div class="portrait-toolbar">
                 <button id="btn-portrait-generate" class="portrait-btn" type="button" onclick="regeneratePortrait(this)">Regenerate portrait</button>
@@ -154,6 +156,7 @@
         <script>
             const btnRelevant = document.getElementById('btn-relevant');
             const btnNotRelevant = document.getElementById('btn-not-relevant');
+            const btnEditedToday = document.getElementById('btn-edited-today');
             const btnApplied = document.getElementById('btn-applied');
             const btnInterview = document.getElementById('btn-interview');
             const btnStopped = document.getElementById('btn-stopped');
@@ -162,6 +165,7 @@
             const btnPortrait = document.getElementById('btn-portrait');
             const panelRelevant = document.getElementById('panel-relevant');
             const panelNotRelevant = document.getElementById('panel-not-relevant');
+            const panelEditedToday = document.getElementById('panel-edited-today');
             const panelApplied = document.getElementById('panel-applied');
             const panelInterview = document.getElementById('panel-interview');
             const panelStopped = document.getElementById('panel-stopped');
@@ -368,6 +372,7 @@
             function refreshCounts() {
                 const relevantCount = panelRelevant.querySelectorAll('.card').length;
                 const notRelevantCount = panelNotRelevant.querySelectorAll('.card').length;
+                const editedTodayCount = panelEditedToday.querySelectorAll('.card').length;
                 const appliedCount = panelApplied.querySelectorAll('.card').length;
                 const interviewCount = panelInterview.querySelectorAll('.card').length;
                 const stoppedCount = panelStopped.querySelectorAll('.card').length;
@@ -377,6 +382,7 @@
                 const notRelevantTotal = Number.parseInt(btnNotRelevant.dataset.total || String(notRelevantCount), 10) || notRelevantCount;
                 btnRelevant.textContent = `Relevant (${relevantCount}/${relevantTotal})`;
                 btnNotRelevant.textContent = `Not relevant (${notRelevantCount}/${notRelevantTotal})`;
+                btnEditedToday.textContent = `Edited today (${editedTodayCount})`;
                 btnApplied.textContent = `Applied (${appliedCount})`;
                 btnInterview.textContent = `Interview (${interviewCount})`;
                 btnStopped.textContent = `Stopped (${stoppedCount})`;
@@ -384,6 +390,7 @@
                 btnSkills.textContent = `Skills (${skillsCount})`;
                 ensureEmptyState(panelRelevant);
                 ensureEmptyState(panelNotRelevant);
+                ensureEmptyState(panelEditedToday);
                 ensureEmptyState(panelApplied);
                 ensureEmptyState(panelInterview);
                 ensureEmptyState(panelStopped);
@@ -471,6 +478,7 @@
                 currentMode = mode;
                 const isRelevant = mode === 'relevant';
                 const isNotRelevant = mode === 'not relevant';
+                const isEditedToday = mode === 'edited today';
                 const isApplied = mode === 'applied';
                 const isInterview = mode === 'interview';
                 const isStopped = mode === 'stopped';
@@ -479,6 +487,7 @@
                 const isPortrait = mode === 'portrait';
                 panelRelevant.classList.toggle('hidden', !isRelevant);
                 panelNotRelevant.classList.toggle('hidden', !isNotRelevant);
+                panelEditedToday.classList.toggle('hidden', !isEditedToday);
                 panelApplied.classList.toggle('hidden', !isApplied);
                 panelInterview.classList.toggle('hidden', !isInterview);
                 panelStopped.classList.toggle('hidden', !isStopped);
@@ -487,6 +496,7 @@
                 panelPortrait.classList.toggle('hidden', !isPortrait);
                 btnRelevant.classList.toggle('active', isRelevant);
                 btnNotRelevant.classList.toggle('active', isNotRelevant);
+                btnEditedToday.classList.toggle('active', isEditedToday);
                 btnApplied.classList.toggle('active', isApplied);
                 btnInterview.classList.toggle('active', isInterview);
                 btnStopped.classList.toggle('active', isStopped);
@@ -677,6 +687,7 @@
             btnStopped.addEventListener('click', () => switchTab('stopped'));
             btnHidden.addEventListener('click', () => switchTab('hidden'));
             btnSkills.addEventListener('click', () => switchTab('skills'));
+            btnEditedToday.addEventListener('click', () => switchTab('edited today'));
             btnPortrait.addEventListener('click', () => setMode('portrait'));
             if (portraitEditor) {
                 portraitEditor.addEventListener('input', updatePortraitStatus);
@@ -940,9 +951,9 @@
                     const targetPanel = signal === 'relevant' ? panelRelevant : panelNotRelevant;
                     if (!stillHidden && card && !isViewed && card.parentElement !== targetPanel) {
                         targetPanel.prepend(card);
-                    } else if (!stillHidden && card && isViewed) {
+                    } else if (!stillHidden && card && isViewed && !appliedStagePanels.includes(card.parentElement)) {
                         bumpPanelTotal(card.parentElement, -1);
-                        card.remove();
+                        if (card.parentElement !== panelEditedToday) panelEditedToday.prepend(card);
                     }
                     refreshCounts();
                 } catch (err) {
@@ -968,8 +979,12 @@
                     if (viewed) {
                         const hiddenCheckbox = card ? card.querySelector('.hidden-wrap input') : null;
                         if (hiddenCheckbox) hiddenCheckbox.checked = false;
-                        if (card) bumpPanelTotal(card.parentElement, -1);
-                        if (card && !appliedStagePanels.includes(card.parentElement)) card.remove();
+                        if (card && (card.parentElement === panelRelevant || card.parentElement === panelNotRelevant)) {
+                            bumpPanelTotal(card.parentElement, -1);
+                        }
+                        if (card && !appliedStagePanels.includes(card.parentElement)) {
+                            if (card.parentElement !== panelEditedToday) panelEditedToday.prepend(card);
+                        }
                     } else {
                         const appliedCheckbox = card ? card.querySelector('.applied-wrap input') : null;
                         if (appliedCheckbox) appliedCheckbox.checked = false;
@@ -1026,9 +1041,14 @@
                             if (stoppedCheckbox) stoppedCheckbox.checked = false;
                             removeCompanyFeedbackUI(card);
                             removeCardFromAppliedStages(card);
-                            const targetPanel = relevantCheckbox && relevantCheckbox.checked ? panelRelevant : panelNotRelevant;
-                            if (card.parentElement !== targetPanel) targetPanel.prepend(card);
-                            setMode(relevantCheckbox && relevantCheckbox.checked ? 'relevant' : 'not relevant');
+                            const stillViewed = Boolean(viewedCheckbox && viewedCheckbox.checked);
+                            if (stillViewed) {
+                                if (card.parentElement !== panelEditedToday) panelEditedToday.prepend(card);
+                            } else {
+                                const targetPanel = relevantCheckbox && relevantCheckbox.checked ? panelRelevant : panelNotRelevant;
+                                if (card.parentElement !== targetPanel) targetPanel.prepend(card);
+                                setMode(relevantCheckbox && relevantCheckbox.checked ? 'relevant' : 'not relevant');
+                            }
                         }
                     }
                     if (statusEl) statusEl.textContent = `Saved: ${applied ? 'applied' : 'not applied'}`;
@@ -1402,7 +1422,7 @@
             function initTabFromUrl() {
                 const params = new URLSearchParams(window.location.search);
                 const tab = params.get('tab');
-                const validModes = ['relevant', 'not relevant', 'applied', 'interview', 'stopped', 'hidden', 'skills', 'portrait'];
+                const validModes = ['relevant', 'not relevant', 'applied', 'interview', 'stopped', 'hidden', 'skills', 'edited today', 'portrait'];
                 if (tab && validModes.includes(tab)) {
                     setMode(tab);
                 }

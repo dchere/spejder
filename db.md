@@ -33,6 +33,8 @@ Extracted from `jobs.py`. The rest of the application (including business logic 
   - `get_interview_jobs()` — `applied=1 AND on_interview=1`; excludes `hidden=1`
   - `get_stopped_interview_jobs()` — `applied=1 AND interview_stopped=1`; excludes `hidden=1`
   - `get_hidden_jobs()` / `get_hidden_jobs_count()` — `hidden=1` for Hidden tab
+  - `get_viewed_today_jobs(db_path, since_iso, limit=0)` — `viewed=1 AND applied=0 AND COALESCE(hidden,0)=0 AND updated_at IS NOT NULL AND updated_at >= since_iso`, order `updated_at DESC` (Edited today tab; uncapped when `limit=0`)
+  - `local_day_start_utc_iso()` — local timezone midnight → UTC ISO (same string style as mutation timestamps); callers pass this as `since_iso`
   - Applied-stage listings sort by `(applied_at IS NULL), applied_at DESC, updated_at DESC` (dated rows first; null `applied_at` last)
 - `queries_refresh.py` — description refresh, scoring candidate rows, active rescore scope
   - `get_jobs_for_active_rescore()` — jobs where `applied=1 OR on_interview=1 OR interview_stopped=1 OR viewed=0`
@@ -86,6 +88,7 @@ Extracted from `jobs.py`. The rest of the application (including business logic 
 - `set_job_hidden(False)`: `hidden=0` only (caller UI restores Relevant / Not relevant from existing `category`)
 - Mutual exclusion: `hidden=1` cannot coexist with `applied=1` or `viewed=1` (apply/viewed-true clear hidden; hide clears applied/viewed pipeline; `upsert_job` merge UPDATE uses `_HIDDEN_CLEAR_IF_VIEWED_OR_APPLIED`; `batch_update_and_delete_jobs` writes explicit `hidden` from the merge tuple and forces `0` when `viewed=1` or `applied=1`; `_merge_duplicate_into_keeper` ORs `hidden` from keeper/duplicate in-memory, then clears to `0` when either flag is 1)
 - `get_hidden_jobs` / `get_hidden_jobs_count` — `COALESCE(hidden,0)=1`, order `relevance_score DESC, updated_at DESC`
+- `get_viewed_today_jobs` — viewed, non-applied, non-hidden rows with `updated_at >= since_iso` (local day start as UTC ISO via `local_day_start_utc_iso`); order `updated_at DESC`; no separate count helper (UI uses `len(items)`). Tradeoff: other writes that bump `updated_at` can pull already-viewed jobs into the tab for the local day.
 - Category helpers (`get_jobs_by_category`, count, paged) default `exclude_hidden=True` → `AND COALESCE(hidden,0)=0`; skill learning passes `exclude_hidden=False`
 - Applied / interview / stopped getters exclude hidden rows; `get_relevant_jobs` (inbox summary) excludes hidden
 - Included in `_JOB_SELECT_COLS` and row mappers; `get_jobs_by_company` returns `hidden` for company dashboard partitioning

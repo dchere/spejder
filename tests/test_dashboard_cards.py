@@ -121,6 +121,46 @@ class DashboardCardsTest(unittest.TestCase):
         self.assertIn("Visible Role", relevant_panel)
         self.assertNotIn("Parked Role", relevant_panel)
 
+    def test_company_dashboard_partitions_edited_today(self):
+        today_item = _applied_card_item(
+            id=20,
+            title="Seen Today",
+            applied=0,
+            viewed=1,
+            hidden=0,
+            category="relevant",
+            position_link="https://example.com/today",
+        )
+        older_viewed = _applied_card_item(
+            id=21,
+            title="Seen Earlier",
+            applied=0,
+            viewed=1,
+            hidden=0,
+            category="relevant",
+            position_link="https://example.com/earlier",
+        )
+        html = _render_company_dashboard_html(
+            "Acme",
+            [today_item, older_viewed],
+            viewed_today_order={20: 0},
+        )
+
+        self.assertIn(">Edited today (1)<", html)
+        self.assertIn(">Relevant (1)<", html)
+
+        edited_panel_start = html.index('id="panel-edited-today"')
+        edited_panel_end = html.index("</section>", edited_panel_start)
+        edited_panel = html[edited_panel_start:edited_panel_end]
+        self.assertIn("Seen Today", edited_panel)
+        self.assertNotIn("Seen Earlier", edited_panel)
+
+        relevant_panel_start = html.index('id="panel-relevant"')
+        relevant_panel_end = html.index("</section>", relevant_panel_start)
+        relevant_panel = html[relevant_panel_start:relevant_panel_end]
+        self.assertIn("Seen Earlier", relevant_panel)
+        self.assertNotIn("Seen Today", relevant_panel)
+
     def test_build_job_cards_shows_formatted_applied_date(self):
         html = _build_job_cards([_applied_card_item()], card_panel="applied")
         self.assertIn(

@@ -64,6 +64,7 @@
             <button id="btn-interview" class="mode-btn" type="button">Interview ({{ len_interview_items }})</button>
             <button id="btn-stopped" class="mode-btn" type="button">Stopped ({{ len_stopped_items }})</button>
             <button id="btn-hidden" class="mode-btn" type="button">Hidden ({{ len_hidden_items }})</button>
+            <button id="btn-edited-today" class="mode-btn" type="button">Edited today ({{ len_viewed_today_items }})</button>
         </div>
         <section id="panel-relevant" class="grid">{{ relevant_cards }}</section>
         <section id="panel-not-relevant" class="grid hidden">{{ not_relevant_cards }}</section>
@@ -71,15 +72,18 @@
         <section id="panel-interview" class="grid hidden">{{ interview_cards }}</section>
         <section id="panel-stopped" class="grid hidden">{{ stopped_cards }}</section>
         <section id="panel-hidden" class="grid hidden">{{ hidden_cards }}</section>
+        <section id="panel-edited-today" class="grid hidden">{{ viewed_today_cards }}</section>
         <script>
             const btnRelevant = document.getElementById('btn-relevant');
             const btnNotRelevant = document.getElementById('btn-not-relevant');
+            const btnEditedToday = document.getElementById('btn-edited-today');
             const btnApplied = document.getElementById('btn-applied');
             const btnInterview = document.getElementById('btn-interview');
             const btnStopped = document.getElementById('btn-stopped');
             const btnHidden = document.getElementById('btn-hidden');
             const panelRelevant = document.getElementById('panel-relevant');
             const panelNotRelevant = document.getElementById('panel-not-relevant');
+            const panelEditedToday = document.getElementById('panel-edited-today');
             const panelApplied = document.getElementById('panel-applied');
             const panelInterview = document.getElementById('panel-interview');
             const panelStopped = document.getElementById('panel-stopped');
@@ -119,12 +123,14 @@
             function refreshCounts() {
                 btnRelevant.textContent = `Relevant (${panelRelevant.querySelectorAll('.card').length})`;
                 btnNotRelevant.textContent = `Not relevant (${panelNotRelevant.querySelectorAll('.card').length})`;
+                btnEditedToday.textContent = `Edited today (${panelEditedToday.querySelectorAll('.card').length})`;
                 btnApplied.textContent = `Applied (${panelApplied.querySelectorAll('.card').length})`;
                 btnInterview.textContent = `Interview (${panelInterview.querySelectorAll('.card').length})`;
                 btnStopped.textContent = `Stopped (${panelStopped.querySelectorAll('.card').length})`;
                 btnHidden.textContent = `Hidden (${panelHidden.querySelectorAll('.card').length})`;
                 ensureEmptyState(panelRelevant);
                 ensureEmptyState(panelNotRelevant);
+                ensureEmptyState(panelEditedToday);
                 ensureEmptyState(panelApplied);
                 ensureEmptyState(panelInterview);
                 ensureEmptyState(panelStopped);
@@ -201,18 +207,21 @@
             function setMode(mode) {
                 const isRelevant = mode === 'relevant';
                 const isNotRelevant = mode === 'not relevant';
+                const isEditedToday = mode === 'edited today';
                 const isApplied = mode === 'applied';
                 const isInterview = mode === 'interview';
                 const isStopped = mode === 'stopped';
                 const isHiddenTab = mode === 'hidden';
                 panelRelevant.classList.toggle('hidden', !isRelevant);
                 panelNotRelevant.classList.toggle('hidden', !isNotRelevant);
+                panelEditedToday.classList.toggle('hidden', !isEditedToday);
                 panelApplied.classList.toggle('hidden', !isApplied);
                 panelInterview.classList.toggle('hidden', !isInterview);
                 panelStopped.classList.toggle('hidden', !isStopped);
                 panelHidden.classList.toggle('hidden', !isHiddenTab);
                 btnRelevant.classList.toggle('active', isRelevant);
                 btnNotRelevant.classList.toggle('active', isNotRelevant);
+                btnEditedToday.classList.toggle('active', isEditedToday);
                 btnApplied.classList.toggle('active', isApplied);
                 btnInterview.classList.toggle('active', isInterview);
                 btnStopped.classList.toggle('active', isStopped);
@@ -225,6 +234,7 @@
             btnInterview.addEventListener('click', () => setMode('interview'));
             btnStopped.addEventListener('click', () => setMode('stopped'));
             btnHidden.addEventListener('click', () => setMode('hidden'));
+            btnEditedToday.addEventListener('click', () => setMode('edited today'));
 
             async function setRelevant(jobId, isRelevant, inputEl) {
                 const signal = isRelevant ? 'relevant' : 'not relevant';
@@ -267,8 +277,11 @@
                     }
                     if (card) {
                         const stillHidden = Boolean(hiddenCheckbox && hiddenCheckbox.checked);
+                        const isViewedNow = Boolean(viewedCheckbox && viewedCheckbox.checked);
                         if (!stillHidden && appliedCheckbox && appliedCheckbox.checked) {
                             moveCardToAppliedStage(card);
+                        } else if (!stillHidden && isViewedNow) {
+                            if (card.parentElement !== panelEditedToday) panelEditedToday.prepend(card);
                         } else if (!stillHidden) {
                             const targetPanel = signal === 'relevant' ? panelRelevant : panelNotRelevant;
                             if (card.parentElement !== targetPanel) targetPanel.prepend(card);
@@ -311,11 +324,8 @@
                         } else {
                             const hiddenCheckbox = card.querySelector('.hidden-wrap input');
                             if (hiddenCheckbox) hiddenCheckbox.checked = false;
-                            if (card.parentElement === panelHidden) {
-                                const targetPanel = relevantCheckbox && relevantCheckbox.checked
-                                    ? panelRelevant
-                                    : panelNotRelevant;
-                                if (card.parentElement !== targetPanel) targetPanel.prepend(card);
+                            if (!appliedStagePanels.includes(card.parentElement)) {
+                                if (card.parentElement !== panelEditedToday) panelEditedToday.prepend(card);
                             }
                         }
                     }
@@ -357,9 +367,14 @@
                             if (stoppedCheckbox) stoppedCheckbox.checked = false;
                             removeCompanyFeedbackUI(card);
                             removeCardFromAppliedStages(card);
-                            const targetPanel = relevantCheckbox && relevantCheckbox.checked ? panelRelevant : panelNotRelevant;
-                            if (card.parentElement !== targetPanel) targetPanel.prepend(card);
-                            setMode(relevantCheckbox && relevantCheckbox.checked ? 'relevant' : 'not relevant');
+                            const stillViewed = Boolean(viewedCheckbox && viewedCheckbox.checked);
+                            if (stillViewed) {
+                                if (card.parentElement !== panelEditedToday) panelEditedToday.prepend(card);
+                            } else {
+                                const targetPanel = relevantCheckbox && relevantCheckbox.checked ? panelRelevant : panelNotRelevant;
+                                if (card.parentElement !== targetPanel) targetPanel.prepend(card);
+                                setMode(relevantCheckbox && relevantCheckbox.checked ? 'relevant' : 'not relevant');
+                            }
                         }
                     }
                     if (statusEl) statusEl.textContent = `Saved: ${applied ? 'applied' : 'not applied'}`;

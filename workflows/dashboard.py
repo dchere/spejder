@@ -12,6 +12,8 @@ from spejder.db import (
     get_jobs_count_by_category,
     get_stopped_interview_jobs,
     get_viewed_jobs_count,
+    get_viewed_today_jobs,
+    local_day_start_utc_iso,
 )
 from spejder.extractors.skill_extractor import _build_skills_tab_items, _format_skills
 from spejder.llm import LocalLLM
@@ -112,6 +114,28 @@ def build_hidden_dashboard_records(
             translate_title=False,
         )
         for row in get_hidden_jobs(db_path, limit=0)
+    ]
+
+
+def build_viewed_today_dashboard_records(
+    db_path: str,
+    runtime_profile: AppConfig,
+    title_translation_cache: dict[str, str],
+) -> list[dict]:
+    """Load Viewed-today tab rows (updated_at DESC) with rebuild defaults."""
+    since_iso = local_day_start_utc_iso()
+    return [
+        build_dashboard_record(
+            db_path,
+            runtime_profile,
+            title_translation_cache,
+            row,
+            default_category=str(row.get("category") or "not relevant"),
+            default_viewed=1,
+            default_applied=0,
+            translate_title=False,
+        )
+        for row in get_viewed_today_jobs(db_path, since_iso, limit=0)
     ]
 
 
@@ -246,12 +270,18 @@ class DashboardRebuildQueue:
                         self.runtime_profile,
                         self._title_translation_cache,
                     )
+                    refreshed_viewed_today_records = build_viewed_today_dashboard_records(
+                        self.db_path,
+                        self.runtime_profile,
+                        self._title_translation_cache,
+                    )
                     if should_log_rebuild:
                         print(
                             "Dashboard rebuild: collecting applied "
                             f"({len(refreshed_applied_rows)} rows), interview "
                             f"({len(refreshed_interview_rows)} rows), stopped "
-                            f"({len(refreshed_stopped_rows)} rows), hidden "
+                            f"({len(refreshed_stopped_rows)} rows), edited today "
+                            f"({len(refreshed_viewed_today_records)} rows), hidden "
                             f"({len(refreshed_hidden_records)} rows)"
                         )
                     refreshed_applied_records = [
@@ -313,6 +343,7 @@ class DashboardRebuildQueue:
                         interview_items=refreshed_interview_records,
                         stopped_items=refreshed_stopped_records,
                         hidden_items=refreshed_hidden_records,
+                        viewed_today_items=refreshed_viewed_today_records,
                         runtime_profile=self.runtime_profile,
                     )
                 if should_log_rebuild and not reason.startswith("new record"):

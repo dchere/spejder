@@ -25,6 +25,7 @@ Provides an interactive dashboard (web GUI) to review extracted jobs and view th
 - `POST /api/inbox/sync` — starts a background inbox sync when `trigger_inbox_sync` is wired (`serve-gui`); returns 503 when inbox sync is not configured; returns 409 when a sync is already running
 - `GET /api/inbox/sync/status` — `{ running, stage_id, stage_message, status, message }`; `status` is `running`, `complete`, `skipped`, `failed`, or `idle`
 - `GET /api/portrait` — `{ ok, text }`; committed portrait from `default_portrait_path`
+- `GET /company.html` — company-filtered dashboard; computes local-day `since_iso`, loads `get_viewed_today_jobs` for Edited today partition order, and passes `viewed_today_order` into `_render_company_dashboard_html`
 - `POST /api/portrait/generate` — sync LLM regeneration; returns `{ ok, draft, committed, diff_html }`; requires `default_model`; 503 without model; 400 without context; 409 when generation already in progress; does not write file
 - `POST /api/portrait/save` — `{ text }`; writes portrait file; no dashboard rebuild
 
