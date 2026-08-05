@@ -3,8 +3,20 @@
 from __future__ import annotations
 
 import re
+from urllib.parse import urlparse, urlunparse
 
 from bs4 import BeautifulSoup
+
+
+def _href_for_prompt(href: str) -> str:
+    """Drop query/fragment so Jobs2Web tracking params do not bloat the prompt."""
+    raw = (href or "").strip()
+    if not raw:
+        return ""
+    parsed = urlparse(raw)
+    if not parsed.scheme or not parsed.netloc:
+        return raw.split("?", 1)[0].split("#", 1)[0]
+    return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
 
 
 def shrink_html_for_prompt(html_text: str, *, max_chars: int = 12000) -> str:
@@ -17,8 +29,10 @@ def shrink_html_for_prompt(html_text: str, *, max_chars: int = 12000) -> str:
 
     lines: list[str] = []
     for anchor in soup.find_all("a", href=True):
-        href = (anchor.get("href") or "").strip()
+        href = _href_for_prompt(anchor.get("href") or "")
         text = " ".join(anchor.get_text(" ", strip=True).split())
+        if len(text) > 160:
+            text = text[:157] + "..."
         if not href:
             continue
         parent = anchor.parent

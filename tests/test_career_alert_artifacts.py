@@ -25,8 +25,13 @@ from spejder.jobs.parsing.artifact_schema import (
     compile_safe_path_regex,
 )
 from spejder.jobs.parsing.artifact_store import load_artifacts, save_overlay_artifact
-from spejder.jobs.parsing.artifact_synth import try_synthesize_artifact, validate_synth_thresholds
+from spejder.jobs.parsing.artifact_synth import (
+    _extract_json_object,
+    try_synthesize_artifact,
+    validate_synth_thresholds,
+)
 from spejder.jobs.parsing.core import extract_job_entries
+from spejder.jobs.parsing.html_shrink import shrink_html_for_prompt
 from spejder.jobs.parsing.platforms_career_alerts import (
     _extract_danfoss_entries_by_link,
     _extract_novonordisk_entries_by_link,
@@ -252,6 +257,23 @@ class ArtifactSynthTest(unittest.TestCase):
                 "title": "Senior Engineer",
                 "company": "Example",
             }
+        }
+        ok, reason = validate_synth_thresholds(
+            proposed, recovered, link_ratio=0.8, title_ratio=0.8
+        )
+        self.assertTrue(ok)
+        self.assertEqual(reason, "ok")
+
+    def test_validate_thresholds_accepts_full_anchor_titles(self):
+        """LLM often returns full Jobs2Web anchor text; interpreter splits title/place."""
+        proposed = {
+            "http://careers.capgemini.com/job/A/1": "AI Data Architect - Copenhagen, DK",
+        }
+        recovered = {
+            "http://careers.capgemini.com/job/A/1": {
+                "title": "AI Data Architect",
+                "raw_text": "AI Data Architect - Copenhagen, DK",
+            },
         }
         ok, reason = validate_synth_thresholds(
             proposed, recovered, link_ratio=0.8, title_ratio=0.8
@@ -590,6 +612,45 @@ class InterpretPriorityTest(unittest.TestCase):
         merged = interpret_artifacts(html, [low, high])
         self.assertTrue(merged)
         self.assertTrue(all(v["company"] == "High" for v in merged.values()))
+
+    def test_html_shrink_strips_query_from_hrefs(self):
+        html = (
+            '<a href="http://careers.capgemini.com/job/Role/1'
+            '?from=email&utm_source=J2WEmail">Role - City, DK</a>'
+        )
+        shrunk = shrink_html_for_prompt(html)
+        self.assertIn('href="http://careers.capgemini.com/job/Role/1"', shrunk)
+        self.assertNotIn("utm_source", shrunk)
+        self.assertNotIn("from=email", shrunk)
+
+    def test_extract_json_recovers_truncated_positions(self):
+        truncated = (
+            '{\n'
+            '  "artifact": {\n'
+            '    "id": "synth_demo",\n'
+            '    "version": 1,\n'
+            '    "priority": 50,\n'
+            '    "enabled": true,\n'
+            '    "match": {"host_substrings": ["careers.capgemini.com"], '
+            '"path_includes": ["/job/"]},\n'
+            '    "extract": {"mode": "filtered_links"},\n'
+            '    "fields": {"from_anchor": "jobs2web_middot_or_dash", '
+            '"company": "Capgemini", "source": "Capgemini"}\n'
+            '  },\n'
+            '  "positions": [\n'
+            '    {"position_link": "http://careers.capgemini.com/job/A/1", '
+            '"title": "A"},\n'
+            '    {"position_link": "http://careers.capgemini.com/job/B/2", '
+            '"title": "B cut'
+        )
+        payload = _extract_json_object(truncated)
+        self.assertIn("artifact", payload)
+        self.assertEqual(payload["artifact"]["fields"]["company"], "Capgemini")
+        self.assertEqual(len(payload.get("positions") or []), 1)
+        self.assertEqual(
+            payload["positions"][0]["position_link"],
+            "http://careers.capgemini.com/job/A/1",
+        )
 
 
 if __name__ == "__main__":

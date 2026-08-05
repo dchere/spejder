@@ -45,4 +45,6 @@ Interpreter fail-closed: after stripping blanks, if no host **or** no path subst
 
 Synth ids are always rewritten to `synth_<host>_<html_hash6>` (counter suffix if the overlay file exists); LLM-chosen ids are ignored. `require_path_regex` is length-capped and nested-quantifier-rejected at schema + match time (ReDoS).
 
+Prompt hygiene: `html_shrink` strips query/fragment from hrefs and caps anchor text so Jobs2Web tracking URLs do not blow the GGUF token budget. The synth prompt asks for at most 5 positions and uses `_SYNTH_MAX_TOKENS` (1600). If the model still truncates mid-JSON, `_extract_json_object` recovers a complete `artifact` object plus any finished `positions` entries. Title validation accepts either the parsed title or the full Jobs2Web anchor `raw_text` (LLMs often echo the whole anchor).
+
 `ingest_docs_to_db` loads artifacts once per run (with profile overlay dir) and reloads after a successful overlay write. When synth is enabled but no model/LLM is available, it prints `no_model`.
