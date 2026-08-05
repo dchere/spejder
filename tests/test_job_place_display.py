@@ -67,6 +67,80 @@ JOBINDEX_H1675711_SINGLE_ANCHOR_HTML = """
   PUBLISHED: 10-06-2026
 </td></tr></table>
 """
+JOBINDEX_H1681554_TITLE = (
+    "YouSee søger salgsorienterede kunderådgivere til vores kundecenter i …"
+)
+JOBINDEX_H1681554_TWO_ANCHOR_HTML = f"""
+<table><tr><td>
+  <a href="https://www.jobindex.dk/jobannonce/h1681554">
+    {JOBINDEX_H1681554_TITLE}
+  </a>
+  <a href="https://www.jobindex.dk/jobannonce/h1681554">
+    Tranbjerg J
+  </a>
+  10 min (ifølge dine indstillinger)
+  PUBLISHED: 08-07-2026
+</td></tr></table>
+"""
+JOBINDEX_H1681554_SINGLE_ANCHOR_HTML = f"""
+<table><tr><td>
+  <a href="https://www.jobindex.dk/jobannonce/h1681554">
+    {JOBINDEX_H1681554_TITLE}
+  </a>
+  Tranbjerg J 10 min (ifølge dine indstillinger)
+  PUBLISHED: 08-07-2026
+</td></tr></table>
+"""
+JOBINDEX_R13927484_TITLE = "Administrative medarbejdere til patientklager"
+JOBINDEX_R13927484_COMPANY = "Styrelsen for Patientklager"
+JOBINDEX_R13927484_HTML = f"""
+<table><tr><td>
+  Vil du arbejde med administration, service og retssikkerhed?
+  <a href="https://www.jobindex.dk/jobannonce/r13927484">{JOBINDEX_R13927484_COMPANY}</a>
+  <a href="https://www.jobindex.dk/jobannonce/r13927484">{JOBINDEX_R13927484_TITLE}</a>
+  Aarhus N 35 min <a href="https://www.example.com/settings">(</a> settings )
+  PUBLISHED: 01-08-2026
+</td></tr></table>
+"""
+JOBINDEX_R13928009_HTML = """
+<table><tr><td>
+  Hvad slår en uddannelse i detail, der åbner en masse døre og byder på nye og sjove oplevelser?
+  <a href="https://www.jobindex.dk/jobannonce/r13928009">Netto</a>
+  <a href="https://www.jobindex.dk/jobannonce/r13928009">Butikselev - Lystrup</a>
+  <a href="https://www.jobindex.dk/jobannonce/r13928009">Lystrup</a>
+  40 min ( settings )
+  PUBLISHED: 02-08-2026
+</td></tr></table>
+"""
+JOBINDEX_R13928008_HTML = """
+<table><tr><td>
+  Som medarbejder hos føtex bliver din rygsæk fyldt med erfaringer – dem kan du bruge nu, sammen med os, men også senere hen i din karriere.
+  <a href="https://www.jobindex.dk/jobannonce/r13928008">føtex</a>
+  <a href="https://www.jobindex.dk/jobannonce/r13928008">Kasseassistent under 18 år - Højbjerg</a>
+  <a href="https://www.jobindex.dk/jobannonce/r13928008">Højbjerg</a>
+  15 min ( settings )
+  PUBLISHED: 02-08-2026
+</td></tr></table>
+"""
+JOBINDEX_R13928009_NO_BRAND_ANCHOR_HTML = """
+<table><tr><td>
+  Hvad slår en uddannelse i detail, der åbner en masse døre og byder på nye og sjove oplevelser?
+  Netto
+  <a href="https://www.jobindex.dk/jobannonce/r13928009">Butikselev - Lystrup</a>
+  <a href="https://www.jobindex.dk/jobannonce/r13928009">Lystrup</a>
+  40 min ( settings )
+  PUBLISHED: 02-08-2026
+</td></tr></table>
+"""
+JOBINDEX_H1686103_HTML = """
+<table><tr><td>
+  Skal du med til tops? Som Audit Trainee hos EY får du en uddannelse.
+  <a href="https://www.jobindex.dk/jobannonce/h1686103">EY</a>
+  <a href="https://www.jobindex.dk/jobannonce/h1686103">Audit Trainee i EY</a>
+  30 min ( settings )
+  PUBLISHED: 03-08-2026
+</td></tr></table>
+"""
 
 
 class ResolveTitleAndPlaceTests(unittest.TestCase):
@@ -149,6 +223,57 @@ PUBLISHED: 10-06-2026
         self.assertEqual(entry["company"], "Vestas Wind Systems A/S")
         self.assertEqual(entry["place"], "Aarhus or Copenhagen")
 
+    def test_jobindex_title_not_swapped_with_place_h1681554_two_anchor(self):
+        entries = _extract_jobindex_entries_by_link(JOBINDEX_H1681554_TWO_ANCHOR_HTML)
+        entry = entries["https://www.jobindex.dk/jobannonce/h1681554"]
+        self.assertEqual(entry["title"], JOBINDEX_H1681554_TITLE)
+        self.assertEqual(entry["company"], "YouSee")
+        self.assertEqual(entry["place"], "Tranbjerg J")
+
+    def test_jobindex_title_not_swapped_with_place_h1681554_single_anchor(self):
+        entries = _extract_jobindex_entries_by_link(JOBINDEX_H1681554_SINGLE_ANCHOR_HTML)
+        entry = entries["https://www.jobindex.dk/jobannonce/h1681554"]
+        self.assertEqual(entry["title"], JOBINDEX_H1681554_TITLE)
+        self.assertEqual(entry["company"], "YouSee")
+        self.assertEqual(entry["place"], "Tranbjerg J")
+
+    def test_jobindex_rejects_paren_company_and_title_in_place_r13927484(self):
+        entries = _extract_jobindex_entries_by_link(JOBINDEX_R13927484_HTML)
+        entry = entries["https://www.jobindex.dk/jobannonce/r13927484"]
+        self.assertEqual(entry["title"], JOBINDEX_R13927484_TITLE)
+        self.assertEqual(entry["company"], JOBINDEX_R13927484_COMPANY)
+        self.assertEqual(entry["place"], "Aarhus N")
+
+    def test_jobindex_netto_butikselev_r13928009(self):
+        entries = _extract_jobindex_entries_by_link(JOBINDEX_R13928009_HTML)
+        entry = entries["https://www.jobindex.dk/jobannonce/r13928009"]
+        self.assertEqual(entry["company"], "Netto")
+        self.assertEqual(entry["title"], "Butikselev - Lystrup")
+        self.assertEqual(entry["place"], "Lystrup")
+
+    def test_jobindex_fotex_kasseassistent_r13928008(self):
+        entries = _extract_jobindex_entries_by_link(JOBINDEX_R13928008_HTML)
+        entry = entries["https://www.jobindex.dk/jobannonce/r13928008"]
+        self.assertEqual(entry["company"], "føtex")
+        self.assertEqual(entry["title"], "Kasseassistent under 18 år - Højbjerg")
+        self.assertEqual(entry["place"], "Højbjerg")
+
+    def test_jobindex_netto_brand_as_text_not_title_as_company(self):
+        entries = _extract_jobindex_entries_by_link(
+            JOBINDEX_R13928009_NO_BRAND_ANCHOR_HTML
+        )
+        entry = entries["https://www.jobindex.dk/jobannonce/r13928009"]
+        self.assertEqual(entry["company"], "Netto")
+        self.assertEqual(entry["title"], "Butikselev - Lystrup")
+        self.assertEqual(entry["place"], "Lystrup")
+
+    def test_jobindex_ey_trainee_not_swapped_h1686103(self):
+        entries = _extract_jobindex_entries_by_link(JOBINDEX_H1686103_HTML)
+        entry = entries["https://www.jobindex.dk/jobannonce/h1686103"]
+        self.assertEqual(entry["company"], "EY")
+        self.assertEqual(entry["title"], "Audit Trainee i EY")
+        self.assertEqual(entry["place"], "")
+
 
 class JobindexTitlePickTests(unittest.TestCase):
     def test_prefers_longest_non_company_candidate(self):
@@ -161,6 +286,16 @@ class JobindexTitlePickTests(unittest.TestCase):
             company=company,
         )
         self.assertEqual(title, "Studentermedhjælper til IT i Aarhus")
+
+    def test_penalizes_place_like_candidate(self):
+        title = pick_jobindex_title(
+            [
+                JOBINDEX_H1681554_TITLE,
+                "Tranbjerg J",
+            ],
+            listing_place_hint="Tranbjerg J",
+        )
+        self.assertEqual(title, JOBINDEX_H1681554_TITLE)
 
     def test_penalizes_company_suffix_anchor(self):
         company = "Vestas Wind Systems A/S"

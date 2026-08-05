@@ -6,13 +6,22 @@ from bs4 import BeautifulSoup
 from spejder.db import _extract_jobindex_id, _normalize_position_link, _provider_from_link
 
 from .utils import (
+    infer_jobindex_company_from_title,
+    is_jobindex_company_echo_place,
+    is_jobindex_noise_fragment,
+    listing_place_hint_from_compact,
+    looks_like_jobindex_company_name,
+    looks_like_jobindex_job_title,
+    looks_like_jobindex_place,
     merge_jobindex_place,
+    peel_jobindex_dash_place,
     peel_jobindex_i_city_trailing_district,
     peel_jobindex_trailing_place,
     pick_jobindex_title,
     split_jobindex_trailing_postcode,
     split_title_trailing_i_place,
     strip_jobindex_company_prefix,
+    strip_title_overlap_from_place,
 )
 
 
@@ -42,21 +51,9 @@ def _extract_jobindex_entries_by_link(html_text: str) -> dict[str, dict[str, str
         if len(compact) < 30:
             continue
 
-        company = ""
-        for link_node in block.find_all("a", href=True):
-            href2 = link_node.get("href") or ""
-            txt2 = " ".join(link_node.get_text(" ", strip=True).split())
-            if txt2 and "jobindex.dk" not in href2.lower():
-                company = txt2[:180]
-                break
-        if not company:
-            fragments = [s.strip()
-                         for s in block.stripped_strings if s and s.strip()]
-            if fragments:
-                company = fragments[0][:180]
-
         title = ""
         title_candidates = []
+        jobannonce_texts: set[str] = set()
         for link_node in block.find_all("a", href=True):
             href2 = link_node.get("href") or ""
             t2 = _extract_jobindex_id(href2)
@@ -74,12 +71,120 @@ def _extract_jobindex_entries_by_link(html_text: str) -> dict[str, dict[str, str
                 }
             ):
                 title_candidates.append(txt2)
-        title = pick_jobindex_title(title_candidates, company=company)
+                jobannonce_texts.add(txt2.casefold())
+
+        listing_place_hint = listing_place_hint_from_compact(compact)
+        if is_jobindex_company_echo_place(listing_place_hint, title_candidates):
+            listing_place_hint = ""
+
+        def _is_place_candidate(text: str) -> bool:
+            if looks_like_jobindex_place(text):
+                return True
+            hint = (listing_place_hint or "").strip()
+            return bool(hint and text.strip().casefold() == hint.casefold())
+
+        company = ""
+        for link_node in block.find_all("a", href=True):
+            href2 = link_node.get("href") or ""
+            txt2 = " ".join(link_node.get_text(" ", strip=True).split())
+            if txt2 and "jobindex.dk" not in href2.lower():
+                if looks_like_jobindex_company_name(txt2) and not _is_place_candidate(
+                    txt2
+                ):
+                    company = txt2[:180]
+                    break
+
+        if not company:
+            # Prefer company-like /jobannonce/ anchors (ApS/A/S) over plain fragments.
+            for candidate in title_candidates:
+                if not looks_like_jobindex_company_name(candidate):
+                    continue
+                if _is_place_candidate(candidate):
+                    continue
+                if re.search(r"\b(?:aps|a/s|gmbh|group)\b\.?$", candidate, re.I):
+                    company = candidate[:180]
+                    break
+            if not company:
+                for candidate in title_candidates:
+                    if not looks_like_jobindex_company_name(candidate):
+                        continue
+                    if _is_place_candidate(candidate):
+                        continue
+                    if len(candidate) <= 60 and len(candidate.split()) <= 6:
+                        company = candidate[:180]
+                        break
+            if not company:
+                for fragment in block.stripped_strings:
+                    txt = " ".join(str(fragment or "").split()).strip()
+                    if not txt:
+                        continue
+                    pieces = [txt]
+                    if re.search(r"[?!]", txt):
+                        pieces.extend(
+                            part.strip()
+                            for part in re.split(r"[?!]\s*", txt)
+                            if part.strip()
+                        )
+                    for piece in pieces:
+                        if piece.casefold() in jobannonce_texts:
+                            continue
+                        if is_jobindex_noise_fragment(piece):
+                            continue
+                        if _is_place_candidate(piece):
+                            continue
+                        if not looks_like_jobindex_company_name(piece):
+                            continue
+                        company = piece[:180]
+                        break
+                    if company:
+                        break
+
+        if company and (
+            not looks_like_jobindex_company_name(company)
+            or _is_place_candidate(company)
+        ):
+            company = ""
+
+        title = pick_jobindex_title(
+            title_candidates,
+            company=company,
+            listing_place_hint=listing_place_hint,
+        )
         place = ""
+        if listing_place_hint and listing_place_hint.casefold() != title.casefold():
+            place = listing_place_hint[:180]
+        else:
+            for candidate in title_candidates:
+                if (
+                    _is_place_candidate(candidate)
+                    and candidate.casefold() != title.casefold()
+                ):
+                    place = candidate.strip(" -|:")[:180]
+                    break
+        if place and title:
+            place = strip_title_overlap_from_place(title, place)
+        if not place and title:
+            _, dash_place = peel_jobindex_dash_place(title)
+            if dash_place and not (
+                company and dash_place.casefold() == company.casefold()
+            ):
+                place = dash_place
+        if place and company and place.casefold() == company.casefold():
+            place = ""
+
+        company_is_title = bool(
+            company
+            and title_candidates
+            and any(
+                company.strip().casefold() == candidate.strip().casefold()
+                for candidate in title_candidates
+            )
+        )
         if (
             len(title_candidates) == 1
             and company
-            and title_candidates[0].strip().casefold() == company.strip().casefold()
+            and not looks_like_jobindex_job_title(company)
+            and company_is_title
         ):
             m_compact_title = re.search(
                 r"^(?:(?:"
@@ -127,7 +232,15 @@ def _extract_jobindex_entries_by_link(html_text: str) -> dict[str, dict[str, str
             place = merge_jobindex_place(title, place)
             if not place:
                 _, split_place = split_title_trailing_i_place(title)
+                if (
+                    split_place
+                    and company
+                    and split_place.casefold() == company.casefold()
+                ):
+                    split_place = ""
                 place = merge_jobindex_place(title, split_place)
+            if place and company and place.casefold() == company.casefold():
+                place = ""
             if not place:
                 peeled_title, peeled_place = peel_jobindex_trailing_place(title)
                 if peeled_place:
@@ -140,6 +253,28 @@ def _extract_jobindex_entries_by_link(html_text: str) -> dict[str, dict[str, str
                 if peeled_district:
                     title = peeled_title
                     place = merge_jobindex_place(title, peeled_district)
+            if place:
+                place = strip_title_overlap_from_place(title, place)
+                if company:
+                    place = strip_title_overlap_from_place(company, place)
+                    place = strip_jobindex_company_prefix(place, company)
+            if place and company and place.casefold() == company.casefold():
+                place = ""
+
+        if not company and title:
+            company = infer_jobindex_company_from_title(title)[:180]
+        if not company and title:
+            m_brand = re.search(
+                r"(?<![A-Za-zÆØÅæøå])([A-ZÆØÅa-zæøå][\w.&-]{1,40})\s+"
+                + re.escape(title),
+                compact,
+            )
+            if m_brand:
+                brand = (m_brand.group(1) or "").strip()
+                if looks_like_jobindex_company_name(brand) and not _is_place_candidate(
+                    brand
+                ):
+                    company = brand[:180]
 
         m_desc = re.search(
             r"settings\s*\)\s*(.*?)\s*PUBLISHED\s*:", compact, flags=re.IGNORECASE
