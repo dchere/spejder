@@ -129,10 +129,14 @@ def looks_like_jobindex_job_title(value: str) -> bool:
         return True
     if _JOBINDEX_ROLE_DASH_PLACE_RE.search(cleaned):
         return True
+    # ALL-CAPS multi-word shouty titles (volunteer ads, etc.).
+    letters = re.sub(r"[^A-Za-zÆØÅæøå]", "", cleaned)
+    if len(cleaned.split()) >= 3 and letters and letters == letters.upper():
+        return True
     # Substring stems catch compounds like ``Butikselev`` / ``Kasseassistent``.
     if re.search(
         r"(?i)(?:elev|assistent|medarbejder|butiks|kasseassistent|flaske|"
-        r"trainee|internship|\baudit\b|\bintern\b)",
+        r"trainee|internship|\baudit\b|\bintern\b|frivillig|rundviser|\bbliv\b)",
         cleaned,
     ):
         return True
@@ -186,6 +190,10 @@ def looks_like_jobindex_company_name(value: str) -> bool:
         "apply",
         "about the company",
         "save job",
+        "hvad",
+        "skal",
+        "som",
+        "vil",
     }:
         return False
     if cleaned.endswith("?"):

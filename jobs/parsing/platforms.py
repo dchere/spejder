@@ -264,17 +264,66 @@ def _extract_jobindex_entries_by_link(html_text: str) -> dict[str, dict[str, str
         if not company and title:
             company = infer_jobindex_company_from_title(title)[:180]
         if not company and title:
-            m_brand = re.search(
-                r"(?<![A-Za-zÆØÅæøå])([A-ZÆØÅa-zæøå][\w.&-]{1,40})\s+"
-                + re.escape(title),
-                compact,
-            )
-            if m_brand:
-                brand = (m_brand.group(1) or "").strip()
-                if looks_like_jobindex_company_name(brand) and not _is_place_candidate(
-                    brand
-                ):
-                    company = brand[:180]
+            title_at = compact.find(title)
+            if title_at > 0:
+                before = compact[:title_at].rstrip()
+                segments = [
+                    part.strip()
+                    for part in re.split(r"[.!?]\s*", before)
+                    if part.strip()
+                ]
+                segment = segments[-1] if segments else before
+                tokens = [
+                    tok.strip(",;:«»\"'()[]")
+                    for tok in segment.split()
+                    if tok.strip(",;:«»\"'()[]")
+                ]
+                connectors = {"for", "og", "af", "and", "the", "de", "von"}
+
+                def _brand_from_tokens(cand_tokens: list[str]) -> str:
+                    if not cand_tokens:
+                        return ""
+                    if not all(
+                        re.match(r"[A-ZÆØÅ]", tok)
+                        or (
+                            tok.casefold() in connectors
+                            and 0 < idx < len(cand_tokens) - 1
+                        )
+                        for idx, tok in enumerate(cand_tokens)
+                    ):
+                        return ""
+                    brand = " ".join(cand_tokens)
+                    if looks_like_jobindex_company_name(
+                        brand
+                    ) and not _is_place_candidate(brand):
+                        return brand[:180]
+                    return ""
+
+                # Prefer a leading capitalized name in the last clause (card
+                # often starts with the employer), then tokens immediately
+                # before the title.
+                if tokens:
+                    lead: list[str] = []
+                    for tok in tokens:
+                        if re.match(r"[A-ZÆØÅ]", tok):
+                            lead.append(tok)
+                            if len(
+                                [t for t in lead if t.casefold() not in connectors]
+                            ) >= 3:
+                                break
+                        elif lead and tok.casefold() in connectors:
+                            lead.append(tok)
+                        else:
+                            break
+                    brand = _brand_from_tokens(lead)
+                    if brand:
+                        company = brand
+                if not company:
+                    for n in range(min(3, len(tokens)), 0, -1):
+                        brand = _brand_from_tokens(tokens[-n:])
+                        if brand:
+                            company = brand
+                            break
 
         m_desc = re.search(
             r"settings\s*\)\s*(.*?)\s*PUBLISHED\s*:", compact, flags=re.IGNORECASE

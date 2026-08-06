@@ -141,6 +141,26 @@ JOBINDEX_H1686103_HTML = """
   PUBLISHED: 03-08-2026
 </td></tr></table>
 """
+JOBINDEX_R13933806_TITLE = "BLIV FRIVILLIG RUNDVISER PÅ MUSEUM OVARTACI"
+JOBINDEX_R13933806_HTML = f"""
+<table><tr><td>
+  Museum Ovartaci er Nordens førende museum for Art Brut.
+  Museum Ovartaci
+  <a href="https://www.jobindex.dk/jobannonce/r13933806">{JOBINDEX_R13933806_TITLE}</a>
+  <a href="https://www.jobindex.dk/jobannonce/r13933806">Aarhus N</a>
+  35 min ( settings )
+  PUBLISHED: 05-08-2026
+</td></tr></table>
+"""
+JOBINDEX_R13933806_TITLE_PLACE_ONLY_HTML = f"""
+<table><tr><td>
+  Museum Ovartaci er Nordens førende museum for Art Brut.
+  <a href="https://www.jobindex.dk/jobannonce/r13933806">{JOBINDEX_R13933806_TITLE}</a>
+  <a href="https://www.jobindex.dk/jobannonce/r13933806">Aarhus N</a>
+  35 min ( settings )
+  PUBLISHED: 05-08-2026
+</td></tr></table>
+"""
 
 
 class ResolveTitleAndPlaceTests(unittest.TestCase):
@@ -273,6 +293,22 @@ PUBLISHED: 10-06-2026
         self.assertEqual(entry["company"], "EY")
         self.assertEqual(entry["title"], "Audit Trainee i EY")
         self.assertEqual(entry["place"], "")
+
+    def test_jobindex_allcaps_volunteer_title_r13933806(self):
+        entries = _extract_jobindex_entries_by_link(JOBINDEX_R13933806_HTML)
+        entry = entries["https://www.jobindex.dk/jobannonce/r13933806"]
+        self.assertEqual(entry["company"], "Museum Ovartaci")
+        self.assertEqual(entry["title"], JOBINDEX_R13933806_TITLE)
+        self.assertEqual(entry["place"], "Aarhus N")
+
+    def test_jobindex_allcaps_title_recovers_brand_before_title(self):
+        entries = _extract_jobindex_entries_by_link(
+            JOBINDEX_R13933806_TITLE_PLACE_ONLY_HTML
+        )
+        entry = entries["https://www.jobindex.dk/jobannonce/r13933806"]
+        self.assertEqual(entry["company"], "Museum Ovartaci")
+        self.assertEqual(entry["title"], JOBINDEX_R13933806_TITLE)
+        self.assertEqual(entry["place"], "Aarhus N")
 
 
 class JobindexTitlePickTests(unittest.TestCase):
