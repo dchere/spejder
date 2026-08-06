@@ -7,6 +7,7 @@ from functools import lru_cache
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
+from bs4.element import Tag
 
 from spejder.db import _normalize_position_link
 from spejder.jobs.parsing.artifact_schema import (
@@ -14,6 +15,19 @@ from spejder.jobs.parsing.artifact_schema import (
     compile_safe_path_regex,
 )
 from spejder.jobs.parsing.jobs2web import _parse_jobs2web_anchor_text
+
+_CTA_LABELS = frozenset(
+    {
+        "apply here",
+        "apply now",
+        "apply",
+        "view job",
+        "view role",
+        "see job",
+        "read more",
+        "learn more",
+    }
+)
 
 
 @lru_cache(maxsize=64)
@@ -44,6 +58,17 @@ def href_matches_artifact(href: str, artifact: CareerAlertArtifact) -> bool:
     return True
 
 
+def anchor_text_matches_artifact(compact: str, artifact: CareerAlertArtifact) -> bool:
+    allowed = [
+        label.casefold()
+        for label in (artifact.match.anchor_text_equals or [])
+        if str(label).strip()
+    ]
+    if not allowed:
+        return True
+    return (compact or "").strip().casefold() in allowed
+
+
 def artifact_prefilter_matches(html_text: str, links: list[str], artifact: CareerAlertArtifact) -> bool:
     for link in links or []:
         if href_matches_artifact(str(link or ""), artifact):
@@ -52,22 +77,96 @@ def artifact_prefilter_matches(html_text: str, links: list[str], artifact: Caree
         return False
     soup = BeautifulSoup(html_text, "html.parser")
     for anchor in soup.find_all("a", href=True):
-        if href_matches_artifact(anchor.get("href") or "", artifact):
+        if not href_matches_artifact(anchor.get("href") or "", artifact):
+            continue
+        compact = " ".join(anchor.get_text(" ", strip=True).split())
+        if anchor_text_matches_artifact(compact, artifact):
             return True
     return False
 
 
-def _fields_from_anchor_text(compact: str, artifact: CareerAlertArtifact) -> dict[str, str]:
+def _find_title_container(anchor: Tag) -> Tag | None:
+    node: Tag | None = anchor
+    best: Tag | None = None
+    for _ in range(14):
+        if node is None:
+            break
+        parent = node.parent
+        if not isinstance(parent, Tag):
+            break
+        node = parent
+        text = " ".join(node.get_text(" ", strip=True).split())
+        if len(text) < 40:
+            continue
+        best = node
+        if node.name in ("tr", "li", "article", "section"):
+            return node
+    return best
+
+
+def _title_from_ancestor_block(anchor: Tag) -> tuple[str, str]:
+    """Return (title, raw_text) from the nearest substantial ancestor of a CTA button."""
+    container = _find_title_container(anchor)
+    if container is None:
+        return "", ""
+    raw = " ".join(container.get_text(" ", strip=True).split())
+    headings: list[str] = []
+    for tag in container.find_all(["strong", "b", "h1", "h2", "h3", "h4"]):
+        text = " ".join(tag.get_text(" ", strip=True).split())
+        if not text:
+            continue
+        if text.casefold() in _CTA_LABELS:
+            continue
+        headings.append(text)
+    if headings:
+        # iCIMS often splits one title across adjacent <strong> tags.
+        title = " ".join(headings)
+        return title, raw
+
+    peeled = raw
+    for label in _CTA_LABELS:
+        peeled = re.sub(rf"(?i)\b{re.escape(label)}\b", " ", peeled)
+    peeled = " ".join(peeled.split())
+    if not peeled:
+        return "", raw
+    # First clause / short head as title when no heading markup exists.
+    for separator in (". ", " - ", " – ", " — "):
+        if separator in peeled and len(peeled.split(separator, 1)[0]) >= 12:
+            return peeled.split(separator, 1)[0].strip(), raw
+    return peeled[:180].strip(), raw
+
+
+def _fields_from_anchor(
+    compact: str,
+    artifact: CareerAlertArtifact,
+    *,
+    anchor: Tag | None = None,
+) -> dict[str, str] | None:
     recipes = artifact.fields
-    if recipes.from_anchor == "jobs2web_middot_or_dash":
+    if recipes.from_anchor == "ancestor_strong_or_first_line":
+        if anchor is None:
+            return None
+        title, raw = _title_from_ancestor_block(anchor)
+        if not title:
+            return None
+        place = ""
+        work_type = "Unknown"
+        compact_out = raw or title
+    elif recipes.from_anchor == "jobs2web_middot_or_dash":
+        if not compact:
+            return None
         parsed = _parse_jobs2web_anchor_text(compact)
         title = parsed.get("title") or compact
         place = parsed.get("place") or ""
         work_type = parsed.get("work_type") or "Unknown"
+        compact_out = compact
     else:
+        if not compact:
+            return None
         title = compact
         place = ""
         work_type = "Unknown"
+        compact_out = compact
 
     company = recipes.company or ""
     source = recipes.source or ""
@@ -76,7 +175,7 @@ def _fields_from_anchor_text(compact: str, artifact: CareerAlertArtifact) -> dic
         "company": company,
         "place": place[: recipes.place_max],
         "work_type": work_type,
-        "raw_text": compact[: recipes.raw_text_max],
+        "raw_text": compact_out[: recipes.raw_text_max],
         "source": source,
     }
 
@@ -92,6 +191,8 @@ def interpret_artifact(html_text: str, artifact: CareerAlertArtifact) -> dict[st
     soup = BeautifulSoup(html_text, "html.parser")
     by_link: dict[str, dict[str, str]] = {}
     for anchor in soup.find_all("a", href=True):
+        if not isinstance(anchor, Tag):
+            continue
         href = anchor.get("href") or ""
         if not href_matches_artifact(href, artifact):
             continue
@@ -99,9 +200,12 @@ def interpret_artifact(html_text: str, artifact: CareerAlertArtifact) -> dict[st
         if not normalized:
             continue
         compact = " ".join(anchor.get_text(" ", strip=True).split())
-        if not compact:
+        if not anchor_text_matches_artifact(compact, artifact):
             continue
-        by_link[normalized] = _fields_from_anchor_text(compact, artifact)
+        fields = _fields_from_anchor(compact, artifact, anchor=anchor)
+        if not fields:
+            continue
+        by_link[normalized] = fields
     return by_link
 
 

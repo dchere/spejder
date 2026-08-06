@@ -39,7 +39,7 @@ The previously monolithic `parsing.py` has been transitioned into a `spejder.job
 - `jobs2web.py`: Oracle Jobs2Web anchor parsing and Vestas/Danfoss/Novo Nordisk extractors (Python fallback; mirrored by shipped artifacts).
 - `djinni_alerts.py`, `thehub_alerts.py`, `oracle_cx_alerts.py`: Other career-alert email extractors.
 - `platforms_career_alerts.py`: Re-export barrel for career-alert extractors (stable import path).
-- `artifact_schema.py` / `artifact_store.py` / `artifact_interpreter.py` / `html_shrink.py` / `artifact_synth.py`: Declarative career-alert artifacts (see [`jobs/parsing/artifacts.md`](jobs/parsing/artifacts.md)).
+- `artifact_schema.py` / `artifact_store.py` / `artifact_interpreter.py` / `artifact_heuristic.py` / `html_shrink.py` / `artifact_synth.py`: Declarative career-alert artifacts (see [`jobs/parsing/artifacts.md`](jobs/parsing/artifacts.md)).
 - `artifacts/*.json`: Shipped Jobs2Web recipes (Vestas, Danfoss, Novo Nordisk).
 - `core.py`: The aggregator coordinating all extractors (`extract_job_entries`); optional `artifacts=` / overlay dir / disable list. Without `artifacts_dir`, loads **shipped artifacts only** (no default `./career_alert_artifacts` merge).
 
@@ -48,7 +48,7 @@ The previously monolithic `parsing.py` has been transitioned into a `spejder.job
 - Match lists must be non-empty and non-blank at schema load; interpreter also fails closed on blank-only lists.
 - Interpreter opcodes are a closed set (no `exec`); unknown ops fail validation at load.
 - `extract_job_entries` runs enabled artifacts by priority, then built-ins; **artifact fields fill only when the built-in field is empty**. Links present only in the artifact map still become entries (needed for new-host synth).
-- Opt-in synth (`career_alert_synth_enabled`, requires `default_model`): on ingest `found=0`, shrink HTML → local GGUF → validate link/title ratios → write overlay only; failed synth leaves the `.eml`. Rejects empty/blank match lists and overly broad recovery. Hook lives in `jobs/ingestion.py`, not inside `extract_job_entries`. Ingest loads artifacts once per run (reload after successful synth).
+- Opt-in synth (`career_alert_synth_enabled`): on ingest `found=0`, try a deterministic CTA heuristic first (iCIMS-style Apply-here + ancestor title), then optionally shrink HTML → local GGUF (`default_model`) → validate link/title ratios → write overlay only; failed synth leaves the `.eml`. Rejects empty/blank match lists and overly broad recovery. Hook lives in `jobs/ingestion.py`, not inside `extract_job_entries`. Ingest loads artifacts once per run (reload after successful synth).
 - Jobindex / LinkedIn / generic HTML stay in Python; Jobs2Web Python modules remain dual-run fallbacks.
 
 **Career-alert sources (email job alerts):**

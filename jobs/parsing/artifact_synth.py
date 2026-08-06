@@ -15,6 +15,7 @@ from pydantic import ValidationError
 
 from spejder.config import AppConfig
 from spejder.db import _normalize_position_link
+from spejder.jobs.parsing.artifact_heuristic import draft_cta_ancestor_artifact
 from spejder.jobs.parsing.artifact_interpreter import href_matches_artifact, interpret_artifact
 from spejder.jobs.parsing.artifact_schema import CareerAlertArtifact
 from spejder.jobs.parsing.artifact_store import (
@@ -26,6 +27,19 @@ from spejder.jobs.parsing.html_shrink import shrink_html_for_prompt
 from spejder.llm import LocalLLM
 
 logger = logging.getLogger(__name__)
+
+_CTA_TITLE_LABELS = frozenset(
+    {
+        "apply here",
+        "apply now",
+        "apply",
+        "view job",
+        "view role",
+        "see job",
+        "read more",
+        "learn more",
+    }
+)
 
 _SYNTH_MAX_TOKENS = 1600
 _SYNTH_MAX_POSITIONS = 5
@@ -40,7 +54,8 @@ Given shrunk HTML from a career-alert email, return a JSON object with:
     "enabled": true,
     "match": {{
       "host_substrings": ["example.com"],
-      "path_includes": ["/job/"]
+      "path_includes": ["/job/"],
+      "anchor_text_equals": []
     }},
     "extract": {{"mode": "filtered_links"}},
     "fields": {{
@@ -52,12 +67,18 @@ Given shrunk HTML from a career-alert email, return a JSON object with:
   "positions": [{{"position_link": "...", "title": "..."}}]
 }}
 Rules:
-- Use only filtered_links extract mode and known from_anchor opcodes.
+- Use only filtered_links extract mode and known from_anchor opcodes:
+  jobs2web_middot_or_dash | anchor_text_compact | ancestor_strong_or_first_line.
 - Emit the artifact object before the positions array.
 - Include at most {max_positions} positions (enough to prove the match rules).
 - Copy position_link values exactly from the HTML hrefs (already without query strings).
 - Prefer short titles (job title only when the anchor mixes title and place).
-- artifact.match must match those job links.
+- artifact.match must match those job links (use the real link host/path, not a careers marketing host).
+- When anchors say only "Apply here"/"Apply now" and the title appears beside them
+  (see " :: Title" context in the HTML), set:
+  from_anchor=ancestor_strong_or_first_line,
+  path_includes to the CTA path (often "/f/a/" for iCIMS),
+  and anchor_text_equals=["Apply here"] (or the CTA label used).
 - Reply with a single complete JSON object only, no markdown.
 
 HTML:
@@ -296,13 +317,36 @@ def _match_rules_too_broad(artifact: CareerAlertArtifact) -> bool:
     return not hosts or not paths
 
 
-def _recovered_too_broad(proposed: dict[str, str], recovered: dict[str, dict[str, str]]) -> bool:
+def _recovered_too_broad(
+    proposed: dict[str, str],
+    recovered: dict[str, dict[str, str]],
+    *,
+    artifact: Optional[CareerAlertArtifact] = None,
+) -> bool:
     """Reject when match rules pull in far more links than the LLM proposed."""
     n_proposed = len(proposed)
     n_recovered = len(recovered)
     if n_proposed < 1:
         return True
+    # CTA digests often list many real jobs while the LLM only cites a sample.
+    if artifact is not None and artifact.fields.from_anchor == "ancestor_strong_or_first_line":
+        return n_recovered > max(40, n_proposed * 5)
     return n_recovered > max(3, n_proposed * 2)
+
+
+def _proposed_from_recovered(
+    recovered: dict[str, dict[str, str]],
+) -> dict[str, str]:
+    """Use interpreter titles when the LLM omitted/truncated the positions array."""
+    usable: dict[str, str] = {}
+    for link, fields in recovered.items():
+        title = str((fields or {}).get("title") or "").strip()
+        if not title or title.casefold() in _CTA_TITLE_LABELS:
+            continue
+        usable[link] = title
+        if len(usable) >= _SYNTH_MAX_POSITIONS:
+            break
+    return usable
 
 
 def _safe_overlay_filename(artifact_id: str) -> str:
@@ -336,20 +380,92 @@ def _ensure_synth_id(
     return artifact.model_copy(update={"id": candidate})
 
 
+def _persist_validated_artifact(
+    draft: CareerAlertArtifact,
+    *,
+    html_text: str,
+    proposed: dict[str, str],
+    recovered: dict[str, dict[str, str]],
+    profile: AppConfig,
+    llm: Optional[LocalLLM],
+    overlay_dir: Optional[str],
+) -> tuple[Optional[CareerAlertArtifact], str]:
+    ok, reason = validate_synth_thresholds(
+        proposed,
+        recovered,
+        link_ratio=float(profile.career_alert_synth_link_ratio),
+        title_ratio=float(profile.career_alert_synth_title_ratio),
+    )
+    if not ok:
+        return None, reason
+    if not _draft_matches_recovered(draft, recovered):
+        return None, "match_rules"
+    if _recovered_too_broad(proposed, recovered, artifact=draft):
+        return None, "match_too_broad"
+
+    target_dir = overlay_dir if overlay_dir is not None else profile.career_alert_artifacts_dir
+    draft = _ensure_synth_id(draft, html_text, overlay_dir=target_dir)
+    if is_shipped_id(draft.id):
+        return None, "shipped_id_collision"
+
+    model_basename = None
+    if llm is not None:
+        model_basename = os.path.basename(str(getattr(llm, "model_path", "") or "")) or None
+    eml_hash = hashlib.sha1((html_text or "").encode("utf-8", errors="ignore")).hexdigest()[:16]
+    provenance = draft.source if draft.source in ("heuristic", "manual", "llm_synth") else "llm_synth"
+    final = draft.model_copy(
+        update={
+            "source": provenance,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "model_path": model_basename,
+            "parent_eml_hash": eml_hash,
+            "enabled": True,
+        }
+    )
+    try:
+        path = save_overlay_artifact(final, overlay_dir=target_dir)
+    except OSError as exc:
+        logger.warning("career-alert synth persist failed: %s", exc)
+        return None, "persist_error"
+    logger.info("career-alert artifact synthesized: id=%s path=%s", final.id, path)
+    return final, "ok"
+
+
 def try_synthesize_artifact(
     html_text: str,
-    llm: LocalLLM,
+    llm: Optional[LocalLLM],
     profile: AppConfig,
     *,
     overlay_dir: Optional[str] = None,
     max_prompt_chars: Optional[int] = None,
 ) -> tuple[Optional[CareerAlertArtifact], str]:
     """
-    Shrink → LLM → validate → optionally persist overlay.
+    Heuristic and/or shrink → LLM → validate → optionally persist overlay.
     Returns (artifact_or_None, reason).
     """
-    if not html_text or not llm:
-        return None, "missing_html_or_llm"
+    if not html_text:
+        return None, "missing_html"
+
+    # Deterministic CTA digests (iCIMS etc.) before spending an LLM call.
+    heuristic = draft_cta_ancestor_artifact(html_text)
+    if heuristic is not None:
+        recovered = interpret_artifact(html_text, heuristic)
+        proposed = _proposed_from_recovered(recovered)
+        if proposed:
+            saved, reason = _persist_validated_artifact(
+                heuristic,
+                html_text=html_text,
+                proposed=proposed,
+                recovered=recovered,
+                profile=profile,
+                llm=None,
+                overlay_dir=overlay_dir,
+            )
+            if saved is not None:
+                return saved, reason
+
+    if llm is None:
+        return None, "no_model"
 
     budget = max_prompt_chars
     if budget is None:
@@ -397,34 +513,14 @@ def try_synthesize_artifact(
         return None, "shipped_id_collision"
 
     recovered = interpret_artifact(html_text, draft)
-    ok, reason = validate_synth_thresholds(
-        proposed,
-        recovered,
-        link_ratio=float(profile.career_alert_synth_link_ratio),
-        title_ratio=float(profile.career_alert_synth_title_ratio),
+    if not proposed:
+        proposed = _proposed_from_recovered(recovered)
+    return _persist_validated_artifact(
+        draft.model_copy(update={"source": "llm_synth"}),
+        html_text=html_text,
+        proposed=proposed,
+        recovered=recovered,
+        profile=profile,
+        llm=llm,
+        overlay_dir=overlay_dir,
     )
-    if not ok:
-        return None, reason
-    if not _draft_matches_recovered(draft, recovered):
-        return None, "match_rules"
-    if _recovered_too_broad(proposed, recovered):
-        return None, "match_too_broad"
-
-    model_basename = os.path.basename(str(getattr(llm, "model_path", "") or "")) or None
-    eml_hash = hashlib.sha1((html_text or "").encode("utf-8", errors="ignore")).hexdigest()[:16]
-    final = draft.model_copy(
-        update={
-            "source": "llm_synth",
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "model_path": model_basename,
-            "parent_eml_hash": eml_hash,
-            "enabled": True,
-        }
-    )
-    try:
-        path = save_overlay_artifact(final, overlay_dir=target_dir)
-    except OSError as exc:
-        logger.warning("career-alert synth persist failed: %s", exc)
-        return None, "persist_error"
-    logger.info("career-alert artifact synthesized: id=%s path=%s", final.id, path)
-    return final, "ok"

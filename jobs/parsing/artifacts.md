@@ -9,8 +9,9 @@
 | `artifact_schema.py` | Pydantic models (`CareerAlertArtifact`, match/extract/fields) |
 | `artifact_store.py` | Load shipped + overlay; disable list; overlay save |
 | `artifact_interpreter.py` | HTML → `dict[normalized_link, fields]` (no LLM, no exec) |
+| `artifact_heuristic.py` | Deterministic CTA-digest drafts (iCIMS Apply-here + strong title) |
 | `html_shrink.py` | Deterministic shrink for synth prompts |
-| `artifact_synth.py` | Shrink → GGUF → validate thresholds → overlay persist |
+| `artifact_synth.py` | Heuristic and/or shrink → GGUF → validate thresholds → overlay persist |
 | `artifacts/*.json` | Shipped recipes (Jobs2Web Vestas/Danfoss/Novo Nordisk) |
 
 ## Storage
@@ -24,10 +25,11 @@
 ## Schema (v1)
 
 - Identity: `id`, `version`, `priority` (higher first among artifacts), `enabled`
-- Match: non-empty `host_substrings` and `path_includes` (blank strings stripped; empty/all-blank lists rejected at load); optional `require_path_regex`
-- Extract: `mode` = `filtered_links` (Jobs2Web) or `css` (reserved; interpreter returns empty)
-- Fields opcodes (closed set): `from_anchor` ∈ `jobs2web_middot_or_dash` | `anchor_text_compact`; literal `company` / `source`; max lengths
-- Provenance: `source` ∈ `shipped` | `llm_synth` | `manual`; optional `created_at`, `model_path` (basename), `parent_eml_hash`
+- Match: non-empty `host_substrings` and `path_includes` (blank strings stripped; empty/all-blank lists rejected at load); optional `require_path_regex`; optional `anchor_text_equals` (CTA digests — only anchors whose visible text matches, e.g. `["Apply here"]`)
+- Extract: `mode` = `filtered_links` (Jobs2Web / CTA) or `css` (reserved; interpreter returns empty)
+- Fields opcodes (closed set): `from_anchor` ∈ `jobs2web_middot_or_dash` | `anchor_text_compact` | `ancestor_strong_or_first_line`; literal `company` / `source`; max lengths
+  - `ancestor_strong_or_first_line`: for CTA-only buttons (iCIMS etc.), walk up to a substantial ancestor and take non-CTA `<strong>`/`<b>`/heading text (joining adjacent fragments) as the title
+- Provenance: `source` ∈ `shipped` | `llm_synth` | `manual` | `heuristic`; optional `created_at`, `model_path` (basename), `parent_eml_hash`
 
 ## Merge with built-ins
 
@@ -45,6 +47,6 @@ Interpreter fail-closed: after stripping blanks, if no host **or** no path subst
 
 Synth ids are always rewritten to `synth_<host>_<html_hash6>` (counter suffix if the overlay file exists); LLM-chosen ids are ignored. `require_path_regex` is length-capped and nested-quantifier-rejected at schema + match time (ReDoS).
 
-Prompt hygiene: `html_shrink` strips query/fragment from hrefs and caps anchor text so Jobs2Web tracking URLs do not blow the GGUF token budget. The synth prompt asks for at most 5 positions and uses `_SYNTH_MAX_TOKENS` (1600). If the model still truncates mid-JSON, `_extract_json_object` recovers a complete `artifact` object plus any finished `positions` entries. Title validation accepts either the parsed title or the full Jobs2Web anchor `raw_text` (LLMs often echo the whole anchor).
+Prompt hygiene: `html_shrink` strips query/fragment from hrefs, skips empty image/track anchors, prefers CTA rows with ancestor heading context (`:: Title`, max 8), and caps anchor text so Jobs2Web / iCIMS tracking URLs do not blow the GGUF token budget. Synthesis tries a deterministic CTA heuristic first (`artifact_heuristic.draft_cta_ancestor_artifact`) before calling the GGUF. The LLM prompt asks for at most 5 positions and uses `_SYNTH_MAX_TOKENS` (1600). If the model still truncates mid-JSON, `_extract_json_object` recovers a complete `artifact` object plus any finished `positions` entries. When positions are missing but the draft artifact recovers real non-CTA titles, those recovered titles are used to prove the rules. Title validation accepts either the parsed title or the full Jobs2Web anchor `raw_text` (LLMs often echo the whole anchor). CTA digests should use `ancestor_strong_or_first_line` + `anchor_text_equals`.
 
 `ingest_docs_to_db` loads artifacts once per run (with profile overlay dir) and reloads after a successful overlay write. When synth is enabled but no model/LLM is available, it prints `no_model`.

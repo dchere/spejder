@@ -8,9 +8,13 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 
 
-AnchorParseOp = Literal["jobs2web_middot_or_dash", "anchor_text_compact"]
+AnchorParseOp = Literal[
+    "jobs2web_middot_or_dash",
+    "anchor_text_compact",
+    "ancestor_strong_or_first_line",
+]
 ExtractMode = Literal["filtered_links", "css"]
-ArtifactProvenance = Literal["shipped", "llm_synth", "manual"]
+ArtifactProvenance = Literal["shipped", "llm_synth", "manual", "heuristic"]
 
 # Cap untrusted overlay/LLM path regexes to limit ReDoS surface.
 _MAX_PATH_REGEX_LEN = 80
@@ -38,6 +42,9 @@ class MatchConfig(BaseModel):
     host_substrings: list[str] = Field(min_length=1)
     path_includes: list[str] = Field(default_factory=lambda: ["/job/"], min_length=1)
     require_path_regex: Optional[str] = None
+    # When non-empty, only anchors whose visible text casefold-matches an entry.
+    # Used for CTA digests (e.g. iCIMS "Apply here") so logo/track links are skipped.
+    anchor_text_equals: list[str] = Field(default_factory=list)
 
     @field_validator("host_substrings", "path_includes")
     @classmethod
@@ -46,6 +53,11 @@ class MatchConfig(BaseModel):
         if not cleaned:
             raise ValueError("must contain at least one non-blank substring")
         return cleaned
+
+    @field_validator("anchor_text_equals")
+    @classmethod
+    def _clean_anchor_text_equals(cls, value: list[str]) -> list[str]:
+        return [str(item).strip() for item in (value or []) if str(item).strip()]
 
     @field_validator("require_path_regex")
     @classmethod
@@ -78,7 +90,11 @@ class FieldRecipes(BaseModel):
     @field_validator("from_anchor")
     @classmethod
     def _known_anchor_op(cls, value: str) -> str:
-        allowed = {"jobs2web_middot_or_dash", "anchor_text_compact"}
+        allowed = {
+            "jobs2web_middot_or_dash",
+            "anchor_text_compact",
+            "ancestor_strong_or_first_line",
+        }
         if value not in allowed:
             raise ValueError(f"unknown from_anchor opcode: {value!r}")
         return value

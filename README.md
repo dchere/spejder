@@ -196,7 +196,7 @@ Notes:
 - Position skills are extracted and shown in report cards.
 - Skill patterns are loaded from DB and may be auto-extended from applied/relevant jobs.
 - `profile.json` gets updated with learned include/exclude keywords and `missing_skills_suggestions`.
-- Optional career-alert format learning: set `career_alert_synth_enabled` to `true` (and configure `default_model`) to synthesize overlay artifacts when a file yields zero positions. Artifacts are persisted under `career_alert_artifacts_dir` only after interpreter re-validation. Jobindex and LinkedIn stay built-in Python parsers.
+- Optional career-alert format learning: set `career_alert_synth_enabled` to `true` to synthesize overlay artifacts when a file yields zero positions. CTA digests (e.g. iCIMS “Apply here”) use a deterministic heuristic first; other unknown layouts can use `default_model` (local GGUF). Artifacts are persisted under `career_alert_artifacts_dir` only after interpreter re-validation. Jobindex and LinkedIn stay built-in Python parsers.
 
 ### Career-alert artifacts
 

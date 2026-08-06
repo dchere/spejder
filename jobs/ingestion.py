@@ -70,27 +70,22 @@ def ingest_docs_to_db(
                     n_ctx=int(runtime_profile.n_ctx or 8192),
                     verbose=False,
                 )
-            if synth_llm is None:
-                print(
-                    f"[spejder] career-alert synth skipped for {file_path or '(unknown)'}: no_model"
+            html_text = str(doc.get("html") or "")
+            artifact, reason = try_synthesize_artifact(
+                html_text,
+                synth_llm,
+                runtime_profile,
+                overlay_dir=runtime_profile.career_alert_artifacts_dir,
+            )
+            if artifact is not None:
+                artifact_cache = _load_run_artifacts(runtime_profile)
+                entries = _extract_for_doc(
+                    doc, runtime_profile=runtime_profile, artifacts=artifact_cache
                 )
             else:
-                html_text = str(doc.get("html") or "")
-                artifact, reason = try_synthesize_artifact(
-                    html_text,
-                    synth_llm,
-                    runtime_profile,
-                    overlay_dir=runtime_profile.career_alert_artifacts_dir,
+                print(
+                    f"[spejder] career-alert synth skipped for {file_path or '(unknown)'}: {reason}"
                 )
-                if artifact is not None:
-                    artifact_cache = _load_run_artifacts(runtime_profile)
-                    entries = _extract_for_doc(
-                        doc, runtime_profile=runtime_profile, artifacts=artifact_cache
-                    )
-                else:
-                    print(
-                        f"[spejder] career-alert synth skipped for {file_path or '(unknown)'}: {reason}"
-                    )
         file_found = 0
         file_inserted = 0
         file_skipped = 0

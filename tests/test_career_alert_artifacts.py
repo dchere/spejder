@@ -293,6 +293,56 @@ class ArtifactSynthTest(unittest.TestCase):
         self.assertFalse(ok)
         self.assertEqual(reason, "link_ratio")
 
+    def test_synth_accepts_artifact_when_positions_omitted(self):
+        """Opaque CTA URLs often truncate the positions array; artifact alone can prove rules."""
+        html = _read_fixture("icims_se_snippet.html")
+        artifact = {
+            "id": "will_be_rewritten",
+            "match": {
+                "host_substrings": ["clicks.icims.eu"],
+                "path_includes": ["/f/a/"],
+                "anchor_text_equals": ["Apply here"],
+            },
+            "fields": {
+                "from_anchor": "ancestor_strong_or_first_line",
+                "company": "Schneider Electric",
+                "source": "Schneider Electric",
+            },
+        }
+        payload = {"artifact": artifact, "positions": []}
+        llm = MagicMock()
+        llm.model_path = "/models/test.gguf"
+        llm.generate.return_value = json.dumps(payload)
+        with tempfile.TemporaryDirectory() as tmp:
+            profile = AppConfig(career_alert_artifacts_dir=tmp)
+            # Force LLM path by using HTML that heuristic won't handle alone... 
+            # Fixture IS heuristic-eligible; patch heuristic off.
+            with patch(
+                "spejder.jobs.parsing.artifact_synth.draft_cta_ancestor_artifact",
+                return_value=None,
+            ):
+                saved, reason = try_synthesize_artifact(html, llm, profile, overlay_dir=tmp)
+            self.assertEqual(reason, "ok")
+            self.assertIsNotNone(saved)
+            self.assertEqual(saved.fields.from_anchor, "ancestor_strong_or_first_line")
+            self.assertTrue(saved.id.startswith("synth_clicksicimseu_"))
+
+    def test_heuristic_cta_synth_without_llm(self):
+        html = _read_fixture("icims_se_snippet.html")
+        with tempfile.TemporaryDirectory() as tmp:
+            profile = AppConfig(career_alert_artifacts_dir=tmp)
+            saved, reason = try_synthesize_artifact(html, None, profile, overlay_dir=tmp)
+            self.assertEqual(reason, "ok")
+            self.assertIsNotNone(saved)
+            self.assertEqual(saved.source, "heuristic")
+            self.assertEqual(saved.fields.from_anchor, "ancestor_strong_or_first_line")
+            self.assertEqual(saved.match.anchor_text_equals, ["Apply here"])
+            entries = extract_job_entries(
+                {"html": html, "text": "", "title": "", "links": []},
+                artifacts=[saved],
+            )
+            self.assertEqual(len(entries), 2)
+
     def test_synth_persists_on_accept(self):
         html = _read_fixture("danfoss_snippet.html")
         artifact = _load_shipped("jobs2web_danfoss")
@@ -622,6 +672,42 @@ class InterpretPriorityTest(unittest.TestCase):
         self.assertIn('href="http://careers.capgemini.com/job/Role/1"', shrunk)
         self.assertNotIn("utm_source", shrunk)
         self.assertNotIn("from=email", shrunk)
+
+    def test_html_shrink_skips_empty_anchors_and_surfaces_cta_headings(self):
+        html = _read_fixture("icims_se_snippet.html")
+        shrunk = shrink_html_for_prompt(html)
+        self.assertIn("Apply here", shrunk)
+        self.assertIn("Regional Segment Lead - Power Generation", shrunk)
+        self.assertIn("Data Center Global Solution Architect", shrunk)
+        self.assertNotIn("imagetoken", shrunk)
+
+    def test_icims_cta_ancestor_strong_extracts_titles(self):
+        html = _read_fixture("icims_se_snippet.html")
+        artifact = CareerAlertArtifact.model_validate(
+            {
+                "id": "icims_se_test",
+                "match": {
+                    "host_substrings": ["clicks.icims.eu"],
+                    "path_includes": ["/f/a/"],
+                    "anchor_text_equals": ["Apply here"],
+                },
+                "fields": {
+                    "from_anchor": "ancestor_strong_or_first_line",
+                    "company": "Schneider Electric",
+                    "source": "Schneider Electric",
+                },
+            }
+        )
+        got = interpret_artifact(html, artifact)
+        self.assertEqual(len(got), 2)
+        titles = {fields["title"] for fields in got.values()}
+        self.assertIn("Regional Segment Lead - Power Generation", titles)
+        self.assertIn("Data Center Global Solution Architect", titles)
+        entries = extract_job_entries(
+            {"html": html, "text": "", "title": "", "links": []},
+            artifacts=[artifact],
+        )
+        self.assertEqual(len(entries), 2)
 
     def test_extract_json_recovers_truncated_positions(self):
         truncated = (
