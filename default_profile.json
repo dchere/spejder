@@ -51,11 +51,9 @@
   "skill_new_confidence_threshold": 0.9,
   "user_skills": [],
   "blocked_skills": [],
-  "skill_extraction_antipatterns": [],
-  "skill_antipattern_synthesis_count": 3,
-  "skill_antipattern_validation_runs": 3,
-  "skill_antipattern_prompt_max_items": 40,
-  "skill_antipattern_good_skills_count": 20,
+  "skill_bigram_toxicity_threshold": null,
+  "skill_bigram_threshold_margin": 0.5,
+  "bad_cloud_seeded": false,
   "missing_skills_suggestions": [],
   "known_skill_patterns": [
     {

@@ -32,7 +32,7 @@ def _resolve_title_and_place(title: str, place: str) -> tuple[str, str]:
 
     parsed_title, parsed_place = split_title_trailing_i_place(title_clean)
     if parsed_place:
-        return parsed_title, parsed_place
+        return title_clean, parsed_place
     return title_clean, place_clean
 
 

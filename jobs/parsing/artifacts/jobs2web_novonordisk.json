@@ -1,0 +1,22 @@
+{
+  "id": "jobs2web_novonordisk",
+  "version": 1,
+  "priority": 100,
+  "enabled": true,
+  "source": "shipped",
+  "match": {
+    "host_substrings": ["careers.novonordisk.com"],
+    "path_includes": ["/job/"]
+  },
+  "extract": {
+    "mode": "filtered_links"
+  },
+  "fields": {
+    "from_anchor": "jobs2web_middot_or_dash",
+    "company": "Novo Nordisk",
+    "source": "Novo Nordisk",
+    "title_max": 180,
+    "place_max": 180,
+    "raw_text_max": 2500
+  }
+}

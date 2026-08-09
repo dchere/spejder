@@ -4,16 +4,17 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Callable, Optional, Protocol
 
 from spejder.config import AppConfig
-from spejder.core import load_runtime_profile
+from spejder.core import save_profile
 from spejder.db import (
     cleanup_blocked_skills_from_db,
+    ensure_db,
     get_jobs_for_active_rescore,
     get_jobs_for_description_refresh,
 )
-from spejder.extractors.skill_extractor import (
-    _learn_skill_patterns_from_positions,
-    should_sync_skill_antipatterns,
-    sync_skill_extraction_antipatterns,
+from spejder.extractors.skill_extractor import _learn_skill_patterns_from_positions
+from spejder.extractors.skill_extractor.bad_cloud import (
+    ensure_bad_cloud_initialized,
+    recalibrate_and_store_threshold,
 )
 from spejder.jobs import ingest_docs_to_db, rescore_jobs_if_active
 from spejder.llm import LocalLLM
@@ -131,6 +132,8 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
                 entry_transform=entry_transform,
                 on_new_record=None,
                 on_progress=_on_progress,
+                llm=llm_for_sync,
+                runtime_profile=context.runtime_profile,
             )
         else:
             ingest_stats = {
@@ -241,68 +244,39 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
                 )
             )
 
-        if llm_for_sync and should_sync_skill_antipatterns(context.runtime_profile, llm_for_sync):
-            _emit_stage(context, "antipatterns", "Starting antipattern sync in background")
-
-            def _run_antipattern_sync_worker():
-                try:
-                    fresh_profile = load_runtime_profile(context.profile_path)
-                    worker_llm = LocalLLM(
-                        model_path=context.model_path,
-                        n_ctx=int(fresh_profile.n_ctx),
-                        verbose=False,
-                    )
-                    stats = sync_skill_extraction_antipatterns(
-                        context.db_path,
-                        fresh_profile,
-                        worker_llm,
-                        profile_path=context.profile_path,
-                    )
-                    if stats.get("skipped"):
-                        reason = stats.get("skip_reason") or "unknown"
-                        print(
-                            "Background sync: antipattern sync skipped "
-                            f"(reason={reason}, blocked_input={stats.get('blocked_input', 0)}, "
-                            f"synthesized={stats.get('synthesized', [])})."
-                        )
-                    else:
-                        prune_parts = []
-                        if stats.get("would_prune_blocked", 0):
-                            prune_parts.append(
-                                f"would_prune={stats.get('would_prune_blocked', 0)}"
-                            )
-                        if stats.get("pruned_blocked", 0):
-                            prune_parts.append(
-                                f"pruned={stats.get('pruned_blocked', 0)}"
-                            )
-                        prune_summary = ", ".join(prune_parts) if prune_parts else "pruned=0"
-                        save_skipped = (
-                            ", profile_save_skipped=True"
-                            if stats.get("profile_save_skipped")
-                            else ""
-                        )
-                        print(
-                            "Background sync: antipattern sync "
-                            f"(synthesized={stats.get('synthesized', [])}, "
-                            f"candidates_accepted={stats.get('candidates_accepted', 0)}, "
-                            f"candidates_skipped={stats.get('candidates_skipped', 0)}, "
-                            f"merged={stats.get('merged', 0)}, "
-                            f"{prune_summary}, "
-                            f"db_deleted={stats.get('db_skill_rows_deleted', 0)}, "
-                            f"committed={stats.get('committed', False)}"
-                            f"{save_skipped})"
-                        )
-                    if stats.get("committed"):
-                        context.reload_runtime_profile()
-                        context.queue_dashboard_rebuild(reason="antipattern sync")
-                except Exception as exc:
-                    print(f"Background sync: antipattern sync failed: {exc}")
-
-            threading.Thread(
-                target=_run_antipattern_sync_worker,
-                name="spejder-antipattern-sync",
-                daemon=True,
-            ).start()
+        ensure_db(context.db_path)
+        cloud_stats = ensure_bad_cloud_initialized(
+            context.runtime_profile,
+            context.db_path,
+        )
+        previous_threshold = getattr(
+            context.runtime_profile, "skill_bigram_toxicity_threshold", None
+        )
+        new_threshold = recalibrate_and_store_threshold(
+            context.runtime_profile,
+            context.db_path,
+        )
+        threshold_changed = (
+            previous_threshold != context.runtime_profile.skill_bigram_toxicity_threshold
+        )
+        print(
+            "Background sync: bad-cloud threshold recalibrated "
+            f"(threshold={new_threshold}, changed={threshold_changed})"
+        )
+        if cloud_stats.get("seeded") or cloud_stats.get("pruned") or threshold_changed:
+            save_profile(context.runtime_profile, context.profile_path)
+            context.reload_runtime_profile()
+            if cloud_stats.get("seeded") or cloud_stats.get("pruned"):
+                print(
+                    "Background sync: bad cloud initialized "
+                    f"(seeded={cloud_stats.get('seeded')}, "
+                    f"ngram_keys={cloud_stats.get('ngram_keys_upserted', 0)}, "
+                    f"pruned={len(cloud_stats.get('pruned', []))})"
+                )
+            if cloud_stats.get("pruned"):
+                context.queue_dashboard_rebuild(reason="bad cloud prune")
+            elif threshold_changed:
+                context.queue_dashboard_rebuild(reason="bad cloud threshold recalibrated")
 
         print(
             f"Background sync done: input_files={len(docs)}, processed={ingest_stats.get('processed', 0)}, "

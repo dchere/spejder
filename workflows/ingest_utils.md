@@ -10,5 +10,7 @@ Holds shared ingest-side utility helpers used by inbox and GUI-sync workflows.
 
 `delete_processed_inbox_files` only suppresses `ValueError` from `os.path.commonpath(...)` when comparing `inbox_root` and candidate paths from incompatible roots, and `OSError` from `os.remove(...)` when deletion fails; other exceptions are not swallowed.
 
+Files with `found=0` are never deleted (including after a failed career-alert synth). Successful synth that yields positions sets `found>0` and then follows the normal cleanup rule.
+
 **Context:**
 Extracted from `inbox_workflow.py` so ingestion reporting and cleanup are reused consistently by both `process_inbox` and `run_inbox_sync`.

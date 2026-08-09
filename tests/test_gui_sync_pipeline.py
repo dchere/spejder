@@ -28,7 +28,14 @@ class RunInboxSyncRebuildTest(unittest.TestCase):
     def tearDown(self):
         self._tmpdir.cleanup()
 
-    @patch("spejder.workflows.gui_sync.should_sync_skill_antipatterns", return_value=False)
+    @patch(
+        "spejder.workflows.gui_sync.recalibrate_and_store_threshold",
+        return_value=0.1,
+    )
+    @patch(
+        "spejder.workflows.gui_sync.ensure_bad_cloud_initialized",
+        return_value={"seeded": False, "pruned": []},
+    )
     @patch(
         "spejder.workflows.gui_sync._learn_skill_patterns_from_positions",
         return_value={
@@ -62,7 +69,14 @@ class RunInboxSyncRebuildTest(unittest.TestCase):
             msg=f"unexpected rebuild reasons: {self.rebuild_reasons}",
         )
 
-    @patch("spejder.workflows.gui_sync.should_sync_skill_antipatterns", return_value=False)
+    @patch(
+        "spejder.workflows.gui_sync.recalibrate_and_store_threshold",
+        return_value=0.1,
+    )
+    @patch(
+        "spejder.workflows.gui_sync.ensure_bad_cloud_initialized",
+        return_value={"seeded": False, "pruned": []},
+    )
     @patch(
         "spejder.workflows.gui_sync._learn_skill_patterns_from_positions",
         return_value={

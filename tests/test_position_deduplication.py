@@ -124,6 +124,97 @@ class PositionDedupeKeyTest(unittest.TestCase):
             expected,
         )
 
+    def test_same_key_for_vitrolife_company_and_title_variants(self):
+        expected = "vitrolife|seniorsoftwareengineer"
+        self.assertEqual(
+            _position_dedupe_key("Vitrolife Group", "Senior Software Engineer, Aarhus"),
+            expected,
+        )
+        self.assertEqual(
+            _position_dedupe_key(
+                "Vitrolife & Igenomix Brasil, part of Vitrolife Group",
+                "Senior Software Engineer, Aarhus",
+            ),
+            expected,
+        )
+        self.assertEqual(
+            _position_dedupe_key("Vitrolife A/S", "Senior Software Engineer"),
+            expected,
+        )
+        self.assertEqual(
+            _position_dedupe_key(
+                "Vitrolife Group",
+                "Senior Software Engineer, Glostrup",
+                place="Glostrup",
+            ),
+            expected,
+        )
+
+    def test_unicode_danish_city_normalization(self):
+        self.assertEqual(
+            _position_dedupe_key("Acme", "Engineer, København"),
+            _position_dedupe_key("Acme", "Engineer"),
+        )
+        self.assertEqual(
+            _position_dedupe_key("Acme", "Engineer, Hillerød"),
+            _position_dedupe_key("Acme", "Engineer"),
+        )
+
+    def test_part_of_requires_word_boundary(self):
+        self.assertNotEqual(
+            _position_dedupe_key("Counterpart of Vitrolife Group", "Engineer"),
+            _position_dedupe_key("Vitrolife Group", "Engineer"),
+        )
+
+    def test_part_of_at_phrase_boundary_canonicalizes_parent(self):
+        expected = _position_dedupe_key("Vitrolife Group", "Engineer")
+        self.assertEqual(
+            _position_dedupe_key("Subsidiary; part of Vitrolife Group", "Engineer"),
+            expected,
+        )
+
+    def test_allowlist_cities_merge_when_place_empty(self):
+        self.assertEqual(
+            _position_dedupe_key("Acme", "Engineer, Copenhagen"),
+            _position_dedupe_key("Acme", "Engineer, Odense"),
+        )
+
+    def test_strip_city_when_matches_place_not_on_allowlist(self):
+        self.assertEqual(
+            _position_dedupe_key("Acme", "Engineer, Glostrup", place="Glostrup"),
+            _position_dedupe_key("Acme", "Engineer", place="Glostrup"),
+        )
+
+    def test_strip_allowlist_city_when_place_has_suburb_prefix(self):
+        self.assertEqual(
+            _position_dedupe_key("Acme", "Engineer, Aarhus", place="Aarhus N"),
+            _position_dedupe_key("Acme", "Engineer", place="Aarhus N"),
+        )
+
+    def test_no_strip_non_allowlist_city_without_place(self):
+        self.assertNotEqual(
+            _position_dedupe_key("Acme", "Engineer, Glostrup"),
+            _position_dedupe_key("Acme", "Engineer"),
+        )
+
+    def test_allowlist_city_not_stripped_when_place_differs(self):
+        self.assertNotEqual(
+            _position_dedupe_key("Acme", "Engineer, Copenhagen", place="Odense"),
+            _position_dedupe_key("Acme", "Engineer", place="Odense"),
+        )
+
+    def test_allowlist_city_stripped_when_place_empty(self):
+        self.assertEqual(
+            _position_dedupe_key("Acme", "Engineer, Copenhagen"),
+            _position_dedupe_key("Acme", "Engineer"),
+        )
+
+    def test_engineer_mechanical_not_deduped_with_engineer(self):
+        self.assertNotEqual(
+            _position_dedupe_key("Acme", "Engineer"),
+            _position_dedupe_key("Acme", "Engineer, Mechanical"),
+        )
+
 
 class MergeRawTextTest(unittest.TestCase):
     def test_appends_dissimilar_text(self):
@@ -250,6 +341,46 @@ class MergeDuplicatePositionsTest(unittest.TestCase):
             self.assertEqual(row[1], "LinkedIn")
             self.assertEqual(row[6], "https://www.linkedin.com/jobs/view/1")
 
+    def test_merges_vitrolife_cross_source_variants(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = os.path.join(tmp, "jobs.db")
+            keeper_id = _insert_job_row(
+                db_path,
+                company="Vitrolife Group",
+                title="Senior Software Engineer, Aarhus",
+                position_link="https://www.jobindex.dk/jobannonce/r-vitrolife-keeper",
+                source="Jobindex",
+                place="Aarhus",
+                created_at=_utc_iso(-7200),
+            )
+            _insert_job_row(
+                db_path,
+                company="Vitrolife & Igenomix Brasil, part of Vitrolife Group",
+                title="Senior Software Engineer, Aarhus",
+                position_link="https://www.jobindex.dk/jobannonce/r-vitrolife-dup",
+                source="Jobindex",
+                place="Aarhus",
+                created_at=_utc_iso(-3600),
+            )
+            _insert_job_row(
+                db_path,
+                company="Vitrolife A/S",
+                title="Senior Software Engineer",
+                position_link="https://www.linkedin.com/jobs/view/vitrolife-sse",
+                source="LinkedIn",
+                place="Aarhus",
+                created_at=_utc_iso(),
+            )
+
+            result = merge_duplicate_positions(db_path)
+
+            self.assertEqual(_count_jobs(db_path), 1)
+            self.assertEqual(result["groups_merged"], 1)
+            self.assertEqual(result["rows_deleted"], 2)
+            row = _fetch_job(db_path, keeper_id)
+            self.assertIsNotNone(row)
+            self.assertEqual(row[1], "Jobindex")
+
 
 class UpsertPositionDedupeTest(unittest.TestCase):
     def test_second_url_updates_oldest_row_without_insert(self):
@@ -295,6 +426,47 @@ class UpsertPositionDedupeTest(unittest.TestCase):
                 conn.close()
             self.assertEqual(row[0], "Jobindex")
             self.assertEqual(row[1], "https://www.jobindex.dk/jobannonce/r13863385")
+
+    def test_upsert_vitrolife_variants_single_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = os.path.join(tmp, "jobs.db")
+            ensure_db(db_path)
+            variants = (
+                {
+                    "company": "Vitrolife Group",
+                    "title": "Senior Software Engineer, Aarhus",
+                    "place": "Aarhus",
+                    "work_type": "Unknown",
+                    "position_link": "https://www.jobindex.dk/jobannonce/r-vitrolife-1",
+                    "raw_text": "Jobindex body",
+                    "source": "Jobindex",
+                },
+                {
+                    "company": "Vitrolife & Igenomix Brasil, part of Vitrolife Group",
+                    "title": "Senior Software Engineer, Aarhus",
+                    "place": "Aarhus",
+                    "work_type": "Unknown",
+                    "position_link": "https://www.jobindex.dk/jobannonce/r-vitrolife-2",
+                    "raw_text": "Jobindex duplicate",
+                    "source": "Jobindex",
+                },
+                {
+                    "company": "Vitrolife A/S",
+                    "title": "Senior Software Engineer",
+                    "place": "Aarhus",
+                    "work_type": "Unknown",
+                    "position_link": "https://www.linkedin.com/jobs/view/vitrolife-sse",
+                    "raw_text": "LinkedIn snippet",
+                    "source": "LinkedIn",
+                },
+            )
+            for index, payload in enumerate(variants):
+                is_new = upsert_job(db_path, payload)
+                if index == 0:
+                    self.assertTrue(is_new)
+                else:
+                    self.assertFalse(is_new)
+            self.assertEqual(_count_jobs(db_path), 1)
 
 
 if __name__ == "__main__":

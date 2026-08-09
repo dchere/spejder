@@ -21,6 +21,7 @@ Scoring is change-driven: jobs are scored when skills are first materialized or 
 **Ingest translation flow:**
 - Ingest now builds `entry_transform` through `spejder.workflows.job_enrichment.make_translate_job_entry_for_storage`.
 - `process_inbox` owns invocation-scoped `text_translation_cache` and `title_translation_cache` and passes both into the shared factory before `ingest_docs_to_db`.
+- `ingest_docs_to_db` receives `runtime_profile=profile` and `llm=` (created before ingest so synth can reuse the same LocalLLM). When `career_alert_synth_enabled` and a file yields zero positions, synthesis may persist an overlay artifact and re-extract before upsert; failed synth does not change delete-on-`found>0` behavior (`.eml` stays).
 
 **Context:**
 Extracted from `inbox_parser` to place workflow logic into the proper module group.

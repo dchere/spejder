@@ -40,6 +40,7 @@ class DbQueriesTest(unittest.TestCase):
             "",
             0,
             "2024-01-01T00:00:00+00:00",
+            0,
         )
         mapped = _map_full_job_row(row, "relevant")
         self.assertEqual(mapped["id"], 1)
@@ -51,6 +52,7 @@ class DbQueriesTest(unittest.TestCase):
         self.assertEqual(mapped["cover_letter"], "")
         self.assertEqual(mapped["cover_letter_requested"], 0)
         self.assertEqual(mapped["applied_at"], "2024-01-01T00:00:00+00:00")
+        self.assertEqual(mapped["hidden"], 0)
 
 
 if __name__ == "__main__":

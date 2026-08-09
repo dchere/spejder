@@ -6,6 +6,8 @@ from spejder.db import delete_skill_from_db, ensure_db
 from spejder.db import get_skill_patterns as get_db_skill_patterns
 from spejder.managers.profile_manager import _block_skill_in_profile, _save_profile
 
+from .bad_cloud import on_skills_blocked
+
 from .filtering import _blocked_skill_keys, _protected_skill_keys, _skill_cleanup_reason
 from .normalization import _normalize_skill_name
 from .patterns import _ensure_skill_pattern_seed_migration
@@ -76,6 +78,7 @@ def cleanup_skills(profile: str = None, db: str = None, limit: int = 0, dry_run:
     profile_removed = 0
     db_skill_rows_deleted = 0
     db_job_links_deleted = 0
+    newly_blocked: list[str] = []
 
     for item in candidates:
         skill_name = item["name"]
@@ -83,8 +86,13 @@ def cleanup_skills(profile: str = None, db: str = None, limit: int = 0, dry_run:
         delete_info = delete_skill_from_db(db_path, skill_name)
         blocked_added += int(block_info.get("blocked_added", 0))
         profile_removed += int(block_info.get("removed", 0))
+        if block_info.get("blocked_added"):
+            newly_blocked.append(skill_name)
         db_skill_rows_deleted += int(delete_info.get("skill_rows_deleted", 0))
         db_job_links_deleted += int(delete_info.get("job_skill_links_deleted", 0))
+
+    if newly_blocked:
+        on_skills_blocked(runtime_profile, db_path, newly_blocked)
 
     _save_profile(profile_path, runtime_profile)
 

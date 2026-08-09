@@ -73,7 +73,7 @@ def _decode_mandrill_track_link(link: str) -> str:
 
 def _normalize_position_link(link: str) -> str:
     link = _decode_mandrill_track_link(link)
-    link = link.strip()
+    link = unescape(link.strip())
     if not link:
         return ""
 
@@ -92,9 +92,14 @@ def _normalize_position_link(link: str) -> str:
         r"(?:careers\.google\.com|google\.com)/.+/jobs/results/\d+",
         low,
     ):
-        if parsed.path:
-            return f"https://careers.google.com{parsed.path}".rstrip("/")
-        return ""
+        if not parsed.path:
+            return ""
+        scheme = parsed.scheme or "https"
+        netloc = parsed.netloc or ""
+        path = parsed.path.rstrip("/")
+        if parsed.query:
+            return f"{scheme}://{netloc}{path}?{parsed.query}"
+        return f"{scheme}://{netloc}{path}"
 
     if "jobindex.dk" in low:
         job_id = _extract_jobindex_id(link)

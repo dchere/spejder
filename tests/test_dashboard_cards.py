@@ -10,6 +10,7 @@ from spejder.managers.dashboard_cards import (
     _build_job_cards,
     _format_applied_date,
 )
+from spejder.managers.dashboard_manager import _render_company_dashboard_html
 
 
 def _applied_card_item(**overrides):
@@ -63,6 +64,102 @@ class DashboardCardsTest(unittest.TestCase):
             _format_applied_date("2024-05-10 not-a-time"),
             "2024-05-10",
         )
+
+    def test_build_job_cards_includes_hidden_checkbox(self):
+        html = _build_job_cards([_applied_card_item(applied=0, viewed=0, hidden=0)])
+        self.assertIn('class="hidden-wrap"', html)
+        self.assertIn("setHidden(1, this.checked, this)", html)
+        self.assertIn("Hidden</label>", html)
+
+    def test_build_job_cards_hidden_panel_checks_hidden(self):
+        html = _build_job_cards(
+            [_applied_card_item(applied=0, viewed=0, hidden=1)],
+            card_panel="hidden",
+        )
+        self.assertIn('class="hidden-wrap"><input type="checkbox" checked', html)
+
+    def test_build_job_cards_hidden_checkbox_from_item_only(self):
+        html = _build_job_cards(
+            [_applied_card_item(applied=0, viewed=0, hidden=0)],
+            card_panel="hidden",
+        )
+        self.assertIn('class="hidden-wrap"><input type="checkbox"  onchange="setHidden', html)
+
+    def test_company_dashboard_partitions_hidden_only_to_hidden_tab(self):
+        hidden_item = _applied_card_item(
+            id=10,
+            title="Parked Role",
+            applied=0,
+            viewed=0,
+            hidden=1,
+            category="relevant",
+            position_link="https://example.com/parked",
+        )
+        visible_item = _applied_card_item(
+            id=11,
+            title="Visible Role",
+            applied=0,
+            viewed=1,
+            hidden=0,
+            category="relevant",
+            position_link="https://example.com/visible",
+        )
+        html = _render_company_dashboard_html("Acme", [hidden_item, visible_item])
+
+        self.assertIn(">Hidden (1)<", html)
+        self.assertIn(">Relevant (1)<", html)
+
+        hidden_panel_start = html.index('id="panel-hidden"')
+        hidden_panel_end = html.index("</section>", hidden_panel_start)
+        hidden_panel = html[hidden_panel_start:hidden_panel_end]
+        self.assertIn("Parked Role", hidden_panel)
+        self.assertNotIn("Visible Role", hidden_panel)
+
+        relevant_panel_start = html.index('id="panel-relevant"')
+        relevant_panel_end = html.index("</section>", relevant_panel_start)
+        relevant_panel = html[relevant_panel_start:relevant_panel_end]
+        self.assertIn("Visible Role", relevant_panel)
+        self.assertNotIn("Parked Role", relevant_panel)
+
+    def test_company_dashboard_partitions_edited_today(self):
+        today_item = _applied_card_item(
+            id=20,
+            title="Seen Today",
+            applied=0,
+            viewed=1,
+            hidden=0,
+            category="relevant",
+            position_link="https://example.com/today",
+        )
+        older_viewed = _applied_card_item(
+            id=21,
+            title="Seen Earlier",
+            applied=0,
+            viewed=1,
+            hidden=0,
+            category="relevant",
+            position_link="https://example.com/earlier",
+        )
+        html = _render_company_dashboard_html(
+            "Acme",
+            [today_item, older_viewed],
+            viewed_today_order={20: 0},
+        )
+
+        self.assertIn(">Edited today (1)<", html)
+        self.assertIn(">Relevant (1)<", html)
+
+        edited_panel_start = html.index('id="panel-edited-today"')
+        edited_panel_end = html.index("</section>", edited_panel_start)
+        edited_panel = html[edited_panel_start:edited_panel_end]
+        self.assertIn("Seen Today", edited_panel)
+        self.assertNotIn("Seen Earlier", edited_panel)
+
+        relevant_panel_start = html.index('id="panel-relevant"')
+        relevant_panel_end = html.index("</section>", relevant_panel_start)
+        relevant_panel = html[relevant_panel_start:relevant_panel_end]
+        self.assertIn("Seen Earlier", relevant_panel)
+        self.assertNotIn("Seen Today", relevant_panel)
 
     def test_build_job_cards_shows_formatted_applied_date(self):
         html = _build_job_cards([_applied_card_item()], card_panel="applied")

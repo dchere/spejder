@@ -6,16 +6,8 @@ from typing import Optional
 from spejder.config import AppConfig
 
 from .constants import SKILL_CUE_PATTERN
-from .filtering import _filter_blocked_skill_names
+from .filtering import _filter_extracted_skills
 from .normalization import _normalize_skill_name
-
-
-def _apply_blocked_filter(
-    skills: list[str], profile: Optional[AppConfig], skip_blocked_filter: bool
-) -> list[str]:
-    if skip_blocked_filter:
-        return skills
-    return _filter_blocked_skill_names(skills, profile)
 
 
 def _extract_skills_fallback(
@@ -68,3 +60,12 @@ def _extract_skills_fallback(
         ordered.append(skill)
 
     return ordered
+
+
+def _filter_fallback_skills(
+    skills: list[str],
+    profile: Optional[AppConfig],
+    db_path: str,
+    known_keys: set[str],
+) -> list[str]:
+    return _filter_extracted_skills(skills, profile, db_path, known_keys)

@@ -12,9 +12,7 @@ class SkillExtractorSmokeTest(unittest.TestCase):
 
     def test_submodules_import(self):
         from spejder.extractors.skill_extractor import (  # noqa: F401
-            antipattern_sync,
-            antipattern_synthesis,
-            antipattern_validation,
+            bad_cloud,
             cleanup,
             constants,
             extraction,

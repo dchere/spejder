@@ -12,6 +12,7 @@ Core orchestration for CLI commands, GUI background sync, and heavy multi-step p
 - `refresh_descriptions` — `enrichment.py`
 - `summarize_file`, `summarize_folder` — `summarization.py`
 - `init_profile` — `profile.py`
+- `list_career_alert_artifacts`, `disable_career_alert_artifact`, `enable_career_alert_artifact` — `career_alert_artifacts.py`
 
 **Submodules:**
 
@@ -36,11 +37,12 @@ Core orchestration for CLI commands, GUI background sync, and heavy multi-step p
 | `llm_utils.py` | CLI LLM init helpers |
 | `summarization.py` | File/folder summarization commands |
 | `user_portrait.py` | User portrait context, LLM generation, diff, file I/O |
+| `career_alert_artifacts.py` | CLI list/disable/enable for career-alert format artifacts |
 
 **Context:**
 `cli.py` is a thin argparse layer delegating here. Workflows are callable from tests and `server.py` without going through the CLI.
 
-**Dashboard rebuild:** `DashboardRebuildQueue` (`workflows/dashboard.py`) reloads three applied-stage query subsets — `get_applied_jobs`, `get_interview_jobs`, and `get_stopped_interview_jobs` — when rendering Applied / Interview / Stopped tabs.
+**Dashboard rebuild:** `DashboardRebuildQueue` (`workflows/dashboard.py`) reloads three applied-stage query subsets — `get_applied_jobs`, `get_interview_jobs`, and `get_stopped_interview_jobs` — when rendering Applied / Interview / Stopped tabs, plus Hidden via `build_hidden_dashboard_records` and Edited today via `build_viewed_today_dashboard_records`. Inbox report writes (`write_inbox_dashboard_report`) and enrichment report writes (`enrichment.py` after `refresh-descriptions`) use the same helpers and pass `hidden_items` / `viewed_today_items` to `_render_html_dashboard`.
 
 **GUI background sync** (`run_inbox_sync` in `gui_sync.py`):
 1. Ingest inbox (or backfill missing descriptions)
@@ -50,4 +52,4 @@ Core orchestration for CLI commands, GUI background sync, and heavy multi-step p
 5. Description generation (+ rebuild when updated)
 6. Skill-pattern learning (+ rebuild when new patterns)
 7. Blocked-skills DB cleanup + rescore (+ rebuild when DB changed)
-8. Optional antipattern sync (async)
+8. Bad cloud seed / threshold calibration (sync)

@@ -3,15 +3,18 @@ import argparse
 import sys
 
 from spejder.core import USER_PROFILE_PATH, fail_init, resolve_user_path
-from spejder.extractors.skill_extractor import cleanup_skills, sync_skill_antipatterns, sync_user_skills
+from spejder.extractors.skill_extractor import cleanup_skills, sync_user_skills
 from spejder.managers.language_manager import (
     initialize_language_checker_or_exit,
     initialize_translation_or_exit,
 )
 from spejder.workflows import (
     dedupe_jobs,
+    disable_career_alert_artifact,
+    enable_career_alert_artifact,
     init_profile,
     initialize_llm_or_exit,
+    list_career_alert_artifacts,
     process_inbox,
     refresh_descriptions,
     render_html,
@@ -23,7 +26,6 @@ from spejder.workflows import (
 
 _FULL_INIT = frozenset({"language_checker", "translation", "llm"})
 _TRANSLATION_INIT = frozenset({"language_checker", "translation"})
-_LLM_ONLY_INIT = frozenset({"llm"})
 COMMAND_INIT = {
     "process_inbox": _FULL_INIT,
     "summarize_file": _FULL_INIT,
@@ -31,7 +33,6 @@ COMMAND_INIT = {
     "refresh_descriptions": _FULL_INIT,
     "sync_user_skills": _FULL_INIT,
     "serve_gui": _TRANSLATION_INIT,
-    "sync_antipatterns": _LLM_ONLY_INIT,
 }
 
 _RELATIVE_ARG_NAMES = (
@@ -99,18 +100,17 @@ def cmd_sync_user_skills(args):
 def cmd_cleanup_skills(args):
     cleanup_skills(profile=args.profile, db=args.db, limit=args.limit, dry_run=args.dry_run)
 
-def cmd_sync_antipatterns(args):
-    sync_skill_antipatterns(
-        profile=args.profile,
-        db=args.db,
-        model=args.model,
-        dry_run=args.dry_run,
-        force=args.force,
-        llm=getattr(args, "_llm", None),
-    )
-
 def cmd_dedupe_jobs(args):
     dedupe_jobs(profile=args.profile, db=args.db)
+
+def cmd_list_career_alert_artifacts(args):
+    list_career_alert_artifacts(profile=args.profile)
+
+def cmd_disable_career_alert_artifact(args):
+    disable_career_alert_artifact(artifact_id=args.id, profile=args.profile)
+
+def cmd_enable_career_alert_artifact(args):
+    enable_career_alert_artifact(artifact_id=args.id, profile=args.profile)
 
 def main(argv=None):
     p = argparse.ArgumentParser(prog="spejder")
@@ -205,18 +205,24 @@ def main(argv=None):
     pcs.add_argument("--dry-run", action="store_true")
     pcs.set_defaults(func=cmd_cleanup_skills)
 
-    psa = sub.add_parser("sync-antipatterns")
-    psa.add_argument("--profile", default=USER_PROFILE_PATH)
-    psa.add_argument("--db", default=None)
-    psa.add_argument("--model", default="")
-    psa.add_argument("--dry-run", action="store_true")
-    psa.add_argument("--force", action="store_true")
-    psa.set_defaults(func=cmd_sync_antipatterns)
-
     pdj = sub.add_parser("dedupe-jobs")
     pdj.add_argument("--profile", default=USER_PROFILE_PATH)
     pdj.add_argument("--db", default=None)
     pdj.set_defaults(func=cmd_dedupe_jobs)
+
+    plca = sub.add_parser("list-career-alert-artifacts")
+    plca.add_argument("--profile", default=USER_PROFILE_PATH)
+    plca.set_defaults(func=cmd_list_career_alert_artifacts)
+
+    pdca = sub.add_parser("disable-career-alert-artifact")
+    pdca.add_argument("--id", required=True)
+    pdca.add_argument("--profile", default=USER_PROFILE_PATH)
+    pdca.set_defaults(func=cmd_disable_career_alert_artifact)
+
+    peca = sub.add_parser("enable-career-alert-artifact")
+    peca.add_argument("--id", required=True)
+    peca.add_argument("--profile", default=USER_PROFILE_PATH)
+    peca.set_defaults(func=cmd_enable_career_alert_artifact)
 
     args = p.parse_args(argv)
     if not hasattr(args, "func"):
@@ -246,8 +252,6 @@ def main(argv=None):
             verbose=llm_verbose,
         )
         if cmd_name == "sync_user_skills":
-            args._llm = llm
-        elif cmd_name == "sync_antipatterns":
             args._llm = llm
         else:
             del llm

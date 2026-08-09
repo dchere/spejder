@@ -6,13 +6,11 @@ from spejder.config import AppConfig
 from spejder.db import get_job_skills, replace_job_skills
 from spejder.llm import LocalLLM
 
-from .extraction_fallback import (
-    _apply_blocked_filter,
-    _extract_skills_fallback,
-)
+from .extraction_fallback import _extract_skills_fallback, _filter_fallback_skills
 from .extraction_llm import _extract_job_skills_llm_path
 from .extraction_prompt import _build_job_skill_extraction_prompt
-from .filtering import _filter_blocked_skill_names
+from .filtering import _filter_extracted_skills, _whitelist_skill_keys
+from .normalization import _normalize_skill_name
 from .patterns import _get_skill_patterns
 from .utils import _format_skills
 
@@ -32,19 +30,16 @@ def _extract_job_skills(
     profile: Optional[AppConfig] = None,
     position_link: str = "",
     page_context_cache: Optional[dict] = None,
-    skip_blocked_filter: bool = False,
-    antipatterns_override: Optional[list[str]] = None,
 ) -> str:
     cleaned = " ".join((raw_text or "").split())
     skill_patterns = _get_skill_patterns(db_path, profile)
+    known_keys = _whitelist_skill_keys(profile, db_path)
 
     llm_result = _extract_job_skills_llm_path(
         db_path,
         raw_text,
         llm=llm,
         profile=profile,
-        skip_blocked_filter=skip_blocked_filter,
-        antipatterns_override=antipatterns_override,
     )
     if llm_result is not None:
         return llm_result
@@ -57,10 +52,11 @@ def _extract_job_skills(
         and position_link in page_context_cache
     ):
         fallback_source = page_context_cache.get(position_link, "")
-    fallback_skills = _apply_blocked_filter(
+    fallback_skills = _filter_fallback_skills(
         _extract_skills_fallback(fallback_source, skill_patterns=skill_patterns),
         profile,
-        skip_blocked_filter,
+        db_path,
+        known_keys,
     )
     return _format_skills(fallback_skills)
 
@@ -78,7 +74,9 @@ def _get_or_extract_job_skills(
     if job_id:
         cached = get_job_skills(db_path, job_id)
         if cached:
-            return _format_skills(_filter_blocked_skill_names(cached, profile)), False
+            known_keys = _whitelist_skill_keys(profile, db_path)
+            filtered = _filter_extracted_skills(cached, profile, db_path, known_keys)
+            return _format_skills(filtered), False
     skills_text = _extract_job_skills(
         db_path,
         raw_text,

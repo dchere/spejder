@@ -55,6 +55,7 @@ def ensure_db(db_path: str):
                         description TEXT,
                         viewed INTEGER DEFAULT 0,
                         applied INTEGER DEFAULT 0,
+                        hidden INTEGER DEFAULT 0,
                         on_interview INTEGER DEFAULT 0,
                         interview_stopped INTEGER DEFAULT 0,
                         company_feedback TEXT,
@@ -141,6 +142,7 @@ def ensure_db(db_path: str):
                         description TEXT,
                         viewed INTEGER DEFAULT 0,
                         applied INTEGER DEFAULT 0,
+                        hidden INTEGER DEFAULT 0,
                         on_interview INTEGER DEFAULT 0,
                         interview_stopped INTEGER DEFAULT 0,
                         company_feedback TEXT,
@@ -205,6 +207,7 @@ def ensure_db(db_path: str):
                 description TEXT,
                 viewed INTEGER DEFAULT 0,
                 applied INTEGER DEFAULT 0,
+                hidden INTEGER DEFAULT 0,
                 on_interview INTEGER DEFAULT 0,
                 interview_stopped INTEGER DEFAULT 0,
                 company_feedback TEXT,
@@ -233,6 +236,8 @@ def ensure_db(db_path: str):
             cur.execute("ALTER TABLE jobs ADD COLUMN cover_letter_requested INTEGER DEFAULT 0")
         if "applied_at" not in cols:
             cur.execute("ALTER TABLE jobs ADD COLUMN applied_at TEXT")
+        if "hidden" not in cols:
+            cur.execute("ALTER TABLE jobs ADD COLUMN hidden INTEGER DEFAULT 0")
 
         cur.execute(
             "UPDATE jobs SET applied_at = updated_at WHERE applied = 1 AND applied_at IS NULL"
@@ -264,6 +269,18 @@ def ensure_db(db_path: str):
                 PRIMARY KEY (job_id, skill_id),
                 FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE,
                 FOREIGN KEY (skill_id) REFERENCES skill_patterns(id) ON DELETE CASCADE
+            )
+            """
+        )
+
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS bad_ngram_weights (
+                ngram TEXT NOT NULL,
+                gram_size INTEGER NOT NULL,
+                weight INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (ngram, gram_size)
             )
             """
         )
@@ -321,6 +338,7 @@ def ensure_db(db_path: str):
         )
         cur.execute("UPDATE jobs SET viewed=0 WHERE viewed IS NULL")
         cur.execute("UPDATE jobs SET applied=0 WHERE applied IS NULL")
+        cur.execute("UPDATE jobs SET hidden=0 WHERE hidden IS NULL")
         cur.execute("UPDATE jobs SET on_interview=0 WHERE on_interview IS NULL")
         cur.execute("UPDATE jobs SET interview_stopped=0 WHERE interview_stopped IS NULL")
         cur.execute("UPDATE jobs SET source='' WHERE source IS NULL")

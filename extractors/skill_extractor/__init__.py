@@ -1,11 +1,6 @@
 """Skill extraction package — public re-exports."""
 
 from .cleanup import cleanup_skills as cleanup_skills
-from .antipattern_sync import (
-    should_sync_skill_antipatterns as should_sync_skill_antipatterns,
-    sync_skill_antipatterns as sync_skill_antipatterns,
-    sync_skill_extraction_antipatterns as sync_skill_extraction_antipatterns,
-)
 from .extraction import _get_or_extract_job_skills as _get_or_extract_job_skills
 from .extraction_fallback import _extract_skills_fallback as _extract_skills_fallback
 from .extraction_prompt import (
@@ -26,9 +21,6 @@ from .utils import _format_skills as _format_skills
 __all__ = [
     "cleanup_skills",
     "sync_user_skills",
-    "sync_skill_antipatterns",
-    "should_sync_skill_antipatterns",
-    "sync_skill_extraction_antipatterns",
     "_normalize_skill_name",
     "_format_skills",
     "_get_or_extract_job_skills",

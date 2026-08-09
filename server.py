@@ -1,6 +1,8 @@
 """API Server for Spejder"""
 
+import os
 import threading
+from email.utils import formatdate
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,19 +14,24 @@ from spejder.db import (
     append_applied_job_raw_text,
     clear_job_skills_for_job,
     delete_skill_from_db,
+    ensure_db,
     get_all_applied_jobs,
     get_jobs_by_company,
+    get_viewed_today_jobs,
+    local_day_start_utc_iso,
     set_job_applied,
     set_job_company_feedback,
     set_job_cover_letter,
     set_job_cover_letter_requested,
     set_job_feedback,
+    set_job_hidden,
     set_job_interview_stopped,
     set_job_on_interview,
     set_job_viewed,
 )
 from spejder.jobs import rescore_active_jobs, rescore_jobs_if_active
 from .extractors.skill_extractor import _normalize_skill_name
+from .extractors.skill_extractor.bad_cloud import on_skills_blocked
 from .llm import LocalLLM
 from .managers.dashboard_manager import _render_company_dashboard_html
 from .managers.profile_manager import (
@@ -46,6 +53,33 @@ from .workflows.user_portrait import (
 )
 
 
+def _normalize_skill_batch(skills: list[str]) -> list[str]:
+    seen: set[str] = set()
+    normalized_skills: list[str] = []
+    for raw in skills or []:
+        skill = _normalize_skill_name(str(raw))
+        key = skill.lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        normalized_skills.append(skill)
+    return normalized_skills
+
+
+def _merge_db_deleted(totals: dict, deleted: dict) -> None:
+    totals["skill_rows_deleted"] += int(deleted.get("skill_rows_deleted", 0))
+    totals["job_skill_links_deleted"] += int(deleted.get("job_skill_links_deleted", 0))
+    for job_id in deleted.get("affected_job_ids", []):
+        totals["affected_job_ids"].add(int(job_id))
+
+
+def _report_html_mtime_http(report_dir: str) -> str:
+    report_path = os.path.join(report_dir, "report.html")
+    if not os.path.isfile(report_path):
+        return ""
+    return formatdate(os.path.getmtime(report_path), usegmt=True)
+
+
 def create_app(
     db_path: str,
     profile_path: str,
@@ -57,6 +91,7 @@ def create_app(
     reload_runtime_profile,
     queue_dashboard_rebuild,
     cli_verbose: bool,
+    get_report_rebuild_idle=lambda: True,
     trigger_inbox_sync=None,
     get_inbox_sync_status=None,
 ) -> FastAPI:
@@ -159,6 +194,22 @@ def create_app(
         set_job_viewed(db_path, req.job_id, req.viewed)
         queue_dashboard_rebuild(reason=f"job {req.job_id} marked viewed")
         return {"ok": True, "job_id": req.job_id, "viewed": req.viewed}
+
+    class HiddenRequest(BaseModel):
+        job_id: int = 0
+        hidden: bool
+
+    @app.post("/api/hidden")
+    def api_hidden(req: HiddenRequest):
+        print(f"API: Marked job_id={req.job_id} as hidden={req.hidden}")
+        set_job_hidden(db_path, req.job_id, req.hidden)
+        reason = (
+            f"job {req.job_id} marked hidden"
+            if req.hidden
+            else f"job {req.job_id} unhidden"
+        )
+        queue_dashboard_rebuild(reason=reason)
+        return {"ok": True, "job_id": req.job_id, "hidden": req.hidden}
 
     class AppliedRawTextRequest(BaseModel):
         job_id: int = 0
@@ -289,27 +340,97 @@ def create_app(
     class SkillBlockRequest(BaseModel):
         skill: str
 
+    class SkillDeleteRequest(BaseModel):
+        skill: str
+
+    class SkillBatchRequest(BaseModel):
+        skills: list[str]
+
+    def _delete_skills_from_db(skills: list[str]) -> dict:
+        db_deleted = {
+            "skill_rows_deleted": 0,
+            "job_skill_links_deleted": 0,
+            "affected_job_ids": set(),
+        }
+        for skill in skills:
+            _merge_db_deleted(db_deleted, delete_skill_from_db(db_path, skill))
+        affected_job_ids = sorted(db_deleted.pop("affected_job_ids"))
+        db_deleted["affected_job_ids"] = affected_job_ids
+        return db_deleted
+
+    def _run_skill_block(skills: list[str], rebuild_reason: str, log_label: str) -> dict:
+        block_info = {"blocked_added": 0, "removed": 0}
+        newly_blocked: list[str] = []
+        for skill in skills:
+            info = _block_skill_in_profile(runtime_profile, skill)
+            block_info["blocked_added"] += int(info.get("blocked_added", 0))
+            block_info["removed"] += int(info.get("removed", 0))
+            if info.get("blocked_added"):
+                newly_blocked.append(skill)
+
+        if newly_blocked:
+            ensure_db(db_path)
+            on_skills_blocked(runtime_profile, db_path, newly_blocked)
+
+        persist_runtime_profile()
+        reload_runtime_profile()
+        db_deleted = _delete_skills_from_db(skills)
+        rescored = rescore_jobs_if_active(
+            db_path,
+            runtime_profile,
+            list(db_deleted.get("affected_job_ids", [])),
+        )
+        print(
+            f"API: rescore_jobs_if_active after {log_label} "
+            f"(rescored={rescored}, count={len(skills)})"
+        )
+        queue_dashboard_rebuild(reason=rebuild_reason)
+        return {
+            "skills": skills,
+            "count": len(skills),
+            "block_info": block_info,
+            "db_deleted": db_deleted,
+        }
+
+    def _run_skill_delete(skills: list[str], rebuild_reason: str, log_label: str) -> dict:
+        profile_removed = {"removed": 0}
+        for skill in skills:
+            info = _remove_skill_from_profile(runtime_profile, skill)
+            profile_removed["removed"] += int(info.get("removed", 0))
+
+        persist_runtime_profile()
+        reload_runtime_profile()
+        db_deleted = _delete_skills_from_db(skills)
+        rescored = rescore_jobs_if_active(
+            db_path,
+            runtime_profile,
+            list(db_deleted.get("affected_job_ids", [])),
+        )
+        print(
+            f"API: rescore_jobs_if_active after {log_label} "
+            f"(rescored={rescored}, count={len(skills)})"
+        )
+        queue_dashboard_rebuild(reason=rebuild_reason)
+        return {
+            "skills": skills,
+            "count": len(skills),
+            "profile_removed": profile_removed,
+            "db_deleted": db_deleted,
+        }
+
     @app.post("/api/skill/block")
     def api_skill_block(req: SkillBlockRequest):
         skill = _normalize_skill_name(req.skill)
         if not skill:
             return JSONResponse(status_code=400, content={"ok": False, "error": "skill is required"})
 
-        block_info = _block_skill_in_profile(runtime_profile, skill)
-        persist_runtime_profile()
-        reload_runtime_profile()
-        db_deleted = delete_skill_from_db(db_path, skill)
-        rescored = rescore_jobs_if_active(
-            db_path,
-            runtime_profile,
-            list(db_deleted.get("affected_job_ids", [])),
-        )
-        print(f"API: rescore_jobs_if_active after skill block (rescored={rescored})")
-        queue_dashboard_rebuild(reason=f"skill blocked {skill}")
-        return {"ok": True, "skill": skill, "block_info": block_info, "db_deleted": db_deleted}
-
-    class SkillDeleteRequest(BaseModel):
-        skill: str
+        result = _run_skill_block([skill], f"skill blocked {skill}", "skill block")
+        return {
+            "ok": True,
+            "skill": skill,
+            "block_info": result["block_info"],
+            "db_deleted": result["db_deleted"],
+        }
 
     @app.post("/api/skill/delete")
     def api_skill_delete(req: SkillDeleteRequest):
@@ -317,23 +438,52 @@ def create_app(
         if not skill:
             return JSONResponse(status_code=400, content={"ok": False, "error": "skill is required"})
 
-        profile_removed = _remove_skill_from_profile(runtime_profile, skill)
-        persist_runtime_profile()
-        reload_runtime_profile()
-        db_deleted = delete_skill_from_db(db_path, skill)
-        rescored = rescore_jobs_if_active(
-            db_path,
-            runtime_profile,
-            list(db_deleted.get("affected_job_ids", [])),
+        result = _run_skill_delete([skill], f"skill deleted cleanup {skill}", "skill delete")
+        return {
+            "ok": True,
+            "skill": skill,
+            "profile_removed": result["profile_removed"],
+            "db_deleted": result["db_deleted"],
+        }
+
+    @app.post("/api/skill/block-batch")
+    def api_skill_block_batch(req: SkillBatchRequest):
+        skills = _normalize_skill_batch(req.skills)
+        if not skills:
+            return JSONResponse(status_code=400, content={"ok": False, "error": "skills is required"})
+
+        result = _run_skill_block(
+            skills,
+            f"skill block batch ({len(skills)})",
+            "skill block batch",
         )
-        print(f"API: rescore_jobs_if_active after skill delete (rescored={rescored})")
-        queue_dashboard_rebuild(reason=f"skill deleted cleanup {skill}")
-        return {"ok": True, "skill": skill, "profile_removed": profile_removed, "db_deleted": db_deleted}
+        return {"ok": True, **result}
+
+    @app.post("/api/skill/delete-batch")
+    def api_skill_delete_batch(req: SkillBatchRequest):
+        skills = _normalize_skill_batch(req.skills)
+        if not skills:
+            return JSONResponse(status_code=400, content={"ok": False, "error": "skills is required"})
+
+        result = _run_skill_delete(
+            skills,
+            f"skill delete batch ({len(skills)})",
+            "skill delete batch",
+        )
+        return {"ok": True, **result}
 
     @app.post("/api/report/rebuild")
     def api_report_rebuild():
         queue_dashboard_rebuild(reason="manual rebuild")
         return {"ok": True, "queued": True}
+
+    @app.get("/api/report/status")
+    def api_report_status():
+        return {
+            "ok": True,
+            "idle": get_report_rebuild_idle(),
+            "last_modified": _report_html_mtime_http(report_dir),
+        }
 
     @app.post("/api/inbox/sync")
     def api_inbox_sync():
@@ -435,7 +585,14 @@ def create_app(
             return HTMLResponse(status_code=400, content='<!doctype html><html lang="en"><head><meta charset="utf-8" /><title>Company Positions</title></head><body><p>Missing company name.</p><p><a href="/report.html">Back to full report</a></p></body></html>')
 
         company_items = get_jobs_by_company(db_path, company_name, limit=0)
-        html_content = _render_company_dashboard_html(company_name, company_items)
+        since_iso = local_day_start_utc_iso()
+        viewed_today_order = {
+            int(row["id"]): idx
+            for idx, row in enumerate(get_viewed_today_jobs(db_path, since_iso, limit=0))
+        }
+        html_content = _render_company_dashboard_html(
+            company_name, company_items, viewed_today_order=viewed_today_order
+        )
         return HTMLResponse(content=html_content)
 
     # Serve static files from report_dir at the root

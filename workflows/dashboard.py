@@ -5,12 +5,15 @@ from typing import Optional
 from spejder.config import AppConfig
 from spejder.db import (
     get_applied_jobs,
+    get_hidden_jobs,
     get_interview_jobs,
     get_job_skills,
     get_jobs_by_category,
     get_jobs_count_by_category,
     get_stopped_interview_jobs,
     get_viewed_jobs_count,
+    get_viewed_today_jobs,
+    local_day_start_utc_iso,
 )
 from spejder.extractors.skill_extractor import _build_skills_tab_items, _format_skills
 from spejder.llm import LocalLLM
@@ -89,7 +92,51 @@ def build_dashboard_record(
         "cover_letter": row.get("cover_letter", "") or "",
         "cover_letter_requested": int(row.get("cover_letter_requested", 0) or 0),
         "applied_at": row.get("applied_at", "") or "",
+        "hidden": int(row.get("hidden", 0) or 0),
     }
+
+
+def build_hidden_dashboard_records(
+    db_path: str,
+    runtime_profile: AppConfig,
+    title_translation_cache: dict[str, str],
+) -> list[dict]:
+    """Load Hidden-tab rows and shape them with rebuild defaults."""
+    return [
+        build_dashboard_record(
+            db_path,
+            runtime_profile,
+            title_translation_cache,
+            row,
+            default_category=str(row.get("category") or "not relevant"),
+            default_viewed=0,
+            default_applied=0,
+            translate_title=False,
+        )
+        for row in get_hidden_jobs(db_path, limit=0)
+    ]
+
+
+def build_viewed_today_dashboard_records(
+    db_path: str,
+    runtime_profile: AppConfig,
+    title_translation_cache: dict[str, str],
+) -> list[dict]:
+    """Load Viewed-today tab rows (updated_at DESC) with rebuild defaults."""
+    since_iso = local_day_start_utc_iso()
+    return [
+        build_dashboard_record(
+            db_path,
+            runtime_profile,
+            title_translation_cache,
+            row,
+            default_category=str(row.get("category") or "not relevant"),
+            default_viewed=1,
+            default_applied=0,
+            translate_title=False,
+        )
+        for row in get_viewed_today_jobs(db_path, since_iso, limit=0)
+    ]
 
 
 def populate_missing_dashboard_skills(
@@ -113,6 +160,8 @@ def populate_missing_dashboard_skills(
         progress_label=progress_label,
     )
     return updated
+
+
 class DashboardRebuildQueue:
     def __init__(self, db_path: str, dashboard_path: str, runtime_profile: AppConfig) -> None:
         self.db_path = db_path
@@ -216,12 +265,24 @@ class DashboardRebuildQueue:
                     refreshed_applied_rows = get_applied_jobs(self.db_path, limit=0)
                     refreshed_interview_rows = get_interview_jobs(self.db_path, limit=0)
                     refreshed_stopped_rows = get_stopped_interview_jobs(self.db_path, limit=0)
+                    refreshed_hidden_records = build_hidden_dashboard_records(
+                        self.db_path,
+                        self.runtime_profile,
+                        self._title_translation_cache,
+                    )
+                    refreshed_viewed_today_records = build_viewed_today_dashboard_records(
+                        self.db_path,
+                        self.runtime_profile,
+                        self._title_translation_cache,
+                    )
                     if should_log_rebuild:
                         print(
                             "Dashboard rebuild: collecting applied "
                             f"({len(refreshed_applied_rows)} rows), interview "
                             f"({len(refreshed_interview_rows)} rows), stopped "
-                            f"({len(refreshed_stopped_rows)} rows)"
+                            f"({len(refreshed_stopped_rows)} rows), edited today "
+                            f"({len(refreshed_viewed_today_records)} rows), hidden "
+                            f"({len(refreshed_hidden_records)} rows)"
                         )
                     refreshed_applied_records = [
                         build_dashboard_record(
@@ -281,6 +342,8 @@ class DashboardRebuildQueue:
                         not_relevant_total_count=category_totals.get("not relevant", 0),
                         interview_items=refreshed_interview_records,
                         stopped_items=refreshed_stopped_records,
+                        hidden_items=refreshed_hidden_records,
+                        viewed_today_items=refreshed_viewed_today_records,
                         runtime_profile=self.runtime_profile,
                     )
                 if should_log_rebuild and not reason.startswith("new record"):

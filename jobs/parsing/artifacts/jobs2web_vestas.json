@@ -1,0 +1,23 @@
+{
+  "id": "jobs2web_vestas",
+  "version": 1,
+  "priority": 100,
+  "enabled": true,
+  "source": "shipped",
+  "match": {
+    "host_substrings": ["careers.vestas.com"],
+    "path_includes": ["/job/"],
+    "require_path_regex": "/job/.+/\\d+"
+  },
+  "extract": {
+    "mode": "filtered_links"
+  },
+  "fields": {
+    "from_anchor": "jobs2web_middot_or_dash",
+    "company": "Vestas",
+    "source": "Vestas",
+    "title_max": 180,
+    "place_max": 180,
+    "raw_text_max": 2500
+  }
+}

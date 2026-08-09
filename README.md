@@ -116,13 +116,16 @@ Open `http://127.0.0.1:8765/report.html`.
 ## Dashboard behavior
 
 - `Relevant` and `Not relevant` tabs show only unviewed jobs.
-- Marking a job as `Viewed` removes it from those tabs.
-- Marking a job as `Applied` moves it into the `Applied` tab and also marks it as relevant and viewed.
+- Marking a job as `Viewed` removes it from those tabs and places it on **Edited today** (main and company dashboards) without switching tabs; unchecking Viewed returns it to Relevant or Not relevant by category.
+- **Edited today** lists viewed, non-applied, non-hidden jobs whose `updated_at` falls on the local calendar day (newest first). Applied / Interview / Stopped jobs are excluded. Any write that bumps `updated_at` can surface an already-viewed job here for the local day.
+- Marking a job as `Applied` removes it from the current triage tab (Relevant or Not relevant), marks it as relevant and viewed, and places it in the Applied pipeline (Applied / Interview / Stopped panel) — the dashboard does **not** auto-navigate to Applied.
 - Applied jobs can be moved to `Interview` (on interview) or `Stopped` (process ended); the two flags are mutually exclusive. Cards live in one applied-stage panel at a time.
 - Applied, Interview, and Stopped cards show **Applied: YYYY-MM-DD** in the bottom-right corner when an apply date is recorded.
 - Stopped cards support free-text `Company feedback` saved via the dashboard.
+- Marking a job as `Hidden` parks it on the **Hidden** panel (main and company dashboards) without changing relevance category or scores; it leaves Relevant / Not relevant / Edited today / Applied / Interview / Stopped and clears applied/interview/cover-letter pipeline state — the dashboard does **not** auto-navigate to Hidden (same as Applied). Unhide returns it to Relevant or Not relevant based on its category, still without switching tabs. Apply or Viewed clears Hidden.
 - Unmarking `Applied`, unmarking `Viewed`, or marking `Not relevant` clears interview/stopped state, company feedback, and the recorded apply date (`applied_at`).
 - Feedback writes are saved immediately; `report.html` regeneration is queued and runs in the background.
+- Switching main dashboard tabs auto-refreshes the page when a background rebuild is running or `report.html` has changed on disk (requires `serve-gui`); otherwise tabs switch instantly.
 - Toolbar icon buttons (right side of the tab bar): **Portrait** (user silhouette), **Regenerate report** (refresh icon), and **Sync inbox** (inbox icon). Regenerate and Sync inbox show a status line in the toolbar when running or complete; Portrait shows status inside the panel.
 - **Regenerate report** queues a dashboard rebuild from the current DB and reloads the page when the new `report.html` is ready (requires `serve-gui`).
 - **Sync inbox** (requires `serve-gui`) processes new inbox files on demand: ingest, dedupe, skills, descriptions, and related background steps. The button stays disabled while sync runs and until dashboard rebuild is idle; the status line shows stage progress. Reload the page manually when sync completes to see new positions — the page does not auto-reload.
@@ -130,7 +133,8 @@ Open `http://127.0.0.1:8765/report.html`.
 - If the requested port is busy, the server automatically tries the next ports up to 20 times.
 - Clicking a company name opens a filtered company page for that employer's jobs.
 - Applied jobs have a "Paste full description" form that feeds the full text to the LLM, regenerating the summary, description, and skill tags.
-- **Skills** tab columns (sortable; default order is skill name A→Z):
+- **Skills** tab columns (sortable; default order is **Added** newest first):
+  - **Added** — date the skill was first stored in SQLite `skill_patterns` (`YYYY-MM-DD`). Profile-only skills (your lists / seed patterns without a DB row) show **—**; hover for the tooltip.
   - **Job share** — share of jobs with extracted skills that list this skill. Hover a cell for exact counts.
   - **Learned** — pattern-learning score from applied/relevant jobs (not the same as job share; see [Profile fields](#profile-fields-related-to-skills)).
   - **I have** / **Want to learn** — toggles for your profile skill list and want-to-learn suggestions.
@@ -192,6 +196,19 @@ Notes:
 - Position skills are extracted and shown in report cards.
 - Skill patterns are loaded from DB and may be auto-extended from applied/relevant jobs.
 - `profile.json` gets updated with learned include/exclude keywords and `missing_skills_suggestions`.
+- Optional career-alert format learning: set `career_alert_synth_enabled` to `true` to synthesize overlay artifacts when a file yields zero positions. CTA digests (e.g. iCIMS “Apply here”) use a deterministic heuristic first; other unknown layouts can use `default_model` (local GGUF). Artifacts are persisted under `career_alert_artifacts_dir` only after interpreter re-validation. Jobindex and LinkedIn stay built-in Python parsers.
+
+### Career-alert artifacts
+
+List shipped/overlay recipes and toggle the profile disable list (no LLM required):
+
+```bash
+python3 -m spejder.cli list-career-alert-artifacts --profile ./profile.json
+python3 -m spejder.cli disable-career-alert-artifact --id jobs2web_danfoss --profile ./profile.json
+python3 -m spejder.cli enable-career-alert-artifact --id jobs2web_danfoss --profile ./profile.json
+```
+
+Overlay directory defaults to `./career_alert_artifacts`. Disable is profile-based (`career_alert_artifacts_disabled`); files are not deleted.
 
 ### `serve-gui`
 
@@ -205,10 +222,10 @@ Options: `--report-dir`, `--db`, `--profile`, `--host`, `--port`, `--no-open`, `
 
 Main dashboard API endpoints (JSON `POST` unless noted):
 
-- Triage: `/api/feedback`, `/api/viewed`, `/api/applied`
+- Triage: `/api/feedback`, `/api/viewed`, `/api/applied`, `/api/hidden`
 - Interview: `/api/interview`, `/api/interview/stopped`, `/api/interview/feedback`
 - Applied enrichment: `/api/applied/raw-text`, `/api/applied/cover-letter/request`, `/api/applied/cover-letter`
-- Skills tab: `/api/skill/user`, `/api/skill/learn`, `/api/skill/block`, `/api/skill/delete`
+- Skills tab: `/api/skill/user`, `/api/skill/learn`, `/api/skill/block`, `/api/skill/delete`, `/api/skill/block-batch`, `/api/skill/delete-batch`
 - Portrait panel: `GET /api/portrait`, `POST /api/portrait/generate`, `POST /api/portrait/save`
 - Pages: `GET /report.html`, `GET /company.html?company=…`
 
@@ -272,24 +289,6 @@ Notes:
 - The command protects profile seed skills and explicit user skills.
 - Removed skills are added to `blocked_skills` so they stay hidden and are not reintroduced into the dashboard.
 
-### `sync-antipatterns`
-
-Distill `blocked_skills` into LLM antipattern rules using per-candidate synthetic test jobs, validate each candidate independently, and prune blocked entries the prompt now filters.
-
-```bash
-python3 -m spejder.cli sync-antipatterns \
-  --profile ./profile.json \
-  --db ./jobs.db \
-  --model /path/to/model.gguf \
-  --dry-run
-```
-
-Options: `--profile`, `--db`, `--model`, `--dry-run`, `--force` (skip gate thresholds).
-
-Each candidate rule triggers its own LLM match pass against the **full** blocked list (chunked at 150 phrases per call), synthetic job generation, and multi-run extraction validation (~3× LLM work vs the old single shared test job). That figure is an upper bound; skip reasons at sync and per-candidate gates reduce actual LLM calls.
-
-Runs automatically at the end of GUI background sync when blocked skills grow enough (rare maintenance).
-
 ### `dedupe-jobs`
 
 Run company+title position deduplication on demand (e.g. after manual DB edits).
@@ -304,7 +303,7 @@ Options: `--profile`, `--db`.
 
 Notes:
 
-- Merges rows with the same normalized company and title across **all sources**; keeps the oldest row (`created_at`, then lowest `id`). Title keys strip gender markers like `(m/f/d)` and expand common abbreviations (`SW`→`Software`, `Sr.`→`Senior`).
+- Merges rows with the same normalized company and title across **all sources**; keeps the oldest row (`created_at`, then lowest `id`). Company keys use the parent name after `part of …` when present. Title keys strip gender markers like `(m/f/d)`, expand common abbreviations (`SW`→`Software`, `Sr.`→`Senior`), and drop a trailing `, City` when the city is in the Danish allowlist or matches the row's `place`.
 - Dissimilar duplicate `raw_text` snippets are appended under `[DEDUPE_SNIPPET]`; similar text (&gt;= 85%) is not duplicated.
 - `serve-gui` background sync also runs this pass after ingest and before relevance scoring; use this command for a standalone full-table pass.
 
@@ -349,6 +348,7 @@ Main fields in the `jobs` table include:
 - `summary`
 - `viewed`
 - `applied`
+- `hidden` — parked on the Hidden tab without changing category/scores
 - `applied_at` — ISO timestamp when the job was first marked applied (shown on applied-stage cards as `Applied: YYYY-MM-DD`)
 - `on_interview`
 - `interview_stopped`
@@ -361,6 +361,7 @@ Jobs older than 90 days by `created_at` are auto-pruned on DB open (`ensure_db`)
 Additional table:
 
 - `skill_patterns`: known skill names + regex patterns, source, popularity stats (`occurrences`, `weight`), and enable flag.
+- `bad_ngram_weights`: accumulated bigram/unigram weights from manually blocked skills (`ngram`, `gram_size`, `weight`, `updated_at`).
 
 ## Profile fields related to skills
 
@@ -369,12 +370,10 @@ Default profile values are stored in `spejder/default_profile.json`. Runtime loa
 In `profile.json`:
 
 - `user_skills`: your editable skill list used for scoring.
-- `blocked_skills`: skills hidden from the Skills tab and filtered out from extracted skill results; blocking also deletes matching rows from SQLite `skill_patterns` and `job_skills`.
-- `skill_extraction_antipatterns`: LLM-synthesized rules injected into the job skill extraction prompt.
-- `skill_antipattern_synthesis_count`: antipattern rules to synthesize per sync (default `3`).
-- `skill_antipattern_validation_runs`: stable extraction runs per validation step (default `3`).
-- `skill_antipattern_prompt_max_items`: max antipatterns included in the extraction prompt (default `40`).
-- `skill_antipattern_good_skills_count`: top DB skills by job link count used in per-candidate synthetic validation jobs (default `20`, range `1`–`150`). Values in `profile.json` are clamped to that range on load; bool, non-integer floats, numeric strings (e.g. `"50"`), and other invalid values reset to the default. Integer-valued floats (e.g. `20.0`) are accepted and coerced to `20`.
+- `blocked_skills`: skills hidden from the Skills tab and filtered out from extracted skill results; blocking also deletes matching rows from SQLite `skill_patterns` and `job_skills`, ingests bigrams into `bad_ngram_weights`, and may prune redundant blocked entries once the cloud learns them.
+- `skill_bigram_toxicity_threshold`: last sync-computed toxicity cutoff (auto-updated on GUI background sync; used as a cache between syncs).
+- `skill_bigram_threshold_margin`: calibration margin between mature good and blocked skill score distributions (default `0.5`; the operator-tunable coefficient).
+- `bad_cloud_seeded`: set automatically after one-time seeding of `bad_ngram_weights` from existing `blocked_skills` during GUI sync.
 - `missing_skills_suggestions`: generated from applied jobs.
 - `skill_new_confidence_threshold`: minimum LLM confidence for accepting a novel skill candidate (default `0.9`).
 - `skill_match_weight`: bonus per matched required skill.
@@ -390,7 +389,7 @@ In `profile.json`:
 ## Notes
 
 - `serve-gui` and the in-browser dashboard expect the API server to be running; if you open `report.html` directly as a file, feedback actions will try `http://127.0.0.1:8765`.
-- Skill tags on a job card come from cached extraction. If tags look incomplete after an upgrade, paste a full description on an applied card or run `refresh-descriptions` with a model to re-extract skills for matching jobs.
+- Skill tags on a job card come from cached extraction. Cached skills are re-filtered through the bad-cloud toxicity gate on read, so cloud upgrades apply without full re-extraction. If tags still look incomplete after an upgrade, paste a full description on an applied card or run `refresh-descriptions` with a model to re-extract skills for matching jobs.
 - Re-extracting skills (manual description paste, `refresh-descriptions`, or clearing cached skills) can change `relevance_score` when more or fewer skills match your profile.
 - Processed inbox files are removed automatically after successful ingestion when using background sync or `process-inbox`.
 - Inbox ingestion accepts `.eml` files only. Save emails as `.eml` (e.g. drag from Mail.app, or **File → Save As** in Thunderbird) rather than "Save as HTML".

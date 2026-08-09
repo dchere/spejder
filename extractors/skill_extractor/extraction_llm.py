@@ -5,13 +5,8 @@ from typing import Optional
 from spejder.config import AppConfig
 from spejder.llm import LocalLLM
 
-from .extraction_fallback import _apply_blocked_filter
-from .extraction_prompt import (
-    _build_job_skill_extraction_prompt,
-    _cap_antipatterns_for_prompt,
-    _prompt_antipatterns,
-)
-from .filtering import _is_candidate_strong, _passes_phrase_quality
+from .extraction_prompt import _build_job_skill_extraction_prompt
+from .filtering import _filter_extracted_skills, _is_candidate_strong, _passes_phrase_quality
 from .normalization import _normalize_skill_name
 from .patterns import _get_skill_patterns
 from .utils import (
@@ -28,8 +23,6 @@ def _extract_job_skills_llm_path(
     raw_text: str,
     llm: Optional[LocalLLM] = None,
     profile: Optional[AppConfig] = None,
-    skip_blocked_filter: bool = False,
-    antipatterns_override: Optional[list[str]] = None,
 ) -> Optional[str]:
     cleaned = " ".join((raw_text or "").split())
     if not llm or not cleaned:
@@ -45,7 +38,8 @@ def _extract_job_skills_llm_path(
         for name, _ in skill_patterns
         if _normalize_skill_name(name)
     }
-    known_list = [known_by_key[k] for k in sorted(known_by_key.keys())]
+    known_keys = set(known_by_key.keys())
+    known_list = [known_by_key[key] for key in sorted(known_by_key.keys())]
     user_skills = []
     for item in profile_data.get("user_skills", []) or []:
         skill = _normalize_skill_name(str(item))
@@ -53,15 +47,10 @@ def _extract_job_skills_llm_path(
             user_skills.append(skill)
     user_skills = user_skills[:200]
 
-    if antipatterns_override is not None:
-        antipatterns = _cap_antipatterns_for_prompt(antipatterns_override, profile)
-    else:
-        antipatterns = _prompt_antipatterns(profile)
     prompt = _build_job_skill_extraction_prompt(
         known_list=known_list,
         user_skills=user_skills,
         cleaned=cleaned,
-        antipatterns=antipatterns,
     )
     try:
         out = llm.generate(prompt, max_tokens=320)
@@ -102,8 +91,8 @@ def _extract_job_skills_llm_path(
             seen.add(key)
 
         if selected:
-            filtered_selected = _apply_blocked_filter(
-                selected, profile, skip_blocked_filter
+            filtered_selected = _filter_extracted_skills(
+                selected, profile, db_path, known_keys
             )
             if filtered_selected:
                 return _format_skills(filtered_selected)
@@ -114,8 +103,8 @@ def _extract_job_skills_llm_path(
             key = skill.lower()
             if key in known_by_key and _passes_phrase_quality(skill):
                 constrained.append(known_by_key[key])
-        filtered_constrained = _apply_blocked_filter(
-            constrained, profile, skip_blocked_filter
+        filtered_constrained = _filter_extracted_skills(
+            constrained, profile, db_path, known_keys
         )
         if filtered_constrained:
             return _format_skills(filtered_constrained)

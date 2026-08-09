@@ -3,6 +3,7 @@
     <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="spejder-report-mtime" content="{{ report_mtime }}" />
         <title>{{title}}</title>
         <style>
             body { font-family: Arial, sans-serif; margin: 24px; background: #f7f7f7; color: #111; }
@@ -36,6 +37,7 @@
             .relevant-wrap { font-size: 13px; color: #333; display: inline-flex; gap: 5px; align-items: center; }
             .viewed-wrap { font-size: 13px; color: #333; display: inline-flex; gap: 5px; align-items: center; }
             .applied-wrap { font-size: 13px; color: #333; display: inline-flex; gap: 5px; align-items: center; }
+            .hidden-wrap { font-size: 13px; color: #333; display: inline-flex; gap: 5px; align-items: center; }
             .interview-wrap { font-size: 13px; color: #333; display: inline-flex; gap: 5px; align-items: center; }
             .stopped-wrap { font-size: 13px; color: #333; display: inline-flex; gap: 5px; align-items: center; }
             .company-feedback-input { margin: 8px 0; padding: 8px; border: 1px dashed #d8c7ee; border-radius: 8px; background: #faf7ff; }
@@ -58,12 +60,15 @@
             .skills-table tbody tr.skill-row-focus { outline: 2px solid #0a58ca; outline-offset: -2px; background: #eef4ff; transition: background-color 0.8s ease; }
             .delete-skill-btn { border: 1px solid #cc8c8c; color: #7b1111; background: #fff; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
             .block-skill-btn { border: 1px solid #d2a24a; color: #7a5200; background: #fff7e8; border-radius: 6px; padding: 4px 8px; cursor: pointer; margin-right: 6px; }
+            .skills-bulk-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+            .skills-bulk-bar button:disabled { opacity: 0.55; cursor: not-allowed; }
+            #skills-selected-label { font-size: 13px; color: #555; min-width: 6rem; }
             .controls-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
             .toolbar-action-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 36px; min-height: 36px; padding: 8px; border: 1px solid #0a58ca; color: #0a58ca; background: #fff; border-radius: 8px; cursor: pointer; }
             .toolbar-action-btn.active { background: #eef4ff; box-shadow: inset 0 0 0 1px #0a58ca; }
             .toolbar-action-btn:disabled { opacity: 0.55; cursor: not-allowed; }
             .toolbar-action-group { display: inline-flex; align-items: center; gap: 6px; }
-            .regenerate-status, .sync-inbox-status { font-size: 12px; color: #555; align-self: center; max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .regenerate-status, .sync-inbox-status, .tab-refresh-status { font-size: 12px; color: #555; align-self: center; max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
             .portrait-wrap { background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 12px; }
             .portrait-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
             .portrait-btn { border: 1px solid #0a58ca; color: #0a58ca; background: #fff; border-radius: 6px; padding: 6px 10px; cursor: pointer; }
@@ -88,7 +93,10 @@
             <button id="btn-applied" class="mode-btn" type="button">Applied ({{ len_applied_items }})</button>
             <button id="btn-interview" class="mode-btn" type="button">Interview ({{ len_interview_items }})</button>
             <button id="btn-stopped" class="mode-btn" type="button">Stopped ({{ len_stopped_items }})</button>
+            <button id="btn-hidden" class="mode-btn" type="button">Hidden ({{ len_hidden_items }})</button>
             <button id="btn-skills" class="mode-btn" type="button">Skills ({{ len_skills_items }})</button>
+            <button id="btn-edited-today" class="mode-btn" type="button">Edited today ({{ len_viewed_today_items }})</button>
+            <span id="tab-refresh-status" class="tab-refresh-status"></span>
             <div class="controls-actions">
                 <button id="btn-portrait" class="toolbar-action-btn" type="button" aria-label="Portrait" title="Portrait">
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/></svg>
@@ -112,7 +120,18 @@
         <section id="panel-applied" class="grid hidden">{{ applied_cards }}</section>
         <section id="panel-interview" class="grid hidden">{{ interview_cards }}</section>
         <section id="panel-stopped" class="grid hidden">{{ stopped_cards }}</section>
-        <section id="panel-skills" class="skills-wrap hidden">{{ skills_table_html }}</section>
+        <section id="panel-hidden" class="grid hidden">{{ hidden_cards }}</section>
+        <section id="panel-skills" class="skills-wrap hidden">
+            {% if len_skills_items > 0 %}
+            <div class="skills-bulk-bar">
+                <span id="skills-selected-label">0 selected</span>
+                <button type="button" id="btn-block-selected" class="block-skill-btn" disabled onclick="blockSelectedSkills(this)">Block selected</button>
+                <button type="button" id="btn-delete-selected" class="delete-skill-btn" disabled onclick="deleteSelectedSkills(this)">Delete selected</button>
+            </div>
+            {% endif %}
+            {{ skills_table_html }}
+        </section>
+        <section id="panel-edited-today" class="grid hidden">{{ viewed_today_cards }}</section>
         <section id="panel-portrait" class="portrait-wrap hidden">
             <div class="portrait-toolbar">
                 <button id="btn-portrait-generate" class="portrait-btn" type="button" onclick="regeneratePortrait(this)">Regenerate portrait</button>
@@ -131,16 +150,20 @@
         <script>
             const btnRelevant = document.getElementById('btn-relevant');
             const btnNotRelevant = document.getElementById('btn-not-relevant');
+            const btnEditedToday = document.getElementById('btn-edited-today');
             const btnApplied = document.getElementById('btn-applied');
             const btnInterview = document.getElementById('btn-interview');
             const btnStopped = document.getElementById('btn-stopped');
+            const btnHidden = document.getElementById('btn-hidden');
             const btnSkills = document.getElementById('btn-skills');
             const btnPortrait = document.getElementById('btn-portrait');
             const panelRelevant = document.getElementById('panel-relevant');
             const panelNotRelevant = document.getElementById('panel-not-relevant');
+            const panelEditedToday = document.getElementById('panel-edited-today');
             const panelApplied = document.getElementById('panel-applied');
             const panelInterview = document.getElementById('panel-interview');
             const panelStopped = document.getElementById('panel-stopped');
+            const panelHidden = document.getElementById('panel-hidden');
             const panelSkills = document.getElementById('panel-skills');
             const panelPortrait = document.getElementById('panel-portrait');
             const portraitEditor = document.getElementById('portrait-editor');
@@ -151,6 +174,8 @@
             let portraitCommitted = portraitEditor ? portraitEditor.value : '';
             let portraitDraftPending = false;
             let currentMode = 'relevant';
+            let pageReportMtime = '';
+            let tabRefreshInProgress = false;
 
             function apiUrl(path) {
                 if (window.location.protocol === 'file:') {
@@ -165,6 +190,32 @@
                     throw new Error('Failed to read report status');
                 }
                 return response.headers.get('Last-Modified') || '';
+            }
+
+            async function initPageReportMtime() {
+                const meta = document.querySelector('meta[name="spejder-report-mtime"]');
+                pageReportMtime = meta?.getAttribute('content') || '';
+                if (!pageReportMtime) {
+                    try {
+                        pageReportMtime = await reportLastModified();
+                    } catch (_err) {
+                        // Static file:// report or server unavailable.
+                    }
+                }
+            }
+
+            async function fetchReportStatus() {
+                const response = await fetch(apiUrl('/api/report/status'), { cache: 'no-store' });
+                if (!response.ok) {
+                    throw new Error('Failed to read report status');
+                }
+                return response.json();
+            }
+
+            function reloadWithTab(mode) {
+                const url = new URL(window.location.href);
+                url.searchParams.set('tab', mode);
+                window.location.href = url.toString();
             }
 
             function sleep(ms) {
@@ -315,35 +366,41 @@
             function refreshCounts() {
                 const relevantCount = panelRelevant.querySelectorAll('.card').length;
                 const notRelevantCount = panelNotRelevant.querySelectorAll('.card').length;
+                const editedTodayCount = panelEditedToday.querySelectorAll('.card').length;
                 const appliedCount = panelApplied.querySelectorAll('.card').length;
                 const interviewCount = panelInterview.querySelectorAll('.card').length;
                 const stoppedCount = panelStopped.querySelectorAll('.card').length;
+                const hiddenCount = panelHidden.querySelectorAll('.card').length;
                 const skillsCount = panelSkills.querySelectorAll('tbody tr').length;
                 const relevantTotal = Number.parseInt(btnRelevant.dataset.total || String(relevantCount), 10) || relevantCount;
                 const notRelevantTotal = Number.parseInt(btnNotRelevant.dataset.total || String(notRelevantCount), 10) || notRelevantCount;
                 btnRelevant.textContent = `Relevant (${relevantCount}/${relevantTotal})`;
                 btnNotRelevant.textContent = `Not relevant (${notRelevantCount}/${notRelevantTotal})`;
+                btnEditedToday.textContent = `Edited today (${editedTodayCount})`;
                 btnApplied.textContent = `Applied (${appliedCount})`;
                 btnInterview.textContent = `Interview (${interviewCount})`;
                 btnStopped.textContent = `Stopped (${stoppedCount})`;
+                btnHidden.textContent = `Hidden (${hiddenCount})`;
                 btnSkills.textContent = `Skills (${skillsCount})`;
                 ensureEmptyState(panelRelevant);
                 ensureEmptyState(panelNotRelevant);
+                ensureEmptyState(panelEditedToday);
                 ensureEmptyState(panelApplied);
                 ensureEmptyState(panelInterview);
                 ensureEmptyState(panelStopped);
+                ensureEmptyState(panelHidden);
             }
 
-            function appliedStagePanel(card) {
+            function resolveAppliedStage(card) {
                 const onInterview = card.querySelector('.interview-wrap input')?.checked;
                 const stopped = card.querySelector('.stopped-wrap input')?.checked;
-                if (onInterview) return panelInterview;
-                if (stopped) return panelStopped;
-                return panelApplied;
+                if (onInterview) return { panel: panelInterview, mode: 'interview' };
+                if (stopped) return { panel: panelStopped, mode: 'stopped' };
+                return { panel: panelApplied, mode: 'applied' };
             }
 
             function moveCardToAppliedStage(card) {
-                const targetPanel = appliedStagePanel(card);
+                const targetPanel = resolveAppliedStage(card).panel;
                 if (card.parentElement !== targetPanel) targetPanel.prepend(card);
                 syncAppliedStageUI(card);
             }
@@ -381,6 +438,15 @@
                 card?.querySelector('.company-feedback-input')?.remove();
             }
 
+            function removeAppliedOnlyUI(card) {
+                if (!card) return;
+                card.querySelectorAll(
+                    '.cover-letter-section, .applied-manual-input, .manual-status, '
+                    + '.applied-date, .interview-wrap, .stopped-wrap'
+                ).forEach((el) => el.remove());
+                card.classList.remove('has-applied-date');
+            }
+
             function syncAppliedStageUI(card) {
                 if (!card) return;
                 const stopped = card.querySelector('.stopped-wrap input')?.checked;
@@ -406,27 +472,87 @@
                 currentMode = mode;
                 const isRelevant = mode === 'relevant';
                 const isNotRelevant = mode === 'not relevant';
+                const isEditedToday = mode === 'edited today';
                 const isApplied = mode === 'applied';
                 const isInterview = mode === 'interview';
                 const isStopped = mode === 'stopped';
+                const isHiddenTab = mode === 'hidden';
                 const isSkills = mode === 'skills';
                 const isPortrait = mode === 'portrait';
                 panelRelevant.classList.toggle('hidden', !isRelevant);
                 panelNotRelevant.classList.toggle('hidden', !isNotRelevant);
+                panelEditedToday.classList.toggle('hidden', !isEditedToday);
                 panelApplied.classList.toggle('hidden', !isApplied);
                 panelInterview.classList.toggle('hidden', !isInterview);
                 panelStopped.classList.toggle('hidden', !isStopped);
+                panelHidden.classList.toggle('hidden', !isHiddenTab);
                 panelSkills.classList.toggle('hidden', !isSkills);
                 panelPortrait.classList.toggle('hidden', !isPortrait);
                 btnRelevant.classList.toggle('active', isRelevant);
                 btnNotRelevant.classList.toggle('active', isNotRelevant);
+                btnEditedToday.classList.toggle('active', isEditedToday);
                 btnApplied.classList.toggle('active', isApplied);
                 btnInterview.classList.toggle('active', isInterview);
                 btnStopped.classList.toggle('active', isStopped);
+                btnHidden.classList.toggle('active', isHiddenTab);
                 btnSkills.classList.toggle('active', isSkills);
                 btnPortrait.classList.toggle('active', isPortrait);
                 if (enteringPortrait) {
                     refreshPortraitFromServer();
+                }
+            }
+
+            async function switchTab(mode) {
+                if (mode === currentMode) return;
+                if (tabRefreshInProgress) return;
+                const tabRefreshStatus = document.getElementById('tab-refresh-status');
+                if (tabRefreshStatus) tabRefreshStatus.textContent = '';
+                if (currentMode === 'portrait' && mode !== 'portrait' && portraitHasUnsavedChanges()) {
+                    const leave = window.confirm('Portrait has unsaved changes. Leave without saving?');
+                    if (!leave) return;
+                }
+                if (window.location.protocol === 'file:') {
+                    setMode(mode);
+                    return;
+                }
+                let status;
+                try {
+                    status = await fetchReportStatus();
+                } catch (_err) {
+                    setMode(mode);
+                    return;
+                }
+                if (!status.ok) {
+                    setMode(mode);
+                    return;
+                }
+                if (status.idle && status.last_modified === pageReportMtime) {
+                    setMode(mode);
+                    return;
+                }
+                if (status.idle && status.last_modified && status.last_modified !== pageReportMtime) {
+                    reloadWithTab(mode);
+                    return;
+                }
+                tabRefreshInProgress = true;
+                if (tabRefreshStatus) tabRefreshStatus.textContent = 'Refreshing…';
+                const deadline = Date.now() + 60000;
+                try {
+                    while (Date.now() < deadline) {
+                        await sleep(500);
+                        try {
+                            status = await fetchReportStatus();
+                        } catch (_err) {
+                            continue;
+                        }
+                        if (status.ok && status.idle && status.last_modified && status.last_modified !== pageReportMtime) {
+                            reloadWithTab(mode);
+                            return;
+                        }
+                    }
+                    reloadWithTab(mode);
+                } finally {
+                    tabRefreshInProgress = false;
                 }
             }
 
@@ -548,12 +674,14 @@
                 if (popup) popup.opener = null;
             }
 
-            btnRelevant.addEventListener('click', () => setMode('relevant'));
-            btnNotRelevant.addEventListener('click', () => setMode('not relevant'));
-            btnApplied.addEventListener('click', () => setMode('applied'));
-            btnInterview.addEventListener('click', () => setMode('interview'));
-            btnStopped.addEventListener('click', () => setMode('stopped'));
-            btnSkills.addEventListener('click', () => setMode('skills'));
+            btnRelevant.addEventListener('click', () => switchTab('relevant'));
+            btnNotRelevant.addEventListener('click', () => switchTab('not relevant'));
+            btnApplied.addEventListener('click', () => switchTab('applied'));
+            btnInterview.addEventListener('click', () => switchTab('interview'));
+            btnStopped.addEventListener('click', () => switchTab('stopped'));
+            btnHidden.addEventListener('click', () => switchTab('hidden'));
+            btnSkills.addEventListener('click', () => switchTab('skills'));
+            btnEditedToday.addEventListener('click', () => switchTab('edited today'));
             btnPortrait.addEventListener('click', () => setMode('portrait'));
             if (portraitEditor) {
                 portraitEditor.addEventListener('input', updatePortraitStatus);
@@ -607,6 +735,124 @@
                 }
             }
 
+            function getSelectedSkillKeys() {
+                const table = document.getElementById('skills-table');
+                if (!table) return [];
+                return Array.from(table.querySelectorAll('tbody tr'))
+                    .filter((row) => {
+                        const checkbox = row.querySelector('.skill-row-select');
+                        return checkbox && checkbox.checked;
+                    })
+                    .map((row) => row.dataset.skillKey || '')
+                    .filter(Boolean);
+            }
+
+            function updateSkillsBulkBar() {
+                const keys = getSelectedSkillKeys();
+                const label = document.getElementById('skills-selected-label');
+                const blockBtn = document.getElementById('btn-block-selected');
+                const deleteBtn = document.getElementById('btn-delete-selected');
+                const selectAll = document.getElementById('skills-select-all');
+                const table = document.getElementById('skills-table');
+                const rowCheckboxes = table ? Array.from(table.querySelectorAll('.skill-row-select')) : [];
+                const count = keys.length;
+                if (label) {
+                    label.textContent = count === 1 ? '1 selected' : `${count} selected`;
+                }
+                if (blockBtn) blockBtn.disabled = count === 0;
+                if (deleteBtn) deleteBtn.disabled = count === 0;
+                if (selectAll && rowCheckboxes.length > 0) {
+                    const checkedCount = rowCheckboxes.filter((checkbox) => checkbox.checked).length;
+                    selectAll.checked = checkedCount === rowCheckboxes.length;
+                    selectAll.indeterminate = checkedCount > 0 && checkedCount < rowCheckboxes.length;
+                } else if (selectAll) {
+                    selectAll.checked = false;
+                    selectAll.indeterminate = false;
+                }
+            }
+
+            function toggleSelectAllSkills(checked) {
+                const table = document.getElementById('skills-table');
+                if (!table) return;
+                table.querySelectorAll('.skill-row-select').forEach((checkbox) => {
+                    checkbox.checked = checked;
+                });
+                updateSkillsBulkBar();
+            }
+
+            function bulkSkillConfirmMessage(action, keys) {
+                const preview = keys.length <= 5
+                    ? keys.join(', ')
+                    : `${keys.slice(0, 5).join(', ')} and ${keys.length - 5} more`;
+                if (action === 'block') {
+                    return `Block ${keys.length} skill(s) (${preview}) and hide them from all positions and the skills tab?`;
+                }
+                return `Delete ${keys.length} skill(s) (${preview}) from profile and DB?`;
+            }
+
+            function removeSkillRows(skillKeys) {
+                const removed = new Set(skillKeys);
+                const table = document.getElementById('skills-table');
+                if (!table) return;
+                Array.from(table.querySelectorAll('tbody tr')).forEach((row) => {
+                    if (removed.has(row.dataset.skillKey)) {
+                        row.remove();
+                    }
+                });
+            }
+
+            async function blockSelectedSkills(btnEl) {
+                const keys = getSelectedSkillKeys();
+                if (keys.length === 0) return;
+                if (!confirm(bulkSkillConfirmMessage('block', keys))) return;
+                if (btnEl) btnEl.disabled = true;
+                const deleteBtn = document.getElementById('btn-delete-selected');
+                if (deleteBtn) deleteBtn.disabled = true;
+                try {
+                    const response = await fetch(apiUrl('/api/skill/block-batch'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ skills: keys }),
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || 'Request failed');
+                    }
+                    removeSkillRows(data.skills || keys);
+                    refreshCounts();
+                } catch (err) {
+                    alert(`Failed to block skills: ${err.message}`);
+                } finally {
+                    updateSkillsBulkBar();
+                }
+            }
+
+            async function deleteSelectedSkills(btnEl) {
+                const keys = getSelectedSkillKeys();
+                if (keys.length === 0) return;
+                if (!confirm(bulkSkillConfirmMessage('delete', keys))) return;
+                if (btnEl) btnEl.disabled = true;
+                const blockBtn = document.getElementById('btn-block-selected');
+                if (blockBtn) blockBtn.disabled = true;
+                try {
+                    const response = await fetch(apiUrl('/api/skill/delete-batch'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ skills: keys }),
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || 'Request failed');
+                    }
+                    removeSkillRows(data.skills || keys);
+                    refreshCounts();
+                } catch (err) {
+                    alert(`Failed to delete skills: ${err.message}`);
+                } finally {
+                    updateSkillsBulkBar();
+                }
+            }
+
             async function deleteSkill(skillKey, btnEl) {
                 if (!confirm(`Delete skill '${skillKey}' from profile and DB?`)) return;
                 btnEl.disabled = true;
@@ -623,6 +869,7 @@
                     const row = btnEl.closest('tr');
                     if (row) row.remove();
                     refreshCounts();
+                    updateSkillsBulkBar();
                 } catch (err) {
                     alert(`Failed to delete skill: ${err.message}`);
                     btnEl.disabled = false;
@@ -645,6 +892,7 @@
                     const row = btnEl.closest('tr');
                     if (row) row.remove();
                     refreshCounts();
+                    updateSkillsBulkBar();
                 } catch (err) {
                     alert(`Failed to block skill: ${err.message}`);
                     btnEl.disabled = false;
@@ -677,6 +925,7 @@
                         if (card) removeCompanyFeedbackUI(card);
                     }
                     const viewedCheckbox = card ? card.querySelector('.viewed-wrap input') : null;
+                    const hiddenCheckbox = card ? card.querySelector('.hidden-wrap input') : null;
                     let isViewed = viewedCheckbox ? viewedCheckbox.checked : false;
                     if (signal === 'not relevant' && viewedCheckbox && !isViewed) {
                         const viewedResponse = await fetch(apiUrl('/api/viewed'), {
@@ -690,13 +939,15 @@
                         }
                         viewedCheckbox.checked = true;
                         isViewed = true;
+                        if (hiddenCheckbox) hiddenCheckbox.checked = false;
                     }
+                    const stillHidden = Boolean(hiddenCheckbox && hiddenCheckbox.checked);
                     const targetPanel = signal === 'relevant' ? panelRelevant : panelNotRelevant;
-                    if (card && !isViewed && card.parentElement !== targetPanel) {
+                    if (!stillHidden && card && !isViewed && card.parentElement !== targetPanel) {
                         targetPanel.prepend(card);
-                    } else if (card && isViewed) {
+                    } else if (!stillHidden && card && isViewed && !appliedStagePanels.includes(card.parentElement)) {
                         bumpPanelTotal(card.parentElement, -1);
-                        card.remove();
+                        if (card.parentElement !== panelEditedToday) panelEditedToday.prepend(card);
                     }
                     refreshCounts();
                 } catch (err) {
@@ -720,8 +971,14 @@
                         throw new Error(data.error || 'Request failed');
                     }
                     if (viewed) {
-                        if (card) bumpPanelTotal(card.parentElement, -1);
-                        if (card && !appliedStagePanels.includes(card.parentElement)) card.remove();
+                        const hiddenCheckbox = card ? card.querySelector('.hidden-wrap input') : null;
+                        if (hiddenCheckbox) hiddenCheckbox.checked = false;
+                        if (card && (card.parentElement === panelRelevant || card.parentElement === panelNotRelevant)) {
+                            bumpPanelTotal(card.parentElement, -1);
+                        }
+                        if (card && !appliedStagePanels.includes(card.parentElement)) {
+                            if (card.parentElement !== panelEditedToday) panelEditedToday.prepend(card);
+                        }
                     } else {
                         const appliedCheckbox = card ? card.querySelector('.applied-wrap input') : null;
                         if (appliedCheckbox) appliedCheckbox.checked = false;
@@ -765,6 +1022,8 @@
                         if (applied) {
                             if (relevantCheckbox) relevantCheckbox.checked = true;
                             if (viewedCheckbox) viewedCheckbox.checked = true;
+                            const hiddenCheckbox = card.querySelector('.hidden-wrap input');
+                            if (hiddenCheckbox) hiddenCheckbox.checked = false;
                             if (appliedStagePanels.includes(card.parentElement)) {
                                 moveCardToAppliedStage(card);
                             } else {
@@ -776,8 +1035,14 @@
                             if (stoppedCheckbox) stoppedCheckbox.checked = false;
                             removeCompanyFeedbackUI(card);
                             removeCardFromAppliedStages(card);
-                            const targetPanel = relevantCheckbox && relevantCheckbox.checked ? panelRelevant : panelNotRelevant;
-                            if (card.parentElement !== targetPanel) targetPanel.prepend(card);
+                            const stillViewed = Boolean(viewedCheckbox && viewedCheckbox.checked);
+                            if (stillViewed) {
+                                if (card.parentElement !== panelEditedToday) panelEditedToday.prepend(card);
+                            } else {
+                                const targetPanel = relevantCheckbox && relevantCheckbox.checked ? panelRelevant : panelNotRelevant;
+                                if (card.parentElement !== targetPanel) targetPanel.prepend(card);
+                                setMode(relevantCheckbox && relevantCheckbox.checked ? 'relevant' : 'not relevant');
+                            }
                         }
                     }
                     if (statusEl) statusEl.textContent = `Saved: ${applied ? 'applied' : 'not applied'}`;
@@ -806,6 +1071,7 @@
                         const stoppedCheckbox = card.querySelector('.stopped-wrap input');
                         if (onInterview && stoppedCheckbox) stoppedCheckbox.checked = false;
                         moveCardToAppliedStage(card);
+                        setMode(resolveAppliedStage(card).mode);
                     }
                     if (statusEl) statusEl.textContent = `Saved: ${onInterview ? 'on interview' : 'not on interview'}`;
                     refreshCounts();
@@ -833,12 +1099,58 @@
                         const interviewCheckbox = card.querySelector('.interview-wrap input');
                         if (stopped && interviewCheckbox) interviewCheckbox.checked = false;
                         moveCardToAppliedStage(card);
+                        setMode(resolveAppliedStage(card).mode);
                     }
                     if (statusEl) statusEl.textContent = `Saved: ${stopped ? 'stopped' : 'not stopped'}`;
                     refreshCounts();
                 } catch (err) {
                     if (statusEl) statusEl.textContent = `Error: ${err.message}. Start: python -m spejder.cli serve-gui`;
                     inputEl.checked = !stopped;
+                }
+            }
+
+            async function setHidden(jobId, hidden, inputEl) {
+                const card = inputEl.closest('.card');
+                const statusEl = card ? card.querySelector('.feedback-status') : null;
+                if (statusEl) statusEl.textContent = 'Saving...';
+                try {
+                    const response = await fetch(apiUrl('/api/hidden'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ job_id: jobId, hidden })
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || 'Request failed');
+                    }
+                    if (card) {
+                        const viewedCheckbox = card.querySelector('.viewed-wrap input');
+                        const appliedCheckbox = card.querySelector('.applied-wrap input');
+                        const interviewCheckbox = card.querySelector('.interview-wrap input');
+                        const stoppedCheckbox = card.querySelector('.stopped-wrap input');
+                        const relevantCheckbox = card.querySelector('.relevant-wrap input');
+                        if (hidden) {
+                            if (viewedCheckbox) viewedCheckbox.checked = false;
+                            if (appliedCheckbox) appliedCheckbox.checked = false;
+                            if (interviewCheckbox) interviewCheckbox.checked = false;
+                            if (stoppedCheckbox) stoppedCheckbox.checked = false;
+                            removeCompanyFeedbackUI(card);
+                            removeAppliedOnlyUI(card);
+                            if (card.parentElement === panelRelevant || card.parentElement === panelNotRelevant) {
+                                bumpPanelTotal(card.parentElement, -1);
+                            }
+                            if (card.parentElement !== panelHidden) panelHidden.prepend(card);
+                        } else {
+                            const targetPanel = relevantCheckbox && relevantCheckbox.checked ? panelRelevant : panelNotRelevant;
+                            bumpPanelTotal(targetPanel, 1);
+                            if (card.parentElement !== targetPanel) targetPanel.prepend(card);
+                        }
+                    }
+                    if (statusEl) statusEl.textContent = `Saved: ${hidden ? 'hidden' : 'unhidden'}`;
+                    refreshCounts();
+                } catch (err) {
+                    if (statusEl) statusEl.textContent = `Error: ${err.message}. Start: python -m spejder.cli serve-gui`;
+                    inputEl.checked = !hidden;
                 }
             }
 
@@ -981,10 +1293,16 @@
                 const headers = Array.from(table.querySelectorAll('th.skills-sortable'));
                 if (!tbody || headers.length === 0) return;
 
-                const sortState = { key: 'name', dir: 1 };
+                const SKILLS_EMPTY_ADDED_AT_SORT = {{ skills_empty_added_at_sort | tojson }};
+                const sortState = { key: 'added_at', dir: -1 };
+
+                function isEmptyAddedAt(value) {
+                    return !value || value === SKILLS_EMPTY_ADDED_AT_SORT;
+                }
 
                 function rowValue(row, key) {
                     if (key === 'name') return (row.dataset.sortName || '').toLowerCase();
+                    if (key === 'added_at') return row.dataset.sortAddedAt || '';
                     if (key === 'source') return (row.dataset.sortSource || '').toLowerCase();
                     if (key === 'position_pct') return Number.parseFloat(row.dataset.sortPositionPct || '0') || 0;
                     if (key === 'occurrences') return Number.parseInt(row.dataset.sortOccurrences || '0', 10) || 0;
@@ -997,15 +1315,27 @@
                     const left = rowValue(a, sortState.key);
                     const right = rowValue(b, sortState.key);
                     let cmp = 0;
-                    if (typeof left === 'number' && typeof right === 'number') {
+                    if (sortState.key === 'added_at') {
+                        const leftEmpty = isEmptyAddedAt(left);
+                        const rightEmpty = isEmptyAddedAt(right);
+                        if (leftEmpty && !rightEmpty) {
+                            return 1;
+                        }
+                        if (!leftEmpty && rightEmpty) {
+                            return -1;
+                        }
+                        if (!leftEmpty && !rightEmpty) {
+                            cmp = String(left).localeCompare(String(right));
+                        }
+                    } else if (typeof left === 'number' && typeof right === 'number') {
                         cmp = left - right;
                     } else {
                         cmp = String(left).localeCompare(String(right));
                     }
-                    if (cmp === 0) {
-                        cmp = String(a.dataset.sortName || '').localeCompare(String(b.dataset.sortName || ''));
+                    if (cmp !== 0) {
+                        return cmp * sortState.dir;
                     }
-                    return cmp * sortState.dir;
+                    return String(a.dataset.sortName || '').localeCompare(String(b.dataset.sortName || ''));
                 }
 
                 function applySort() {
@@ -1058,6 +1388,7 @@
             window.setApplied = setApplied;
             window.setOnInterview = setOnInterview;
             window.setInterviewStopped = setInterviewStopped;
+            window.setHidden = setHidden;
             window.saveCompanyFeedback = saveCompanyFeedback;
             window.setUserSkill = setUserSkill;
             window.setLearnSkill = setLearnSkill;
@@ -1065,6 +1396,10 @@
             window.openCompanyPage = openCompanyPage;
             window.blockSkill = blockSkill;
             window.deleteSkill = deleteSkill;
+            window.updateSkillsBulkBar = updateSkillsBulkBar;
+            window.toggleSelectAllSkills = toggleSelectAllSkills;
+            window.blockSelectedSkills = blockSelectedSkills;
+            window.deleteSelectedSkills = deleteSelectedSkills;
             window.appendAppliedRawText = appendAppliedRawText;
             window.setCoverLetterRequested = setCoverLetterRequested;
             window.saveCoverLetter = saveCoverLetter;
@@ -1076,6 +1411,25 @@
                 if (!portraitHasUnsavedChanges()) return;
                 event.preventDefault();
                 event.returnValue = '';
+            });
+
+            function initTabFromUrl() {
+                const params = new URLSearchParams(window.location.search);
+                const tab = params.get('tab');
+                const validModes = ['relevant', 'not relevant', 'applied', 'interview', 'stopped', 'hidden', 'skills', 'edited today', 'portrait'];
+                if (tab && validModes.includes(tab)) {
+                    setMode(tab);
+                }
+                if (params.has('tab')) {
+                    const clean = new URL(window.location.href);
+                    clean.searchParams.delete('tab');
+                    history.replaceState(null, '', clean.pathname + clean.search + clean.hash);
+                }
+            }
+
+            document.addEventListener('DOMContentLoaded', async () => {
+                await initPageReportMtime();
+                initTabFromUrl();
             });
             initSkillsTableSort();
             initInboxSyncStatus();

@@ -10,6 +10,9 @@ from spejder.db import (
 from .filtering import _blocked_skill_keys
 from .normalization import _normalize_skill_name
 
+# Safe sentinel for profile-only rows; no real ISO date starts with 0000.
+SKILLS_EMPTY_ADDED_AT_SORT = "0000"
+
 
 def _position_pct(position_count: int, jobs_with_skills: int) -> float:
     if jobs_with_skills <= 0 or position_count <= 0:
@@ -33,7 +36,13 @@ def _build_skills_tab_items(db_path: str, profile: AppConfig) -> list[dict]:
 
     by_key: dict[str, dict] = {}
 
-    def upsert(name: str, source: str, occurrences: int = 0, weight: float = 0.0):
+    def upsert(
+        name: str,
+        source: str,
+        occurrences: int = 0,
+        weight: float = 0.0,
+        added_at: str = "",
+    ):
         clean = _normalize_skill_name(name)
         key = clean.lower()
         if not key or key in blocked_keys:
@@ -46,6 +55,7 @@ def _build_skills_tab_items(db_path: str, profile: AppConfig) -> list[dict]:
                 "source": source,
                 "occurrences": int(occurrences),
                 "weight": float(weight),
+                "added_at": added_at or "",
                 "has_skill": key in user_keys,
                 "want_to_learn": key in learn_keys,
             }
@@ -55,6 +65,8 @@ def _build_skills_tab_items(db_path: str, profile: AppConfig) -> list[dict]:
             row["source"] = "db"
             row["occurrences"] = max(int(row.get("occurrences", 0)), int(occurrences))
             row["weight"] = max(float(row.get("weight", 0.0)), float(weight))
+            if added_at:
+                row["added_at"] = added_at
         row["has_skill"] = row["has_skill"] or (key in user_keys)
         row["want_to_learn"] = row["want_to_learn"] or (key in learn_keys)
 
@@ -64,6 +76,7 @@ def _build_skills_tab_items(db_path: str, profile: AppConfig) -> list[dict]:
             "db",
             occurrences=int(item.get("occurrences", 0) or 0),
             weight=float(item.get("weight", 0.0) or 0.0),
+            added_at=str(item.get("created_at", "") or ""),
         )
 
     for item in profile.known_skill_patterns or []:
@@ -85,5 +98,10 @@ def _build_skills_tab_items(db_path: str, profile: AppConfig) -> list[dict]:
         row["position_count"] = position_count
         row["position_pct"] = _position_pct(position_count, jobs_with_skills)
 
+    # Stable sort: name A→Z first, then added_at DESC (profile-only "" → sentinel sorts last).
     rows.sort(key=lambda x: x["name"].lower())
+    rows.sort(
+        key=lambda x: x.get("added_at") or SKILLS_EMPTY_ADDED_AT_SORT,
+        reverse=True,
+    )
     return rows

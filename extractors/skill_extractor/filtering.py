@@ -4,7 +4,9 @@ import re
 from typing import Optional
 
 from spejder.config import AppConfig
+from spejder.db import count_bad_ngrams
 
+from .bad_cloud import resolve_toxicity_threshold, toxicity_scores_by_key
 from .constants import (
     SKILL_CLEANUP_GENERIC_PHRASES,
     SKILL_CLEANUP_GENERIC_SINGLE,
@@ -23,6 +25,73 @@ def _blocked_skill_keys(profile: Optional[AppConfig] = None) -> set[str]:
         for item in values
         if _normalize_skill_name(str(item))
     }
+
+
+def _whitelist_skill_keys(profile: Optional[AppConfig], db_path: str) -> set[str]:
+    from spejder.db import get_skill_patterns as get_db_skill_patterns
+
+    blocked = _blocked_skill_keys(profile)
+    keys: set[str] = set()
+    for row in get_db_skill_patterns(db_path, enabled_only=True):
+        name = _normalize_skill_name(str(row.get("name", "")))
+        key = name.lower()
+        if not key or key in blocked:
+            continue
+        source = str(row.get("source", "") or "").strip().lower()
+        occurrences = int(row.get("occurrences", 0) or 0)
+        if source == "detected" and occurrences < 1:
+            continue
+        keys.add(key)
+    if profile:
+        for item in profile.user_skills or []:
+            name = _normalize_skill_name(str(item))
+            if name:
+                keys.add(name.lower())
+        for item in profile.known_skill_patterns or []:
+            name, _ = _profile_skill_pattern_fields(item)
+            normalized = _normalize_skill_name(name)
+            if normalized and normalized.lower() not in blocked:
+                keys.add(normalized.lower())
+    return keys
+
+
+def _filter_extracted_skills(
+    skills: list[str],
+    profile: Optional[AppConfig],
+    db_path: str,
+    known_keys: set[str],
+) -> list[str]:
+    blocked = _blocked_skill_keys(profile)
+    use_cloud = bool(db_path) and count_bad_ngrams(db_path) > 0
+    threshold = resolve_toxicity_threshold(db_path, profile) if use_cloud else float("inf")
+
+    pending_cloud: list[str] = []
+    out: list[str] = []
+    seen: set[str] = set()
+    for skill in skills:
+        normalized = _normalize_skill_name(skill)
+        key = normalized.lower()
+        if not normalized or key in seen:
+            continue
+        if key in known_keys:
+            out.append(normalized)
+            seen.add(key)
+            continue
+        if key in blocked:
+            continue
+        pending_cloud.append(normalized)
+        seen.add(key)
+
+    if not pending_cloud or not use_cloud:
+        out.extend(pending_cloud)
+        return out
+
+    score_map = toxicity_scores_by_key(pending_cloud, db_path)
+    for normalized in pending_cloud:
+        key = normalized.lower()
+        if score_map.get(key, 0.0) < threshold:
+            out.append(normalized)
+    return out
 
 
 def _filter_blocked_skill_names(skills: list[str], profile: Optional[AppConfig] = None) -> list[str]:

@@ -17,7 +17,7 @@ Background inbox synchronization pipeline extracted from `gui.py`, preserving ex
 5. Generate missing descriptions; dashboard rebuild when descriptions updated
 6. Learn skill patterns from applied/relevant positions; dashboard rebuild when new patterns added
 7. Clean blocked skills from SQLite (`cleanup_blocked_skills_from_db` on `runtime_profile.blocked_skills`); rescore affected jobs (`rescore_jobs_if_active`); dashboard rebuild when links/patterns deleted or jobs rescored (deferred hygiene — does not block earlier enrichment)
-8. Optionally run async antipattern sync (daemon thread). Skipped antipattern runs log `skip_reason` and do **not** reload the profile or queue a dashboard rebuild; successful **commits** (`committed=True`) do both.
+8. Initialize bad cloud (`ensure_bad_cloud_initialized`): one-time seed from `blocked_skills`, prune redundant blocked entries outside the seeded batch; then **always** recalibrate `skill_bigram_toxicity_threshold` via `recalibrate_and_store_threshold` (mature non-blocked DB skills vs blocked list). Save profile / reload / rebuild when seed, prune, or threshold changed.
 
 **Removed from pipeline:** full-DB `apply_relevance` on every sync; early dashboard rebuild after ingest/dedupe.
 
@@ -26,4 +26,5 @@ Background inbox synchronization pipeline extracted from `gui.py`, preserving ex
 - Keep invocation-scoped mutable caches (`text_translation_cache`, `title_translation_cache`) inside `run_inbox_sync`; do not promote to module globals.
 - Build ingest translation transform via `spejder.workflows.job_enrichment.make_translate_job_entry_for_storage` to keep GUI sync and inbox ingest logic aligned.
 - Use `spejder.workflows.ingest_utils` for ingest per-file stats logging and inbox cleanup.
+- Pass `llm` + `runtime_profile` into `ingest_docs_to_db` so opt-in career-alert synthesis can run on `found=0` during background sync.
 - Treat `GuiSyncContext` callbacks as the only bridge back into GUI orchestration.

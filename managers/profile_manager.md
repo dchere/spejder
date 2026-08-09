@@ -8,7 +8,7 @@ Handles all profile-related mutations and querying for the application.
 - `_save_profile`
 - `_toggle_profile_skill`
 - `_remove_skill_from_profile`
-- `_block_skill_in_profile` — profile-only: adds to `blocked_skills`, removes from user/missing/pattern lists; does **not** touch SQLite (callers run `delete_skill_from_db` or `cleanup_blocked_skills_from_db`)
+- `_block_skill_in_profile` — profile-only: adds to `blocked_skills`, removes from user/missing/pattern lists; does **not** touch SQLite or the bad cloud (callers run `delete_skill_from_db` / `cleanup_blocked_skills_from_db` and `bad_cloud.on_skills_blocked` for cloud ingest + prune)
 - `_protected_skill_keys`
 
 **Context:**
