@@ -29,6 +29,7 @@ from spejder.workflows.job_enrichment import (
     _generate_missing_descriptions_for_ingest,
     make_translate_job_entry_for_storage,
 )
+from spejder.workflows.portal_sync import sync_itday_portal
 
 if TYPE_CHECKING:
     from spejder.llm import LocalLLM
@@ -85,8 +86,30 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
         )
         has_missing_descriptions = bool(missing_descriptions)
 
-        if not docs and not has_missing_descriptions:
-            print("Background sync: no documents in inbox and no missing descriptions, skipping")
+        text_translation_cache: dict[str, str] = {}
+        title_translation_cache: dict[str, str] = {}
+        entry_transform = make_translate_job_entry_for_storage(
+            context.runtime_profile,
+            text_translation_cache,
+            title_translation_cache,
+        )
+
+        _emit_stage(context, "portal", "Checking IT-DAY job portal")
+        portal_stats = sync_itday_portal(
+            context.db_path,
+            entry_transform=entry_transform,
+        )
+
+        if (
+            not docs
+            and not has_missing_descriptions
+            and int(portal_stats.get("inserted_new", 0) or 0) == 0
+        ):
+            print(
+                "Background sync: no documents in inbox, no missing descriptions, "
+                "and no new IT-DAY portal positions "
+                f"(portal_found={portal_stats.get('found', 0)}), skipping"
+            )
             _emit_stage(context, "skipped", "Nothing to sync")
             return InboxSyncResult(status="skipped")
 
@@ -116,14 +139,6 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
                     f"skipped_existing={skipped_existing}"
                 )
                 last_inserted_logged = inserted_new
-
-        text_translation_cache: dict[str, str] = {}
-        title_translation_cache: dict[str, str] = {}
-        entry_transform = make_translate_job_entry_for_storage(
-            context.runtime_profile,
-            text_translation_cache,
-            title_translation_cache,
-        )
 
         if docs:
             ingest_stats = ingest_docs_to_db(
@@ -281,6 +296,7 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
         print(
             f"Background sync done: input_files={len(docs)}, processed={ingest_stats.get('processed', 0)}, "
             f"inserted={ingest_stats.get('inserted_new', 0)}, skipped_existing={ingest_stats.get('skipped_existing', 0)}, "
+            f"portal_found={portal_stats.get('found', 0)}, portal_inserted={portal_stats.get('inserted_new', 0)}, "
             f"skills_updated={skills_updated}, blocked_rescored={blocked_rescored}"
         )
         _emit_stage(context, "done", "Inbox sync pipeline complete")
@@ -292,7 +308,10 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
 
 
 _SYNC_COMPLETE_MESSAGE = "Sync complete — reload the page to see new positions"
-_SYNC_SKIPPED_MESSAGE = "Nothing to sync — inbox is empty and descriptions are up to date"
+_SYNC_SKIPPED_MESSAGE = (
+    "Nothing to sync — inbox is empty, descriptions are up to date, "
+    "and IT-DAY portal has no new positions"
+)
 _SYNC_REBUILD_TIMEOUT_MESSAGE = (
     "Sync finished — dashboard rebuild may still be in progress; reload when ready"
 )

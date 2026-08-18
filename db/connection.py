@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import parse_qs, unquote, urlparse
 from spejder.db.utils import SQLITE_TIMEOUT_SECONDS, SQLITE_BUSY_TIMEOUT_MS, sanitize_job_title, _normalize_position_link, _provider_from_link
+from spejder.parsers.itday_portal import ITDAY_PORTAL_SOURCE
 
 JOB_RETENTION_DAYS = 90
 
@@ -302,8 +303,10 @@ def ensure_db(db_path: str):
                     lower(position_link) LIKE '%jobs.danfoss.com%'
                     AND lower(position_link) LIKE '%/job/%'
                 )
+                OR lower(trim(source)) = ?
             )
-            """
+            """,
+            (ITDAY_PORTAL_SOURCE.strip().lower(),),
         )
 
         cur.execute(
@@ -375,10 +378,15 @@ def ensure_db(db_path: str):
                     "UPDATE jobs SET position_link=? WHERE id=?", (norm, keep_id)
                 )
 
+        portal_source_key = ITDAY_PORTAL_SOURCE.strip().lower()
         cur.execute("SELECT id, position_link, source FROM jobs")
         for rid, link, source in cur.fetchall():
             provider = _provider_from_link(link or "")
-            if provider and (not source or source.strip() != provider):
+            if (
+                provider
+                and (source or "").strip().lower() != portal_source_key
+                and (not source or source.strip() != provider)
+            ):
                 cur.execute("UPDATE jobs SET source=? WHERE id=?", (provider, rid))
 
         cur.execute(

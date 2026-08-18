@@ -1,7 +1,7 @@
 import os
 
 from spejder.core import DEFAULT_PROFILE_PATH, load_runtime_profile
-from spejder.db import ensure_db, get_relevant_jobs
+from spejder.db import ensure_db, get_jobs_for_description_refresh, get_relevant_jobs
 from spejder.extractors.skill_extractor import (
     _ensure_skill_pattern_seed_migration,
     _learn_skill_patterns_from_positions,
@@ -22,6 +22,7 @@ from spejder.workflows.job_enrichment import (
     make_translate_job_entry_for_storage,
     materialize_relevant_and_applied_skills,
 )
+from spejder.workflows.portal_sync import sync_itday_portal
 
 
 def process_inbox(inbox: str = None, db: str = None, profile: str = None, model: str = "", report_dir: str = None, limit: int = 0, max_tokens: int = 220, max_input_chars: int = None, prune_irrelevant: bool = False, verbose: bool = False):
@@ -38,9 +39,6 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
     )
 
     docs = email_parser.load_files(inbox)
-    if not docs:
-        print("No documents found in inbox:", inbox)
-        return
 
     ensure_db(db_path)
     _ensure_skill_pattern_seed_migration(db_path, profile_path)
@@ -50,6 +48,19 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
     entry_transform = make_translate_job_entry_for_storage(
         profile, text_translation_cache, title_translation_cache
     )
+    portal_stats = sync_itday_portal(db_path, entry_transform=entry_transform)
+    missing_descriptions = get_jobs_for_description_refresh(
+        db_path, missing_only=True, limit=1
+    )
+    has_missing_descriptions = bool(missing_descriptions)
+    if (
+        not docs
+        and int(portal_stats.get("inserted_new", 0) or 0) == 0
+        and not has_missing_descriptions
+    ):
+        print("No documents found in inbox:", inbox)
+        return
+
     llm = LocalLLM(model_path=model_path, n_ctx=int(profile.n_ctx), verbose=bool(verbose)) if model_path else None
     if not llm:
         raise SystemExit("Model init: model is required for process-inbox")

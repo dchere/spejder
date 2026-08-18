@@ -20,7 +20,8 @@ Core orchestration for CLI commands, GUI background sync, and heavy multi-step p
 |--------|------|
 | `dashboard.py` | Dashboard record building + rebuild queue worker |
 | `gui.py` | GUI/server thread orchestration |
-| `gui_sync.py` | Background inbox sync pipeline (8 steps) |
+| `gui_sync.py` | Background inbox sync pipeline (9 steps) |
+| `portal_sync.py` | External job portal sync (IT-DAY) |
 | `ingest_utils.py` | Per-file ingest stats + inbox file cleanup |
 | `inbox_report.py` | Inbox relevant-job summaries + HTML dashboard write |
 | `job_enrichment.py` | Facade re-exporting job enrichment helpers |
@@ -45,6 +46,7 @@ Core orchestration for CLI commands, GUI background sync, and heavy multi-step p
 **Dashboard rebuild:** `DashboardRebuildQueue` (`workflows/dashboard.py`) reloads three applied-stage query subsets — `get_applied_jobs`, `get_interview_jobs`, and `get_stopped_interview_jobs` — when rendering Applied / Interview / Stopped tabs, plus Hidden via `build_hidden_dashboard_records` and Edited today via `build_viewed_today_dashboard_records`. Inbox report writes (`write_inbox_dashboard_report`) and enrichment report writes (`enrichment.py` after `refresh-descriptions`) use the same helpers and pass `hidden_items` / `viewed_today_items` to `_render_html_dashboard`.
 
 **GUI background sync** (`run_inbox_sync` in `gui_sync.py`):
+0. Sync IT-DAY job portal
 1. Ingest inbox (or backfill missing descriptions)
 2. Delete processed inbox files
 3. Company+title position dedupe

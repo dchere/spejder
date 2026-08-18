@@ -22,4 +22,4 @@ from .scoring import (
     rescore_active_jobs,
     _skill_to_regex_simple,
 )
-from .ingestion import (ingest_docs_to_db)
+from .ingestion import (ingest_docs_to_db, ingest_entries_to_db)

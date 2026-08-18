@@ -29,6 +29,10 @@ class RunInboxSyncRebuildTest(unittest.TestCase):
         self._tmpdir.cleanup()
 
     @patch(
+        "spejder.workflows.gui_sync.sync_itday_portal",
+        return_value={"found": 0, "inserted_new": 0, "skipped_existing": 0, "processed": 0},
+    )
+    @patch(
         "spejder.workflows.gui_sync.recalibrate_and_store_threshold",
         return_value=0.1,
     )
@@ -69,6 +73,10 @@ class RunInboxSyncRebuildTest(unittest.TestCase):
             msg=f"unexpected rebuild reasons: {self.rebuild_reasons}",
         )
 
+    @patch(
+        "spejder.workflows.gui_sync.sync_itday_portal",
+        return_value={"found": 0, "inserted_new": 0, "skipped_existing": 0, "processed": 0},
+    )
     @patch(
         "spejder.workflows.gui_sync.recalibrate_and_store_threshold",
         return_value=0.1,

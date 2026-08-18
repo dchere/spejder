@@ -12,7 +12,8 @@ Contains the core business domain logic for processing, scoring, classifying, an
 - `merge_duplicate_positions(...)` — company+title dedup across all sources; oldest row kept; also invoked from GUI background sync via `workflows.deduplication.run_cross_source_dedupe`. Title trailing-city stripping and allowlist semantics are defined in `db/deduplication_utils.py` (see `db.md`).
 - `merge_cross_source_duplicates(...)` — deprecated alias for `merge_duplicate_positions`
 - `rescore_job_by_id(...)`
-- `ingest_docs_to_db(...)`
+- `ingest_docs_to_db(...)` — `on_progress` reports running totals across files (`processed` + current file, and the same for inserted/skipped)
+- `ingest_entries_to_db(...)` — upsert pre-built job entry dicts (portal sync, tests)
 
 **Context:**
 Originally a monolith mixing SQL execution and logic, `jobs.py` now adheres to the Single Responsibility Principle. All raw `sqlite3` executions have been moved entirely into `db.py`, and runtime dictionary parsing `profile.get(...)` has been replaced by typed attribute resolution via `config.py` (`AppConfig`).

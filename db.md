@@ -109,3 +109,5 @@ Extracted from `jobs.py`. The rest of the application (including business logic 
 - Exempt: `applied=1 AND (on_interview=1 OR interview_stopped=1)` — interview/stopped pipeline jobs are kept
 - Plain `applied=1` rows (not on interview/stopped) still age out by `created_at`
 - Demotion edge case: unchecking **On interview** or **Stopped** on an old retained job removes the exemption; the next `ensure_db` prunes it like any other plain applied row
+- Also deletes rows whose `position_link` is outside the allowed ingest sources (LinkedIn job view URLs, Jobindex annonces, Danfoss `/job/` URLs), except rows with `source='IT-DAY Job Portal'` from the IT-DAY portal sync (`lower(trim(source))` matches `ITDAY_PORTAL_SOURCE` from `parsers/itday_portal.py`)
+- Source backfill from `_provider_from_link` must **not** rewrite `IT-DAY Job Portal`, because prune for these ATS/praktik URLs is source-based

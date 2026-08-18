@@ -128,8 +128,8 @@ Open `http://127.0.0.1:8765/report.html`.
 - Switching main dashboard tabs auto-refreshes the page when a background rebuild is running or `report.html` has changed on disk (requires `serve-gui`); otherwise tabs switch instantly.
 - Toolbar icon buttons (right side of the tab bar): **Portrait** (user silhouette), **Regenerate report** (refresh icon), and **Sync inbox** (inbox icon). Regenerate and Sync inbox show a status line in the toolbar when running or complete; Portrait shows status inside the panel.
 - **Regenerate report** queues a dashboard rebuild from the current DB and reloads the page when the new `report.html` is ready (requires `serve-gui`).
-- **Sync inbox** (requires `serve-gui`) processes new inbox files on demand: ingest, dedupe, skills, descriptions, and related background steps. The button stays disabled while sync runs and until dashboard rebuild is idle; the status line shows stage progress. Reload the page manually when sync completes to see new positions — the page does not auto-reload.
-- When `serve-gui` starts, it rebuilds the dashboard snapshot from the current DB (blocking), starts the HTTP server, then triggers the same inbox sync pipeline as **Sync inbox** (ingest, dedupe, skills, descriptions, and related background steps). Reload the page manually when sync completes to see new positions.
+- **Sync inbox** (requires `serve-gui`) processes new inbox files on demand and checks the [IT-DAY job portal](https://www.itday.dk/job-portal) for new listings: ingest, dedupe, skills, descriptions, and related background steps. The button stays disabled while sync runs and until dashboard rebuild is idle; the status line shows stage progress. Reload the page manually when sync completes to see new positions — the page does not auto-reload.
+- When `serve-gui` starts, it rebuilds the dashboard snapshot from the current DB (blocking), starts the HTTP server, then triggers the same inbox sync pipeline as **Sync inbox** (IT-DAY portal check, ingest, dedupe, skills, descriptions, and related background steps). Reload the page manually when sync completes to see new positions.
 - If the requested port is busy, the server automatically tries the next ports up to 20 times.
 - Clicking a company name opens a filtered company page for that employer's jobs.
 - Applied jobs have a "Paste full description" form that feeds the full text to the LLM, regenerating the summary, description, and skill tags.
@@ -192,6 +192,7 @@ Options: `--inbox`, `--db`, `--profile`, `--model`, `--report-dir`, `--limit`, `
 Notes:
 
 - Relevant jobs get a `summary` during ingest.
+- Also checks the IT-DAY job portal (including when the inbox is empty, if the portal inserted new rows).
 - Missing descriptions are generated only for jobs that are still unviewed.
 - Position skills are extracted and shown in report cards.
 - Skill patterns are loaded from DB and may be auto-extended from applied/relevant jobs.

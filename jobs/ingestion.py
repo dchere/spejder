@@ -34,6 +34,40 @@ def _load_run_artifacts(runtime_profile: AppConfig) -> list[CareerAlertArtifact]
     )
 
 
+def ingest_entries_to_db(
+    db_path: str,
+    entries: list[dict],
+    entry_transform: Optional[Callable[[dict], dict]] = None,
+    on_new_record: Optional[Callable[[], None]] = None,
+    on_progress: Optional[Callable[[int, int, int], None]] = None,
+) -> dict[str, object]:
+    processed = 0
+    inserted_new = 0
+    skipped_existing = 0
+
+    for entry in entries:
+        if not entry.get("position_link"):
+            continue
+        if entry_transform is not None:
+            entry = entry_transform(dict(entry))
+        is_new_record = upsert_job(db_path, entry)
+        if is_new_record and on_new_record:
+            on_new_record()
+        if is_new_record:
+            inserted_new += 1
+        else:
+            skipped_existing += 1
+        processed += 1
+        if on_progress:
+            on_progress(processed, inserted_new, skipped_existing)
+
+    return {
+        "processed": int(processed),
+        "inserted_new": int(inserted_new),
+        "skipped_existing": int(skipped_existing),
+    }
+
+
 def ingest_docs_to_db(
     db_path: str,
     docs: list[dict],
@@ -53,6 +87,17 @@ def ingest_docs_to_db(
     artifact_cache: Optional[list[CareerAlertArtifact]] = (
         _load_run_artifacts(runtime_profile) if runtime_profile is not None else None
     )
+
+    def _cumulative_progress(
+        file_processed: int, file_inserted: int, file_skipped: int
+    ) -> None:
+        if on_progress:
+            on_progress(
+                processed + file_processed,
+                inserted_new + file_inserted,
+                skipped_existing + file_skipped,
+            )
+
     for doc in docs:
         file_path = str(doc.get("path") or doc.get("id") or "")
         entries = _extract_for_doc(
@@ -86,27 +131,19 @@ def ingest_docs_to_db(
                 print(
                     f"[spejder] career-alert synth skipped for {file_path or '(unknown)'}: {reason}"
                 )
-        file_found = 0
-        file_inserted = 0
-        file_skipped = 0
-        for entry in entries:
-            if not entry.get("position_link"):
-                continue
-            if entry_transform is not None:
-                entry = entry_transform(dict(entry))
-            file_found += 1
-            is_new_record = upsert_job(db_path, entry)
-            if is_new_record and on_new_record:
-                on_new_record()
-            if is_new_record:
-                inserted_new += 1
-                file_inserted += 1
-            else:
-                skipped_existing += 1
-                file_skipped += 1
-            processed += 1
-            if on_progress:
-                on_progress(processed, inserted_new, skipped_existing)
+        file_stats = ingest_entries_to_db(
+            db_path,
+            entries,
+            entry_transform=entry_transform,
+            on_new_record=on_new_record,
+            on_progress=_cumulative_progress if on_progress else None,
+        )
+        file_found = int(file_stats.get("processed", 0))
+        file_inserted = int(file_stats.get("inserted_new", 0))
+        file_skipped = int(file_stats.get("skipped_existing", 0))
+        processed += file_found
+        inserted_new += file_inserted
+        skipped_existing += file_skipped
         positions_by_file.append(
             {
                 "file": file_path,

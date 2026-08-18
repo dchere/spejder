@@ -11,10 +11,13 @@ Coordinates the ingestion of new job postings from the inbox folder, matching jo
 - `spejder.workflows.inbox_report` — relevant-job LLM summaries + HTML dashboard write
 
 **Ingest flow (ordered):**
-1. Ingest docs + inbox cleanup
+0. Sync IT-DAY job portal (`sync_itday_portal`) — after `ensure_db` / entry transform; LLM is not required for fetch
+1. Ingest docs + inbox cleanup (docs may be empty when continuing for portal/backfill)
 2. Generate missing descriptions
 3. Materialize skills (+ conditional rescore on skill change in active scope)
 4. Summarize relevant jobs + write inbox report
+
+Portal sync runs even when the inbox is empty. Early return only when the inbox is empty, the portal inserted zero new rows, **and** there are no missing descriptions (`get_jobs_for_description_refresh`). If the portal inserted rows (or descriptions are missing), the enrichment/report pipeline continues and still requires a model (`SystemExit` without one — existing constraint).
 
 Scoring is change-driven: jobs are scored when skills are first materialized or change, not via a full-DB `apply_relevance` pass on each run.
 

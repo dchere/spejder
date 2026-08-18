@@ -9,7 +9,8 @@ Background inbox synchronization pipeline extracted from `gui.py`, preserving ex
 - `run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult`
 - `InboxSyncRunner` — thread-safe runner; at most one sync at a time (`_running` claimed under lock before the worker thread is spawned); `trigger()` is used for both `serve_gui` startup sync and the dashboard **Sync inbox** button. Wires `on_stage` into `run_inbox_sync`, then `DashboardRebuildQueue.wait_until_idle` after a successful or skipped run (skipped waits for in-flight rebuilds so startup snapshot does not race the status message). If rebuild wait times out after a successful sync, terminal `status` stays `complete` but `message` notes rebuild may still be in progress.
 
-**Pipeline (8 steps):**
+**Pipeline (9 steps):**
+0. Sync IT-DAY job portal listings (`sync_itday_portal`)
 1. Ingest inbox input (or detect missing-description backfill mode)
 2. Delete processed inbox files
 3. Run company+title position deduplication (`merge_duplicate_positions`)
@@ -27,4 +28,5 @@ Background inbox synchronization pipeline extracted from `gui.py`, preserving ex
 - Build ingest translation transform via `spejder.workflows.job_enrichment.make_translate_job_entry_for_storage` to keep GUI sync and inbox ingest logic aligned.
 - Use `spejder.workflows.ingest_utils` for ingest per-file stats logging and inbox cleanup.
 - Pass `llm` + `runtime_profile` into `ingest_docs_to_db` so opt-in career-alert synthesis can run on `found=0` during background sync.
+- Call `sync_itday_portal` on every sync before inbox ingest; skip the pipeline only when inbox is empty, descriptions are complete, and the portal inserted no new jobs (skip means **no new portal rows**, not an empty portal listing — existing listings can still yield `found>0` with `inserted_new=0`). The skip log includes `portal_found`.
 - Treat `GuiSyncContext` callbacks as the only bridge back into GUI orchestration.
