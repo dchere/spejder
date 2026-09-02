@@ -3,6 +3,7 @@
 from .queries_listings import (
     get_all_applied_jobs,
     get_applied_jobs,
+    get_applied_pipeline_company_keys,
     get_hidden_jobs,
     get_hidden_jobs_count,
     get_interview_jobs,
@@ -45,6 +46,7 @@ __all__ = [
     "get_all_applied_jobs",
     "get_interview_jobs",
     "get_stopped_interview_jobs",
+    "get_applied_pipeline_company_keys",
     "get_viewed_jobs_count",
     "get_jobs_for_description_refresh",
     "get_jobs_for_scoring",

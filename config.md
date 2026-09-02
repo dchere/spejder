@@ -33,6 +33,10 @@ Replaces the old dictionary-based profile system (`FALLBACK_DEFAULT_PROFILE`). A
 - `default_portrait_path` — committed portrait text file (default `./portrait.txt`)
 - `portrait_max_tokens` — LLM output budget for portrait regeneration (default `1200`)
 
+**Scoring profile fields:**
+- `easy_apply_bonus` — extra relevance for LinkedIn Easy Apply (default `0.75`; `0` disables)
+- `applied_company_bonus` — extra relevance for jobs at companies with an active applied/interview pipeline row and no stopped row for that normalized company key (default `0.75`; `0` disables; score-only, no UI)
+
 **Career-alert artifact profile fields:**
 - `career_alert_artifacts_dir` — user overlay directory for synthesized/edited JSON artifacts (default `./career_alert_artifacts`)
 - `career_alert_artifacts_disabled` — list of artifact ids to skip (default `[]`)

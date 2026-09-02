@@ -1,6 +1,10 @@
 from datetime import datetime, timezone
 
 from .connection import _connect
+from .deduplication_utils import (
+    _canonicalize_company_for_dedupe,
+    _normalize_company_key,
+)
 from .queries_rows import _map_applied_job_row, _map_company_job_row, _map_full_job_row
 from .utils import _provider_from_link
 
@@ -289,6 +293,36 @@ def get_stopped_interview_jobs(db_path: str, limit: int = 0) -> list[dict]:
         return [_map_applied_job_row(r) for r in rows]
     finally:
         conn.close()
+
+
+def get_applied_pipeline_company_keys(db_path: str) -> set[str]:
+    """Normalized company keys eligible for applied-company relevance bonus.
+
+    Eligible = keys with ≥1 applied row where interview_stopped=0, minus keys
+    that also have any applied+stopped row. Blank companies are ignored.
+    Uses the same key as position dedupe.
+    """
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT company, interview_stopped FROM jobs WHERE applied=1"
+        )
+        rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    non_stopped: set[str] = set()
+    stopped: set[str] = set()
+    for company, interview_stopped in rows:
+        key = _normalize_company_key(_canonicalize_company_for_dedupe(company or ""))
+        if not key:
+            continue
+        if int(interview_stopped or 0) == 1:
+            stopped.add(key)
+        else:
+            non_stopped.add(key)
+    return non_stopped - stopped
 
 
 def get_viewed_jobs_count(db_path: str) -> int:

@@ -380,6 +380,7 @@ In `profile.json`:
 - `skill_match_weight`: bonus per matched required skill.
 - `skill_missing_penalty`: penalty per missing required skill.
 - `easy_apply_bonus`: extra score added for LinkedIn jobs when `Easy Apply` is detected in existing text.
+- `applied_company_bonus`: extra score for jobs at companies you already have in Applied or Interview (not Stopped); default `0.75`; set to `0` to disable.
 - `missing_skills_max_items`: max missing-skill suggestions written to profile.
 - `report_max_relevant_positions`: max number of positions shown in `Relevant`, default `7`.
 - `report_max_not_relevant_positions`: max number of positions shown in `Not relevant`, default `42`.

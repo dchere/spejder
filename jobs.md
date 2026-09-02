@@ -4,7 +4,7 @@
 Contains the core business domain logic for processing, scoring, classifying, and deduplicating job records.
 
 **API:**
-- `score_relevance(...)`
+- `score_relevance(...)` — optional `company` and `applied_company_keys` for applied-company bonus; omit/`None`/empty → no bonus
 - `apply_relevance(...)` 
 - `job_in_active_rescore_scope(row) -> bool` — `applied OR on_interview OR interview_stopped OR viewed==0` (Hidden jobs stay `viewed=0`, so they remain in active rescore scope)
 - `rescore_jobs_if_active(db_path, profile, job_ids) -> int` — rescore scoped jobs; skips `manual_feedback` rows
@@ -14,6 +14,10 @@ Contains the core business domain logic for processing, scoring, classifying, an
 - `rescore_job_by_id(...)`
 - `ingest_docs_to_db(...)` — `on_progress` reports running totals across files (`processed` + current file, and the same for inserted/skipped)
 - `ingest_entries_to_db(...)` — upsert pre-built job entry dicts (portal sync, tests)
+
+**Scoring bonuses (`jobs/scoring.py`):**
+- `easy_apply_bonus` (profile, default `0.75`) — LinkedIn Easy Apply signal; additive; `0` disables; recorded in `relevance_reason`; may show as dashboard badge via `_is_easy_apply_item`
+- `applied_company_bonus` (profile, default `0.75`) — additive after skill terms, independent of Easy Apply (both can stack). Eligible company keys = normalized keys with ≥1 `applied=1 AND interview_stopped=0` row minus keys with any `applied=1 AND interview_stopped=1` row (covers Applied + Interview; excludes Stopped and Applied+Stopped same company). Blank company never eligible. Same key as position dedupe: `_normalize_company_key(_canonicalize_company_for_dedupe(company))`. Loaded once per run via `get_applied_pipeline_company_keys` in `apply_relevance` / `rescore_active_jobs` / `rescore_jobs_if_active` / `rescore_job_by_id`. Appends `applied_company=…; applied_company_bonus=…` to `relevance_reason` for debugging only — **no UI badge/chip**. Marking Applied does not rescore sibling jobs at that company (bonus appears on next rescore).
 
 **Context:**
 Originally a monolith mixing SQL execution and logic, `jobs.py` now adheres to the Single Responsibility Principle. All raw `sqlite3` executions have been moved entirely into `db.py`, and runtime dictionary parsing `profile.get(...)` has been replaced by typed attribute resolution via `config.py` (`AppConfig`).

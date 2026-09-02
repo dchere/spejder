@@ -61,6 +61,7 @@ class AppConfig(BaseModel):
     skill_match_weight: float = 1.2
     skill_missing_penalty: float = 0.15
     easy_apply_bonus: float = 0.75
+    applied_company_bonus: float = 0.75
     missing_skills_max_items: int = 25
     skill_new_confidence_threshold: float = 0.9
 

@@ -160,6 +160,7 @@ class RescoreJobsIfActiveTest(unittest.TestCase):
         self.profile.skill_match_weight = 1.0
         self.profile.skill_missing_penalty = 0.5
         self.profile.easy_apply_bonus = 0.0
+        self.profile.applied_company_bonus = 0.0
 
     def tearDown(self):
         self._tmpdir.cleanup()

@@ -3,11 +3,16 @@ from typing import Optional
 
 from spejder.config import AppConfig
 from spejder.db import (
+    get_applied_pipeline_company_keys,
     get_job_for_rescoring,
     get_job_skills,
     get_jobs_for_active_rescore,
     get_jobs_for_scoring,
     update_jobs_relevance,
+)
+from spejder.db.deduplication_utils import (
+    _canonicalize_company_for_dedupe,
+    _normalize_company_key,
 )
 from spejder.db.utils import _normalize_skill_name_key
 from spejder.extractors.skill_extractor.extraction_fallback import _extract_skills_fallback
@@ -25,6 +30,8 @@ def score_relevance(
     position_link: str = "",
     easy_apply_cache: Optional[dict[str, bool]] = None,
     cached_required_skills: Optional[list[str]] = None,
+    company: str = "",
+    applied_company_keys: Optional[set[str]] = None,
 ) -> tuple[float, str, int, str]:
     include = [
         k.lower().strip() for k in profile.include_keywords if k.strip()
@@ -88,6 +95,14 @@ def score_relevance(
     if has_easy_apply and easy_apply_bonus:
         score += easy_apply_bonus
 
+    applied_company_bonus = profile.applied_company_bonus
+    company_key = _normalize_company_key(_canonicalize_company_for_dedupe(company or ""))
+    has_applied_company = bool(
+        company_key and applied_company_keys and company_key in applied_company_keys
+    )
+    if has_applied_company and applied_company_bonus:
+        score += applied_company_bonus
+
     relevant = 1 if score >= min_score else 0
     category = "relevant" if score >= min_score else "not relevant"
 
@@ -96,7 +111,9 @@ def score_relevance(
         f"score={score:.1f}; include={hit_inc[:6]}; exclude={hit_exc[:6]}; "
         f"required_skills={list(required_keys)[:8]}; matched_skills={matched[:8]}; missing_skills={missing[:8]}; "
         f"skill_source={skill_source}; "
-        f"easy_apply={has_easy_apply}; easy_apply_bonus={easy_apply_bonus if has_easy_apply else 0}"
+        f"easy_apply={has_easy_apply}; easy_apply_bonus={easy_apply_bonus if has_easy_apply else 0}; "
+        f"applied_company={has_applied_company}; "
+        f"applied_company_bonus={applied_company_bonus if has_applied_company else 0}"
     )
     return score, reason, relevant, category
 
@@ -127,6 +144,7 @@ def _rescore_row(
     *,
     skill_patterns: list[tuple[str, str]],
     easy_apply_cache: dict[str, bool],
+    applied_company_keys: Optional[set[str]] = None,
 ) -> bool:
     rid = int(row.get("id", 0) or 0)
     if not rid:
@@ -144,6 +162,8 @@ def _rescore_row(
         position_link=str(row.get("position_link") or ""),
         easy_apply_cache=easy_apply_cache,
         cached_required_skills=cached_skills if cached_skills else None,
+        company=str(row.get("company") or ""),
+        applied_company_keys=applied_company_keys,
     )
 
     if int(row.get("applied", 0) or 0) == 1:
@@ -171,6 +191,7 @@ def rescore_jobs_if_active(db_path: str, profile: AppConfig, job_ids: list[int])
 
     skill_patterns = _load_skill_patterns(db_path, profile)
     easy_apply_cache: dict[str, bool] = {}
+    applied_company_keys = get_applied_pipeline_company_keys(db_path)
     rescored = 0
     for row in rows:
         if _rescore_row(
@@ -179,6 +200,7 @@ def rescore_jobs_if_active(db_path: str, profile: AppConfig, job_ids: list[int])
             row,
             skill_patterns=skill_patterns,
             easy_apply_cache=easy_apply_cache,
+            applied_company_keys=applied_company_keys,
         ):
             rescored += 1
     return rescored
@@ -191,6 +213,7 @@ def rescore_active_jobs(db_path: str, profile: AppConfig) -> int:
 
     skill_patterns = _load_skill_patterns(db_path, profile)
     easy_apply_cache: dict[str, bool] = {}
+    applied_company_keys = get_applied_pipeline_company_keys(db_path)
     rescored = 0
     for row in rows:
         if not job_in_active_rescore_scope(row):
@@ -201,6 +224,7 @@ def rescore_active_jobs(db_path: str, profile: AppConfig) -> int:
             row,
             skill_patterns=skill_patterns,
             easy_apply_cache=easy_apply_cache,
+            applied_company_keys=applied_company_keys,
         ):
             rescored += 1
     return rescored
@@ -217,6 +241,7 @@ def apply_relevance(
     skill_patterns = _load_skill_patterns(db_path, profile)
 
     easy_apply_cache: dict[str, bool] = {}
+    applied_company_keys = get_applied_pipeline_company_keys(db_path)
     pending_updates: list[tuple[int, float, str, int, str]] = []
 
     for rid, source, title, company, position_link, raw_text, relevance_reason in rows:
@@ -237,6 +262,8 @@ def apply_relevance(
             position_link=position_link or "",
             easy_apply_cache=easy_apply_cache,
             cached_required_skills=cached_skills if cached_skills else None,
+            company=company or "",
+            applied_company_keys=applied_company_keys,
         )
         pending_updates.append((rid, score, reason, relevant, category))
         if relevant:
@@ -264,6 +291,7 @@ def rescore_job_by_id(db_path: str, profile: AppConfig, job_id: int) -> bool:
 
     skill_patterns = _load_skill_patterns(db_path, profile)
     cached_skills = get_job_skills(db_path, rid) if rid else []
+    applied_company_keys = get_applied_pipeline_company_keys(db_path)
 
     composed = f"{title or ''}\n{company or ''}\n{raw_text or ''}"
     score, reason, relevant, category = score_relevance(
@@ -274,6 +302,8 @@ def rescore_job_by_id(db_path: str, profile: AppConfig, job_id: int) -> bool:
         position_link=position_link or "",
         easy_apply_cache={},
         cached_required_skills=cached_skills if cached_skills else None,
+        company=company or "",
+        applied_company_keys=applied_company_keys,
     )
 
     if int(applied or 0) == 1:

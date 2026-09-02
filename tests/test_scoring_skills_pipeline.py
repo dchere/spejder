@@ -17,6 +17,7 @@ class ScoreRelevanceCachedSkillsTest(unittest.TestCase):
         profile.skill_match_weight = 1.0
         profile.skill_missing_penalty = 0.5
         profile.easy_apply_bonus = 0.0
+        profile.applied_company_bonus = 0.0
         return profile
 
     def test_uses_cached_skills_when_provided(self):

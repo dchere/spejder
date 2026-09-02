@@ -32,6 +32,7 @@ Extracted from `jobs.py`. The rest of the application (including business logic 
   - `get_all_applied_jobs()` — all `applied=1` rows (skill learning, enrichment, raw-text)
   - `get_interview_jobs()` — `applied=1 AND on_interview=1`; excludes `hidden=1`
   - `get_stopped_interview_jobs()` — `applied=1 AND interview_stopped=1`; excludes `hidden=1`
+  - `get_applied_pipeline_company_keys(db_path) -> set[str]` — normalized company keys eligible for applied-company relevance bonus: keys with ≥1 `applied=1 AND interview_stopped=0` minus keys with any `applied=1 AND interview_stopped=1`; blank companies ignored; key = `_normalize_company_key(_canonicalize_company_for_dedupe(company))` (same as position dedupe)
   - `get_hidden_jobs()` / `get_hidden_jobs_count()` — `hidden=1` for Hidden tab
   - `get_viewed_today_jobs(db_path, since_iso, limit=0)` — `viewed=1 AND applied=0 AND COALESCE(hidden,0)=0 AND updated_at IS NOT NULL AND updated_at >= since_iso`, order `updated_at DESC` (Edited today tab; uncapped when `limit=0`)
   - `local_day_start_utc_iso()` — local timezone midnight → UTC ISO (same string style as mutation timestamps); callers pass this as `since_iso`
