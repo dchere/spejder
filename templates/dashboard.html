@@ -83,6 +83,7 @@
             .diff-line-ctx { color: #333; background: #fff; }
             .diff-line-add { color: #116329; background: #e6ffed; }
             .diff-line-del { color: #82071e; background: #ffeef0; }
+            {% include "partials/profile_panel.css" %}
         </style>
     </head>
     <body>
@@ -107,6 +108,9 @@
                     </button>
                     <span id="regenerate-status" class="regenerate-status"></span>
                 </div>
+                <button id="btn-profile" class="toolbar-action-btn" type="button" aria-label="Profile" title="Profile">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                </button>
                 <div class="toolbar-action-group">
                     <button id="btn-sync-inbox" class="toolbar-action-btn" type="button" aria-label="Sync inbox" title="Sync inbox" onclick="syncInbox(this)">
                         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 12h-6l-2-3H10L8 12H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
@@ -146,6 +150,7 @@
             </div>
             <textarea id="portrait-editor" class="portrait-editor">{{ portrait_text }}</textarea>
         </section>
+        {% include "partials/profile_panel.html" %}
 
         <script>
             const btnRelevant = document.getElementById('btn-relevant');
@@ -176,6 +181,7 @@
             let currentMode = 'relevant';
             let pageReportMtime = '';
             let tabRefreshInProgress = false;
+            {% include "partials/profile_panel.js" %}
 
             function apiUrl(path) {
                 if (window.location.protocol === 'file:') {
@@ -463,12 +469,22 @@
                 return portraitDraftPending || portraitEditor.value !== portraitCommitted;
             }
 
-            function setMode(mode) {
+            function confirmLeaveCurrentPanel(mode) {
                 if (currentMode === 'portrait' && mode !== 'portrait' && portraitHasUnsavedChanges()) {
-                    const leave = window.confirm('Portrait has unsaved changes. Leave without saving?');
-                    if (!leave) return;
+                    return window.confirm('Portrait has unsaved changes. Leave without saving?');
                 }
+                if (currentMode === 'profile' && mode !== 'profile' && profileHasUnsavedChanges()) {
+                    const leave = window.confirm('Profile has unsaved changes. Leave without saving?');
+                    if (leave) profileDirty = false;
+                    return leave;
+                }
+                return true;
+            }
+
+            function setMode(mode, skipConfirm) {
+                if (!skipConfirm && !confirmLeaveCurrentPanel(mode)) return;
                 const enteringPortrait = mode === 'portrait' && currentMode !== 'portrait';
+                const enteringProfile = mode === 'profile' && currentMode !== 'profile';
                 currentMode = mode;
                 const isRelevant = mode === 'relevant';
                 const isNotRelevant = mode === 'not relevant';
@@ -479,6 +495,7 @@
                 const isHiddenTab = mode === 'hidden';
                 const isSkills = mode === 'skills';
                 const isPortrait = mode === 'portrait';
+                const isProfile = mode === 'profile';
                 panelRelevant.classList.toggle('hidden', !isRelevant);
                 panelNotRelevant.classList.toggle('hidden', !isNotRelevant);
                 panelEditedToday.classList.toggle('hidden', !isEditedToday);
@@ -488,6 +505,7 @@
                 panelHidden.classList.toggle('hidden', !isHiddenTab);
                 panelSkills.classList.toggle('hidden', !isSkills);
                 panelPortrait.classList.toggle('hidden', !isPortrait);
+                if (panelProfile) panelProfile.classList.toggle('hidden', !isProfile);
                 btnRelevant.classList.toggle('active', isRelevant);
                 btnNotRelevant.classList.toggle('active', isNotRelevant);
                 btnEditedToday.classList.toggle('active', isEditedToday);
@@ -497,8 +515,12 @@
                 btnHidden.classList.toggle('active', isHiddenTab);
                 btnSkills.classList.toggle('active', isSkills);
                 btnPortrait.classList.toggle('active', isPortrait);
+                if (btnProfile) btnProfile.classList.toggle('active', isProfile);
                 if (enteringPortrait) {
                     refreshPortraitFromServer();
+                }
+                if (enteringProfile) {
+                    refreshProfileFromServer();
                 }
             }
 
@@ -507,27 +529,24 @@
                 if (tabRefreshInProgress) return;
                 const tabRefreshStatus = document.getElementById('tab-refresh-status');
                 if (tabRefreshStatus) tabRefreshStatus.textContent = '';
-                if (currentMode === 'portrait' && mode !== 'portrait' && portraitHasUnsavedChanges()) {
-                    const leave = window.confirm('Portrait has unsaved changes. Leave without saving?');
-                    if (!leave) return;
-                }
+                if (!confirmLeaveCurrentPanel(mode)) return;
                 if (window.location.protocol === 'file:') {
-                    setMode(mode);
+                    setMode(mode, true);
                     return;
                 }
                 let status;
                 try {
                     status = await fetchReportStatus();
                 } catch (_err) {
-                    setMode(mode);
+                    setMode(mode, true);
                     return;
                 }
                 if (!status.ok) {
-                    setMode(mode);
+                    setMode(mode, true);
                     return;
                 }
                 if (status.idle && status.last_modified === pageReportMtime) {
-                    setMode(mode);
+                    setMode(mode, true);
                     return;
                 }
                 if (status.idle && status.last_modified && status.last_modified !== pageReportMtime) {
@@ -1408,7 +1427,7 @@
             window.regeneratePortrait = regeneratePortrait;
             window.savePortrait = savePortrait;
             window.addEventListener('beforeunload', (event) => {
-                if (!portraitHasUnsavedChanges()) return;
+                if (!portraitHasUnsavedChanges() && !profileHasUnsavedChanges()) return;
                 event.preventDefault();
                 event.returnValue = '';
             });
@@ -1416,7 +1435,7 @@
             function initTabFromUrl() {
                 const params = new URLSearchParams(window.location.search);
                 const tab = params.get('tab');
-                const validModes = ['relevant', 'not relevant', 'applied', 'interview', 'stopped', 'hidden', 'skills', 'edited today', 'portrait'];
+                const validModes = ['relevant', 'not relevant', 'applied', 'interview', 'stopped', 'hidden', 'skills', 'edited today', 'portrait', 'profile'];
                 if (tab && validModes.includes(tab)) {
                     setMode(tab);
                 }

@@ -1,0 +1,32 @@
+.profile-wrap { background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 12px; }
+.profile-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.profile-btn { border: 1px solid #0a58ca; color: #0a58ca; background: #fff; border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+.profile-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.profile-save-btn { border-color: #198754; color: #198754; }
+.profile-status { font-size: 12px; color: #555; }
+.profile-panel-help { margin: 0 0 12px 0; font-size: 12px; color: #555; line-height: 1.4; max-width: 52rem; }
+.profile-groups { display: flex; flex-direction: column; gap: 16px; }
+.profile-group { border: 1px solid #e5eaf2; border-radius: 8px; padding: 10px 12px; }
+.profile-group h2 { margin: 0 0 10px 0; font-size: 15px; color: #1a1a1a; }
+.profile-field { display: grid; grid-template-columns: minmax(10rem, 14rem) 1fr; gap: 8px 12px; align-items: start; margin-bottom: 10px; }
+.profile-field:last-child { margin-bottom: 0; }
+.profile-field-label { font-size: 13px; color: #333; padding-top: 6px; }
+.profile-field-label .readonly-tag { font-size: 11px; color: #777; font-weight: normal; }
+.profile-field-help { grid-column: 2; font-size: 11px; color: #666; margin-top: -4px; }
+.profile-field input[type="text"],
+.profile-field input[type="number"],
+.profile-field textarea { width: 100%; box-sizing: border-box; border: 1px solid #c9d6f0; border-radius: 6px; padding: 6px 8px; font-size: 13px; }
+.profile-field textarea { min-height: 72px; resize: vertical; font-family: monospace; }
+.profile-field input[type="checkbox"] { width: auto; margin-top: 8px; }
+.profile-field.invalid input,
+.profile-field.invalid textarea { border-color: #b02a37; }
+.profile-field-error { grid-column: 2; font-size: 12px; color: #b02a37; }
+.profile-patterns { display: flex; flex-direction: column; gap: 6px; }
+.profile-pattern-row { display: grid; grid-template-columns: 1fr 2fr auto; gap: 6px; align-items: center; }
+.profile-pattern-row button { border: 1px solid #cc8c8c; color: #7b1111; background: #fff; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
+.profile-add-pattern { align-self: start; border: 1px solid #0a58ca; color: #0a58ca; background: #fff; border-radius: 6px; padding: 4px 8px; cursor: pointer; margin-top: 4px; }
+@media (max-width: 720px) {
+    .profile-field { grid-template-columns: 1fr; }
+    .profile-field-help, .profile-field-error { grid-column: 1; }
+    .profile-pattern-row { grid-template-columns: 1fr; }
+}

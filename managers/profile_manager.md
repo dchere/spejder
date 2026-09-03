@@ -12,4 +12,4 @@ Handles all profile-related mutations and querying for the application.
 - `_protected_skill_keys`
 
 **Context:**
-Extracted from `workflows.py` to isolate configuration logic from workflow orchestration.
+Extracted from `workflows.py` to isolate configuration logic from workflow orchestration. Dashboard Profile panel GET/save lives in `profile_editor.md` (partial merge into live runtime; Skills/Sync persist still share the same `profile.json`).

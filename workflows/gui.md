@@ -18,4 +18,7 @@ Extracted workflow module. `gui.py` now focuses on server orchestration + depend
 **Background sync:**
 The 8-step background sync pipeline lives in `spejder/workflows/gui_sync.py` (`GuiSyncContext`, `InboxSyncRunner`, `run_inbox_sync`). `serve_gui` performs a **linear startup**: start the dashboard rebuild worker, queue a blocking startup snapshot rebuild (`wait_until_idle`), then start the HTTP server. After bind, a single post-bind daemon thread opens the browser (unless `--no-open`) and calls `InboxSyncRunner.trigger()` — the same entry point as the dashboard **Sync inbox** button. `trigger_inbox_sync` / `get_inbox_sync_status` are passed into the FastAPI app for that button. `serve-gui` CLI startup validates the language checker and configured translation model slots via `COMMAND_INIT` before the server starts; slots 2–3 are optional.
 
+**Profile persistence:**
+`_persist_runtime_profile` / `_reload_runtime_profile` are passed into the FastAPI app. Dashboard Profile save (`POST /api/profile/save`) writes the validated profile to `profile_path` and calls `reload_runtime_profile()` so the same live `runtime_profile` object used by Sync and scoring is updated in place.
+
 See `spejder/workflows.md` for the workflow-level summary.

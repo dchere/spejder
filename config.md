@@ -44,5 +44,11 @@ Replaces the old dictionary-based profile system (`FALLBACK_DEFAULT_PROFILE`). A
 - `career_alert_synth_link_ratio` — minimum fraction of LLM-proposed links the interpreter must recover (default `0.8`)
 - `career_alert_synth_title_ratio` — minimum title-agreement fraction on recovered ∩ proposed links (default `0.8`)
 
+**Dashboard Profile editor:**
+- Editable: every `AppConfig` field except auto-written ones (see `managers/profile_editor.md`)
+- Read-only in the UI (server ignores client values, keeps runtime): `skill_bigram_toxicity_threshold`, `bad_cloud_seeded`
+- Save writes the profile file then calls `reload_runtime_profile()` so the live serve-gui object used by Sync/scoring updates without a process restart
+- `server_host` / `server_port` (and other startup-bound paths such as inbox/db/report dir) persist immediately but still need a serve-gui restart to rebind or re-open those resources
+
 **Dependencies:**
 - `pydantic`, `json`, `os`

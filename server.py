@@ -3,12 +3,13 @@
 import os
 import threading
 from email.utils import formatdate
+from typing import Any
 
-from fastapi import FastAPI
+from fastapi import Body, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from spejder.db import (
     append_applied_job_raw_text,
@@ -34,6 +35,11 @@ from .extractors.skill_extractor import _normalize_skill_name
 from .extractors.skill_extractor.bad_cloud import on_skills_blocked
 from .llm import LocalLLM
 from .managers.dashboard_manager import _render_company_dashboard_html
+from .managers.profile_editor import (
+    build_profile_get_response,
+    save_profile_updates,
+    validation_errors_by_field,
+)
 from .managers.profile_manager import (
     _block_skill_in_profile,
     _remove_skill_from_profile,
@@ -577,6 +583,50 @@ def create_app(
             }
         finally:
             portrait_generate_lock.release()
+
+    @app.get("/api/profile")
+    def api_profile_get():
+        return build_profile_get_response(runtime_profile)
+
+    @app.post("/api/profile/save")
+    def api_profile_save(payload: Any = Body(...)):
+        if not isinstance(payload, dict):
+            return JSONResponse(
+                status_code=400,
+                content={"ok": False, "error": "body must be a JSON object"},
+            )
+        try:
+            save_profile_updates(
+                runtime_profile,
+                payload,
+                profile_path,
+                reload_runtime_profile,
+            )
+        except ValidationError as exc:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "ok": False,
+                    "error": "validation failed",
+                    "errors": validation_errors_by_field(exc),
+                },
+            )
+        except (ValueError, TypeError) as exc:
+            return JSONResponse(
+                status_code=400,
+                content={"ok": False, "error": str(exc)},
+            )
+        except OSError as exc:
+            print(f"API: profile save disk error: {exc}")
+            return JSONResponse(
+                status_code=500,
+                content={"ok": False, "error": "failed to write profile"},
+            )
+        print(f"API: saved profile to {profile_path}")
+        return {
+            "ok": True,
+            "values": runtime_profile.model_dump(),
+        }
 
     @app.get("/company.html")
     def company_page(company: str = ""):

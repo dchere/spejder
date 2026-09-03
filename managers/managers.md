@@ -5,6 +5,7 @@ Higher-level services coordinating config, HTML rendering, and language tooling.
 
 **Modules:**
 - `profile_manager.py` / `profile_manager.md` — profile defaults and persistence
+- `profile_editor.py` / `profile_editor_fields.py` / `profile_editor.md` — dashboard Profile panel metadata, validation, and save+reload helpers
 - `dashboard_manager.py` / `dashboard_manager.md` — interactive HTML dashboard generation (Edited today / Applied / Interview / Stopped / Hidden panels; live company-feedback pre-fill via `data-company-feedback` and `ensureCompanyFeedbackUI`)
 - `language_manager/` / `language_manager.md` — detection, translation, title normalization
   - `detection.py` — FastText Danish and Ukrainian detection (`translation_source_language`)

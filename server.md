@@ -28,10 +28,12 @@ Provides an interactive dashboard (web GUI) to review extracted jobs and view th
 - `GET /company.html` — company-filtered dashboard; computes local-day `since_iso`, loads `get_viewed_today_jobs` for Edited today partition order, and passes `viewed_today_order` into `_render_company_dashboard_html`
 - `POST /api/portrait/generate` — sync LLM regeneration; returns `{ ok, draft, committed, diff_html }`; requires `default_model`; 503 without model; 400 without context; 409 when generation already in progress; does not write file
 - `POST /api/portrait/save` — `{ text }`; writes portrait file; no dashboard rebuild
+- `GET /api/profile` — `{ ok, values, fields, groups }`; `values` is `runtime_profile.model_dump()`; `fields`/`groups` from `profile_editor` metadata
+- `POST /api/profile/save` — JSON object of AppConfig field→value (partial updates: only keys present are merged into live runtime); rejects non-object body and unknown keys (400); forces retain of readonly fields; validates via `AppConfig`; ordering merge → write `profile_path` → `reload_runtime_profile()`; ValidationError / ValueError / TypeError → 400 with Portrait-style envelope; `OSError` → 500 `{ ok: false, error: "failed to write profile" }`. Does not auto-rescore existing jobs.
 
 **Context:**
 Originally built with the built-in `http.server`, it has been upgraded to a modern asynchronous stack using **FastAPI** and **Uvicorn**. It provides endpoints like `/`, `/company.html`, `/logs`, `/action/submit_job`, etc. It fetches data via `db.py` and renders HTML via `managers/dashboard_manager.py` (Jinja2 templates).
 
 **Dependencies:**
 - `fastapi`, `uvicorn`, `pydantic`
-- `spejder.db`, `spejder.workflows`, `spejder.managers.dashboard_manager`
+- `spejder.db`, `spejder.workflows`, `spejder.managers.dashboard_manager`, `spejder.managers.profile_editor`
