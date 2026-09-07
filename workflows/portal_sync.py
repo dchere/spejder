@@ -14,7 +14,17 @@ def sync_itday_portal(
     db_path: str,
     *,
     entry_transform: Optional[Callable[[dict], dict]] = None,
+    enabled: bool = True,
 ) -> dict[str, object]:
+    if not enabled:
+        print("IT-DAY portal sync: not enabled in profile")
+        return {
+            "processed": 0,
+            "inserted_new": 0,
+            "skipped_existing": 0,
+            "found": 0,
+            "skipped_disabled": True,
+        }
     ensure_db(db_path)
     try:
         entries = fetch_itday_portal_entries()

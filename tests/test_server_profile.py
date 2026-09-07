@@ -176,7 +176,10 @@ class ServerProfileApiTest(unittest.TestCase):
         self.assertEqual(field_names, set(AppConfig.model_fields))
         group_ids = [item["id"] for item in payload["groups"]]
         self.assertIn("keywords_scoring", group_ids)
+        self.assertIn("portals", group_ids)
         self.assertIn("auto_written", group_ids)
+        self.assertIn("itday_portal_sync_enabled", field_names)
+        self.assertTrue(payload["values"]["itday_portal_sync_enabled"])
 
     def test_save_roundtrip_reloads_runtime(self):
         response = self.client.post(
@@ -184,20 +187,25 @@ class ServerProfileApiTest(unittest.TestCase):
             json={
                 "min_score": 4.25,
                 "include_keywords": ["python", "rust"],
+                "itday_portal_sync_enabled": False,
             },
         )
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["values"]["min_score"], 4.25)
+        self.assertFalse(payload["values"]["itday_portal_sync_enabled"])
         self.assertEqual(self.runtime_profile.min_score, 4.25)
         self.assertEqual(self.runtime_profile.include_keywords, ["python", "rust"])
+        self.assertFalse(self.runtime_profile.itday_portal_sync_enabled)
         with open(self.profile_path, encoding="utf-8") as handle:
             saved = json.load(handle)
         self.assertEqual(saved["min_score"], 4.25)
+        self.assertFalse(saved["itday_portal_sync_enabled"])
 
         response = self.client.get("/api/profile")
         self.assertEqual(response.json()["values"]["min_score"], 4.25)
+        self.assertFalse(response.json()["values"]["itday_portal_sync_enabled"])
 
     def test_save_list_and_skill_pattern_roundtrip(self):
         response = self.client.post(

@@ -48,7 +48,11 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
     entry_transform = make_translate_job_entry_for_storage(
         profile, text_translation_cache, title_translation_cache
     )
-    portal_stats = sync_itday_portal(db_path, entry_transform=entry_transform)
+    portal_stats = sync_itday_portal(
+        db_path,
+        entry_transform=entry_transform,
+        enabled=profile.itday_portal_sync_enabled,
+    )
     missing_descriptions = get_jobs_for_description_refresh(
         db_path, missing_only=True, limit=1
     )

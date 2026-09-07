@@ -17,4 +17,4 @@ Wix renders page controls client-side without changing the browser URL. Server-s
 Each card is a `.wixui-repeater__item`. Company/title come from `.wixui-collapsible-text__text`; place and opportunity type from the first two `h2` elements. Cards link to external ATS/apply URLs; internal IT-DAY pages are included only for `/praktik`. Intern/`praktik` listings stay in scope as jobs. Social/footer links are skipped, including LinkedIn `/in/`, `/company/`, and share URLs; `linkedin.com/jobs/` apply URLs are kept. Listing `http://` links are canonicalized to `https://` after `urljoin`. Duplicate card hrefs are dropped.
 
 **Context:**
-Used by `spejder.workflows.portal_sync.sync_itday_portal`, which upserts entries through `ingest_entries_to_db`. No JavaScript runtime is required.
+Used by `spejder.workflows.portal_sync.sync_itday_portal`, which upserts entries through `ingest_entries_to_db` when its `enabled` flag is true (callers pass `AppConfig.itday_portal_sync_enabled`). The parser does not read the profile. No JavaScript runtime is required.

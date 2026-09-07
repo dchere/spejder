@@ -74,7 +74,9 @@ class AppConfig(BaseModel):
     career_alert_synth_enabled: bool = False
     career_alert_synth_link_ratio: float = 0.8
     career_alert_synth_title_ratio: float = 0.8
-    
+
+    itday_portal_sync_enabled: bool = True
+
     user_skills: list[str] = Field(default_factory=list)
     blocked_skills: list[str] = Field(default_factory=list)
     skill_bigram_toxicity_threshold: Optional[float] = None

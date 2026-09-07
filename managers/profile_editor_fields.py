@@ -19,6 +19,7 @@ GROUP_ORDER = (
     "language",
     "skills",
     "career_alert",
+    "portals",
     "auto_written",
 )
 
@@ -30,6 +31,7 @@ GROUP_TITLES = {
     "language": "Language",
     "skills": "Skills learning / extraction",
     "career_alert": "Career-alert artifacts",
+    "portals": "Job portals",
     "auto_written": "Auto-written (read-only)",
 }
 
@@ -166,6 +168,16 @@ PROFILE_FIELD_META: dict[str, dict[str, Any]] = {
     ),
     "career_alert_synth_link_ratio": _field("career_alert", "Synth link ratio", "number"),
     "career_alert_synth_title_ratio": _field("career_alert", "Synth title ratio", "number"),
+    "itday_portal_sync_enabled": _field(
+        "portals",
+        "Sync IT-DAY job portal",
+        "checkbox",
+        help=(
+            "When enabled, Sync inbox / serve-gui / process-inbox fetch listings "
+            "from https://www.itday.dk/job-portal. Disabling skips fetch; "
+            "existing portal jobs stay in the DB."
+        ),
+    ),
     "skill_bigram_toxicity_threshold": _field(
         "auto_written", "Skill bigram toxicity threshold", "number",
         readonly=True,

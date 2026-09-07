@@ -94,10 +94,13 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
             title_translation_cache,
         )
 
-        _emit_stage(context, "portal", "Checking IT-DAY job portal")
+        portal_enabled = context.runtime_profile.itday_portal_sync_enabled
+        if portal_enabled:
+            _emit_stage(context, "portal", "Checking IT-DAY job portal")
         portal_stats = sync_itday_portal(
             context.db_path,
             entry_transform=entry_transform,
+            enabled=portal_enabled,
         )
 
         if (
@@ -105,11 +108,17 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
             and not has_missing_descriptions
             and int(portal_stats.get("inserted_new", 0) or 0) == 0
         ):
-            print(
-                "Background sync: no documents in inbox, no missing descriptions, "
-                "and no new IT-DAY portal positions "
-                f"(portal_found={portal_stats.get('found', 0)}), skipping"
-            )
+            if portal_stats.get("skipped_disabled"):
+                print(
+                    "Background sync: no documents in inbox, no missing descriptions, "
+                    "and IT-DAY portal sync disabled (portal_sync=disabled), skipping"
+                )
+            else:
+                print(
+                    "Background sync: no documents in inbox, no missing descriptions, "
+                    "and no new IT-DAY portal positions "
+                    f"(portal_found={portal_stats.get('found', 0)}), skipping"
+                )
             _emit_stage(context, "skipped", "Nothing to sync")
             return InboxSyncResult(status="skipped")
 

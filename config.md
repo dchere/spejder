@@ -44,6 +44,9 @@ Replaces the old dictionary-based profile system (`FALLBACK_DEFAULT_PROFILE`). A
 - `career_alert_synth_link_ratio` — minimum fraction of LLM-proposed links the interpreter must recover (default `0.8`)
 - `career_alert_synth_title_ratio` — minimum title-agreement fraction on recovered ∩ proposed links (default `0.8`)
 
+**Job portal profile fields:**
+- `itday_portal_sync_enabled` — when true (default), Sync inbox / serve-gui / process-inbox fetch and ingest [IT-DAY job portal](https://www.itday.dk/job-portal) listings; when false, portal sync is skipped (existing portal rows are left in place)
+
 **Dashboard Profile editor:**
 - Editable: every `AppConfig` field except auto-written ones (see `managers/profile_editor.md`)
 - Read-only in the UI (server ignores client values, keeps runtime): `skill_bigram_toxicity_threshold`, `bad_cloud_seeded`

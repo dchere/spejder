@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import unittest
+from dataclasses import replace
 from io import BytesIO
 from typing import Optional
 from unittest.mock import patch
@@ -142,6 +143,29 @@ class ItdayPortalSyncTest(unittest.TestCase):
         self.assertIn("error", stats)
         mock_fetch.assert_called_once()
 
+    @patch("spejder.workflows.portal_sync.ensure_db")
+    @patch("spejder.workflows.portal_sync.fetch_itday_portal_entries")
+    def test_sync_itday_portal_disabled_skips_fetch(self, mock_fetch, mock_ensure_db):
+        with patch("builtins.print") as mock_print:
+            stats = sync_itday_portal(self.db_path, enabled=False)
+
+        self.assertEqual(
+            stats,
+            {
+                "processed": 0,
+                "inserted_new": 0,
+                "skipped_existing": 0,
+                "found": 0,
+                "skipped_disabled": True,
+            },
+        )
+        self.assertNotIn("error", stats)
+        mock_fetch.assert_not_called()
+        mock_ensure_db.assert_not_called()
+        mock_print.assert_called_once_with(
+            "IT-DAY portal sync: not enabled in profile"
+        )
+
     def _fetch_job(self, link: str) -> Optional[dict]:
         conn = _connect(self.db_path)
         try:
@@ -233,6 +257,27 @@ class RunInboxSyncPortalTest(unittest.TestCase):
         result = run_inbox_sync(self.context)
         self.assertEqual(result.status, "done")
 
+    @patch("spejder.workflows.portal_sync.fetch_itday_portal_entries")
+    @patch("spejder.workflows.gui_sync.get_jobs_for_description_refresh", return_value=[])
+    def test_skips_portal_fetch_when_disabled(self, _desc_mock, mock_fetch):
+        stages: list[str] = []
+        self.context.runtime_profile.itday_portal_sync_enabled = False
+        context = replace(
+            self.context,
+            on_stage=lambda stage_id, _message: stages.append(stage_id),
+        )
+        with patch(
+            "spejder.workflows.gui_sync.sync_itday_portal",
+            wraps=sync_itday_portal,
+        ) as mock_sync:
+            result = run_inbox_sync(context)
+        self.assertEqual(result.status, "skipped")
+        mock_fetch.assert_not_called()
+        mock_sync.assert_called_once()
+        self.assertIs(mock_sync.call_args.kwargs["enabled"], False)
+        self.assertNotIn("portal", stages)
+        self.assertIn("skipped", stages)
+
 
 class ItdayPortalEnsureDbPruneTest(unittest.TestCase):
     def setUp(self):
@@ -321,6 +366,20 @@ class ProcessInboxPortalTest(unittest.TestCase):
                 model="",
             )
         mock_sync.assert_called_once()
+        self.assertTrue(mock_sync.call_args.kwargs["enabled"])
+
+    @patch("spejder.workflows.portal_sync.fetch_itday_portal_entries")
+    def test_empty_inbox_skips_portal_when_disabled(self, mock_fetch):
+        with open(self.profile_path, "w", encoding="utf-8") as handle:
+            json.dump({"itday_portal_sync_enabled": False}, handle)
+
+        process_inbox(
+            inbox=self.inbox,
+            db=self.db_path,
+            profile=self.profile_path,
+            model="",
+        )
+        mock_fetch.assert_not_called()
 
 
 if __name__ == "__main__":
