@@ -5,13 +5,15 @@ from .skills_bad_ngrams import (
     upsert_bad_ngram_counts,
     upsert_bad_ngrams,
 )
-from .skills_links import (
+from .skills_delete import (
     cleanup_blocked_skills_from_db,
+    delete_skill_from_db,
+)
+from .skills_links import (
     clear_job_skills_for_job,
     clear_job_skills_for_unviewed_jobs,
     count_job_links_for_skills,
     count_jobs_with_skill_links,
-    delete_skill_from_db,
     get_job_ids_for_skill,
     get_job_skills,
     get_job_skills_for_jobs,

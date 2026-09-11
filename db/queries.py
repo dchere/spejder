@@ -1,18 +1,20 @@
 """Job query facade — re-exports split query modules."""
 
-from .queries_listings import (
+from .queries_applied import (
     get_all_applied_jobs,
     get_applied_jobs,
     get_applied_pipeline_company_keys,
+    get_interview_jobs,
+    get_stopped_interview_jobs,
+)
+from .queries_listings import (
     get_hidden_jobs,
     get_hidden_jobs_count,
-    get_interview_jobs,
     get_jobs_by_category,
     get_jobs_by_category_paged,
     get_jobs_by_company,
     get_jobs_count_by_category,
     get_relevant_jobs,
-    get_stopped_interview_jobs,
     get_viewed_jobs_count,
     get_viewed_today_jobs,
     local_day_start_utc_iso,

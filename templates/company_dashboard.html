@@ -106,12 +106,6 @@
             }
 
             function bumpPanelTotal(panel, delta) {
-                let btn = null;
-                if (panel === panelRelevant) btn = btnRelevant;
-                if (panel === panelNotRelevant) btn = btnNotRelevant;
-                if (!btn) return;
-                const current = Number.parseInt(btn.dataset.total || '0', 10) || 0;
-                btn.dataset.total = String(Math.max(0, current + delta));
             }
 
             function refreshCounts() {

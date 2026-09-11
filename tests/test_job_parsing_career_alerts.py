@@ -2,6 +2,7 @@
 
 import os
 import unittest
+from unittest.mock import patch
 
 from spejder.db import (
     _decode_mandrill_track_link,
@@ -335,6 +336,85 @@ View job: https://careers.novonordisk.com/job/S%C3%B8borg-Lead-Software-Engineer
         self.assertEqual(entry["place"], "Søborg")
         self.assertEqual(entry["work_type"], "On-site")
         self.assertEqual(entry["source"], "Novo Nordisk")
+
+
+class PlatformMergeOrderTest(unittest.TestCase):
+    def test_google_wins_title_collision_with_jobindex(self):
+        link = GOOGLE_FACILITIES_MANAGER_NORMALIZED
+        jobindex_fields = {
+            "title": "Jobindex Title",
+            "company": "Other Co",
+            "place": "Copenhagen",
+            "work_type": "Unknown",
+            "raw_text": "jobindex raw",
+            "source": "Jobindex",
+        }
+        google_full = {
+            "title": "Google Title",
+            "company": "Google",
+            "place": "Fredericia",
+            "work_type": "On-site",
+            "raw_text": "google raw",
+            "source": "Google Careers",
+        }
+        google_omit_skip_keys = {
+            "title": "Google Title",
+            "company": "Google",
+            "place": "Fredericia",
+            "raw_text": "google raw",
+        }
+        cases = (
+            (
+                "text_seed",
+                (
+                    "Text Seed Title\n"
+                    "Text Seed Company A/S\n"
+                    "Copenhagen, Denmark\n"
+                    f"View job: {link}\n"
+                ),
+                google_full,
+                {},
+                False,
+            ),
+            (
+                "links_only",
+                "",
+                google_omit_skip_keys,
+                {"work_type": "Hybrid"},
+                True,
+            ),
+        )
+        for path, text, google_fields, html_fields, check_skip_keys in cases:
+            with self.subTest(path=path):
+                with (
+                    patch(
+                        "spejder.jobs.parsing.core._extract_google_entries_by_link",
+                        return_value={link: google_fields},
+                    ),
+                    patch(
+                        "spejder.jobs.parsing.core._extract_jobindex_entries_by_link",
+                        return_value={link: jobindex_fields},
+                    ),
+                    patch(
+                        "spejder.jobs.parsing.core._extract_html_entries_by_link",
+                        return_value={link: html_fields} if html_fields else {},
+                    ),
+                ):
+                    entries = extract_job_entries(
+                        {"html": "", "text": text, "title": "", "links": [link]}
+                    )
+                self.assertEqual(len(entries), 1)
+                entry = entries[0]
+                self.assertEqual(entry["title"], "Google Title")
+                self.assertEqual(entry["company"], "Google")
+                self.assertEqual(entry["place"], "Fredericia")
+                self.assertEqual(entry["raw_text"], "google raw")
+                if check_skip_keys:
+                    self.assertNotEqual(entry["work_type"], "Unknown")
+                    self.assertNotEqual(entry["source"], "Jobindex")
+                else:
+                    self.assertEqual(entry["work_type"], "On-site")
+                    self.assertEqual(entry["source"], "Google Careers")
 
 
 class CareerAlertIntegrationTest(unittest.TestCase):

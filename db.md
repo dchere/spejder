@@ -27,22 +27,23 @@ Implements the Repository Pattern, acting as the strict single source of truth f
 Extracted from `jobs.py`. The rest of the application (including business logic in `jobs.py` and `workflows.py`) only interacts with abstract Python data structures (lists, dicts, tuples) and never executes SQL directly. This ensures complete isolation of the persistence layer.
 
 **Query modules (`queries.py` facade):**
-- `queries_listings.py` — category/company/applied/hidden listings and viewed counts
+- `queries_listings.py` — category/company/hidden/viewed listings plus `_JOB_SELECT_COLS`
+  - `get_hidden_jobs()` / `get_hidden_jobs_count()` — `hidden=1` for Hidden tab
+  - `get_viewed_today_jobs(db_path, since_iso, limit=0)` — `viewed=1 AND applied=0 AND COALESCE(hidden,0)=0 AND updated_at IS NOT NULL AND updated_at >= since_iso`, order `updated_at DESC` (Edited today tab; uncapped when `limit=0`)
+  - `local_day_start_utc_iso()` — local timezone midnight → UTC ISO (same string style as mutation timestamps); callers pass this as `since_iso`
+- `queries_applied.py` — applied-stage getters
   - `get_applied_jobs()` — `applied=1` and not on interview/stopped (Applied tab); excludes `hidden=1`
   - `get_all_applied_jobs()` — all `applied=1` rows (skill learning, enrichment, raw-text)
   - `get_interview_jobs()` — `applied=1 AND on_interview=1`; excludes `hidden=1`
   - `get_stopped_interview_jobs()` — `applied=1 AND interview_stopped=1`; excludes `hidden=1`
   - `get_applied_pipeline_company_keys(db_path) -> set[str]` — normalized company keys eligible for applied-company relevance bonus: keys with ≥1 `applied=1 AND interview_stopped=0` minus keys with any `applied=1 AND interview_stopped=1`; blank companies ignored; key = `_normalize_company_key(_canonicalize_company_for_dedupe(company))` (same as position dedupe)
-  - `get_hidden_jobs()` / `get_hidden_jobs_count()` — `hidden=1` for Hidden tab
-  - `get_viewed_today_jobs(db_path, since_iso, limit=0)` — `viewed=1 AND applied=0 AND COALESCE(hidden,0)=0 AND updated_at IS NOT NULL AND updated_at >= since_iso`, order `updated_at DESC` (Edited today tab; uncapped when `limit=0`)
-  - `local_day_start_utc_iso()` — local timezone midnight → UTC ISO (same string style as mutation timestamps); callers pass this as `since_iso`
   - Applied-stage listings sort by `(applied_at IS NULL), applied_at DESC, updated_at DESC` (dated rows first; null `applied_at` last)
 - `queries_refresh.py` — description refresh, scoring candidate rows, active rescore scope
   - `get_jobs_for_active_rescore()` — jobs where `applied=1 OR on_interview=1 OR interview_stopped=1 OR viewed=0`
 - `queries_signals.py` — dedupe, merge, and suggestion queries
 - `queries_rows.py` — shared SQL row → dict mappers
 
-`db/__init__.py` re-exports the public query API from `queries.py`; callers should not import submodules unless testing internals.
+`db/__init__.py` lazily re-exports the public API from `connection` / `skills` / `queries` / `mutations` / `utils` via `__getattr__` and `__dir__` (plus `__all__`). `from spejder.db import get_relevant_jobs` is unchanged; importing `spejder.config` or `spejder.db.utils` does not load `queries_listings`. Callers should not import submodules unless testing internals.
 
 **Mutation modules (`mutations.py` facade):**
 - `mutations_upsert.py` — `upsert_job`, `update_jobs_relevance`, `delete_jobs`, `update_job_source`, `batch_update_and_delete_jobs`
@@ -52,9 +53,10 @@ Extracted from `jobs.py`. The rest of the application (including business logic 
 
 **Skill modules (`skills.py` facade):**
 - `skills_patterns.py` — get/upsert/migrate/`_skill_to_regex_simple`
-- `skills_links.py` — job_skills CRUD, delete, cleanup, top/count (slightly over ~300; kept as one links domain)
+- `skills_links.py` — job_skills CRUD, rank/count
+- `skills_delete.py` — `delete_skill_from_db`, `cleanup_blocked_skills_from_db`
 - `skills_bad_ngrams.py` — `bad_ngram_*`
-- `skills.py` re-exports; `db/__init__.py` is unchanged
+- `skills.py` re-exports every public name; `db/__init__.py` lazily maps them via `_EXPORTS` / `__getattr__` / `__dir__` (same as the queries facade)
 
 **Connection (`connection.py`):**
 - Keeps `_connect`, `get_job_link`, `ensure_db` (one connection and one commit, as before)

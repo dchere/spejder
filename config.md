@@ -62,4 +62,4 @@ Replaces the old dictionary-based profile system (`FALLBACK_DEFAULT_PROFILE`). A
 - `server_host` / `server_port` (and other startup-bound paths such as inbox/db/report dir) persist immediately but still need a serve-gui restart to rebind or re-open those resources
 
 **Dependencies:**
-- `pydantic`, `json`, `os`, `spejder.db.utils` (`_normalize_skill_name_key` only; db does not import config)
+- `pydantic`, `json`, `os`, `spejder.db.utils` (`_normalize_skill_name_key` only; db does not import config). `AppConfig` → `db.utils` no longer executes the queries/mutations/skills facade (`db/__init__.py` is lazy).

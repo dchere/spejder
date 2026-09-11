@@ -12,7 +12,8 @@
 | `artifact_heuristic.py` | Deterministic CTA-digest drafts (iCIMS Apply-here + strong title) |
 | `html_shrink.py` | Deterministic shrink for synth prompts |
 | `artifact_synth_json.py` | Truncated-JSON recovery (`_balanced_json_slice` … `_recover_truncated_synth_payload` / `_extract_json_object`) |
-| `artifact_synth.py` | Heuristic and/or shrink → GGUF → validate thresholds → overlay persist; re-exports `_extract_json_object`. Still over ~300 after the JSON-recovery split (orchestration leftover; further cut skipped). |
+| `artifact_synth_validate.py` | Jaccard/title agreement, `validate_synth_thresholds`, broad-match gates |
+| `artifact_synth.py` | Prompt, persist, `try_synthesize_artifact`; re-exports `_extract_json_object` and `validate_synth_thresholds` |
 | `artifacts/*.json` | Shipped recipes (Jobs2Web Vestas/Danfoss/Novo Nordisk) |
 
 ## Storage

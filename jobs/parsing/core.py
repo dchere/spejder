@@ -26,9 +26,10 @@ from .platforms_career_alerts import (
     _extract_thehub_entries_by_link,
     _extract_vestas_entries_by_link,
 )
+from .merge import _ENTRY_FIELD_KEYS, merge_entry_fields
 from .text_parser import _extract_entries_from_text
 
-_ENTRY_FIELD_KEYS = ("title", "company", "place", "work_type", "raw_text", "source")
+_JOBINDEX_MERGE_SKIP_KEYS = frozenset({"work_type", "source"})
 
 
 def _fill_empty_fields(entry: dict, fields: dict) -> None:
@@ -38,6 +39,16 @@ def _fill_empty_fields(entry: dict, fields: dict) -> None:
         value = fields.get(key)
         if value and not entry.get(key):
             entry[key] = value
+
+
+def _jobindex_merge_fields(fields: dict) -> dict:
+    if not fields:
+        return {}
+    return {
+        key: value
+        for key, value in fields.items()
+        if key not in _JOBINDEX_MERGE_SKIP_KEYS
+    }
 
 
 def extract_job_entries(
@@ -75,201 +86,31 @@ def extract_job_entries(
     for entry in by_text:
         by_link[entry["position_link"]] = entry
 
+    def _maps_for(link: str) -> tuple:
+        return (
+            google_by_link.get(link, {}),
+            thehub_by_link.get(link, {}),
+            djinni_by_link.get(link, {}),
+            danfoss_by_link.get(link, {}),
+            vestas_by_link.get(link, {}),
+            novonordisk_by_link.get(link, {}),
+            oracle_by_link.get(link, {}),
+            demant_by_link.get(link, {}),
+            _jobindex_merge_fields(jobindex_by_link.get(link, {})),
+            html_by_link.get(link, {}),
+        )
+
     for lnk, entry in by_link.items():
-        html_fields = html_by_link.get(lnk, {})
-        ji_fields = jobindex_by_link.get(lnk, {})
-        demant_fields = demant_by_link.get(lnk, {})
-        danfoss_fields = danfoss_by_link.get(lnk, {})
-        google_fields = google_by_link.get(lnk, {})
-        vestas_fields = vestas_by_link.get(lnk, {})
-        novonordisk_fields = novonordisk_by_link.get(lnk, {})
-        thehub_fields = thehub_by_link.get(lnk, {})
-        djinni_fields = djinni_by_link.get(lnk, {})
-        oracle_fields = oracle_by_link.get(lnk, {})
+        merged = merge_entry_fields(*_maps_for(lnk))
+        for key in _ENTRY_FIELD_KEYS:
+            value = merged.get(key)
+            if value:
+                entry[key] = value
 
-        if google_fields.get("title"):
-            entry["title"] = google_fields["title"]
-        if google_fields.get("company"):
-            entry["company"] = google_fields["company"]
-        if google_fields.get("place"):
-            entry["place"] = google_fields["place"]
-        if google_fields.get("work_type"):
-            entry["work_type"] = google_fields["work_type"]
-        if google_fields.get("raw_text"):
-            entry["raw_text"] = google_fields["raw_text"]
-        if google_fields.get("source"):
-            entry["source"] = google_fields["source"]
-
-        if vestas_fields.get("title"):
-            entry["title"] = vestas_fields["title"]
-        if vestas_fields.get("company"):
-            entry["company"] = vestas_fields["company"]
-        if vestas_fields.get("place"):
-            entry["place"] = vestas_fields["place"]
-        if vestas_fields.get("work_type"):
-            entry["work_type"] = vestas_fields["work_type"]
-        if vestas_fields.get("raw_text"):
-            entry["raw_text"] = vestas_fields["raw_text"]
-        if vestas_fields.get("source"):
-            entry["source"] = vestas_fields["source"]
-
-        if novonordisk_fields.get("title"):
-            entry["title"] = novonordisk_fields["title"]
-        if novonordisk_fields.get("company"):
-            entry["company"] = novonordisk_fields["company"]
-        if novonordisk_fields.get("place"):
-            entry["place"] = novonordisk_fields["place"]
-        if novonordisk_fields.get("work_type"):
-            entry["work_type"] = novonordisk_fields["work_type"]
-        if novonordisk_fields.get("raw_text"):
-            entry["raw_text"] = novonordisk_fields["raw_text"]
-        if novonordisk_fields.get("source"):
-            entry["source"] = novonordisk_fields["source"]
-
-        if thehub_fields.get("title"):
-            entry["title"] = thehub_fields["title"]
-        if thehub_fields.get("company"):
-            entry["company"] = thehub_fields["company"]
-        if thehub_fields.get("place"):
-            entry["place"] = thehub_fields["place"]
-        if thehub_fields.get("work_type"):
-            entry["work_type"] = thehub_fields["work_type"]
-        if thehub_fields.get("raw_text"):
-            entry["raw_text"] = thehub_fields["raw_text"]
-        if thehub_fields.get("source"):
-            entry["source"] = thehub_fields["source"]
-
-        if djinni_fields.get("title"):
-            entry["title"] = djinni_fields["title"]
-        if djinni_fields.get("company"):
-            entry["company"] = djinni_fields["company"]
-        if djinni_fields.get("place"):
-            entry["place"] = djinni_fields["place"]
-        if djinni_fields.get("work_type"):
-            entry["work_type"] = djinni_fields["work_type"]
-        if djinni_fields.get("raw_text"):
-            entry["raw_text"] = djinni_fields["raw_text"]
-        if djinni_fields.get("source"):
-            entry["source"] = djinni_fields["source"]
-
-        if oracle_fields.get("title"):
-            entry["title"] = oracle_fields["title"]
-        if oracle_fields.get("company"):
-            entry["company"] = oracle_fields["company"]
-        if oracle_fields.get("place"):
-            entry["place"] = oracle_fields["place"]
-        if oracle_fields.get("work_type"):
-            entry["work_type"] = oracle_fields["work_type"]
-        if oracle_fields.get("raw_text"):
-            entry["raw_text"] = oracle_fields["raw_text"]
-        if oracle_fields.get("source"):
-            entry["source"] = oracle_fields["source"]
-
-        if danfoss_fields.get("title"):
-            entry["title"] = danfoss_fields["title"]
-        if danfoss_fields.get("company"):
-            entry["company"] = danfoss_fields["company"]
-        if danfoss_fields.get("place"):
-            entry["place"] = danfoss_fields["place"]
-        if danfoss_fields.get("work_type"):
-            entry["work_type"] = danfoss_fields["work_type"]
-        if danfoss_fields.get("raw_text"):
-            entry["raw_text"] = danfoss_fields["raw_text"]
-        if danfoss_fields.get("source"):
-            entry["source"] = danfoss_fields["source"]
-
-        if demant_fields.get("title"):
-            entry["title"] = demant_fields["title"]
-        if demant_fields.get("company"):
-            entry["company"] = demant_fields["company"]
-        if demant_fields.get("place"):
-            entry["place"] = demant_fields["place"]
-        if demant_fields.get("work_type"):
-            entry["work_type"] = demant_fields["work_type"]
-        if demant_fields.get("raw_text"):
-            entry["raw_text"] = demant_fields["raw_text"]
-        if demant_fields.get("source"):
-            entry["source"] = demant_fields["source"]
-
-        if ji_fields.get("title"):
-            entry["title"] = ji_fields["title"]
-        if ji_fields.get("company"):
-            entry["company"] = ji_fields["company"]
-        if ji_fields.get("place"):
-            entry["place"] = ji_fields["place"]
-        if ji_fields.get("raw_text"):
-            entry["raw_text"] = ji_fields["raw_text"]
-
-        platform_title = (
-            google_fields.get("title")
-            or thehub_fields.get("title")
-            or djinni_fields.get("title")
-            or danfoss_fields.get("title")
-            or vestas_fields.get("title")
-            or novonordisk_fields.get("title")
-            or oracle_fields.get("title")
-            or demant_fields.get("title")
-            or ji_fields.get("title")
-        )
-        platform_company = (
-            google_fields.get("company")
-            or thehub_fields.get("company")
-            or djinni_fields.get("company")
-            or danfoss_fields.get("company")
-            or vestas_fields.get("company")
-            or novonordisk_fields.get("company")
-            or oracle_fields.get("company")
-            or demant_fields.get("company")
-            or ji_fields.get("company")
-        )
-        platform_place = (
-            google_fields.get("place")
-            or thehub_fields.get("place")
-            or djinni_fields.get("place")
-            or danfoss_fields.get("place")
-            or vestas_fields.get("place")
-            or novonordisk_fields.get("place")
-            or oracle_fields.get("place")
-            or demant_fields.get("place")
-            or ji_fields.get("place")
-        )
-        platform_work_type = (
-            google_fields.get("work_type")
-            or thehub_fields.get("work_type")
-            or djinni_fields.get("work_type")
-            or danfoss_fields.get("work_type")
-            or vestas_fields.get("work_type")
-            or novonordisk_fields.get("work_type")
-            or oracle_fields.get("work_type")
-            or demant_fields.get("work_type")
-        )
-        platform_raw_text = (
-            google_fields.get("raw_text")
-            or thehub_fields.get("raw_text")
-            or djinni_fields.get("raw_text")
-            or danfoss_fields.get("raw_text")
-            or vestas_fields.get("raw_text")
-            or novonordisk_fields.get("raw_text")
-            or oracle_fields.get("raw_text")
-            or demant_fields.get("raw_text")
-            or ji_fields.get("raw_text")
-        )
-
-        if html_fields.get("title") and not platform_title:
-            entry["title"] = html_fields["title"]
-        if html_fields.get("company") and not platform_company:
-            entry["company"] = html_fields["company"]
-        if html_fields.get("place") and not platform_place:
-            entry["place"] = html_fields["place"]
-
-        wt = html_fields.get("work_type") or _work_type_from_html_for_link(
-            html_text, lnk
-        )
-        if wt and not platform_work_type:
-            entry["work_type"] = wt
-
-        if html_fields.get("raw_text") and not platform_raw_text:
-            entry["raw_text"] = html_fields["raw_text"]
+        if not entry.get("work_type"):
+            wt = _work_type_from_html_for_link(html_text, lnk)
+            if wt:
+                entry["work_type"] = wt
 
         _fill_empty_fields(entry, artifact_by_link.get(lnk, {}))
 
@@ -286,92 +127,31 @@ def extract_job_entries(
             continue
         if normalized in by_link:
             continue
-        html_fields = html_by_link.get(normalized, {})
-        ji_fields = jobindex_by_link.get(normalized, {})
-        demant_fields = demant_by_link.get(normalized, {})
-        danfoss_fields = danfoss_by_link.get(normalized, {})
-        google_fields = google_by_link.get(normalized, {})
-        vestas_fields = vestas_by_link.get(normalized, {})
-        novonordisk_fields = novonordisk_by_link.get(normalized, {})
-        thehub_fields = thehub_by_link.get(normalized, {})
-        djinni_fields = djinni_by_link.get(normalized, {})
-        oracle_fields = oracle_by_link.get(normalized, {})
+        merged = merge_entry_fields(*_maps_for(normalized))
         art_fields = artifact_by_link.get(normalized, {})
         company, title = extract_company_title(text, title_hint)
-        wt = html_fields.get("work_type") or _work_type_from_html_for_link(
-            html_text, normalized
-        )
-        by_link[normalized] = {
-            "company": google_fields.get("company")
-            or thehub_fields.get("company")
-            or djinni_fields.get("company")
-            or danfoss_fields.get("company")
-            or vestas_fields.get("company")
-            or novonordisk_fields.get("company")
-            or oracle_fields.get("company")
-            or demant_fields.get("company")
-            or ji_fields.get("company")
-            or html_fields.get("company")
-            or art_fields.get("company")
-            or company,
-            "title": google_fields.get("title")
-            or thehub_fields.get("title")
-            or djinni_fields.get("title")
-            or danfoss_fields.get("title")
-            or vestas_fields.get("title")
-            or novonordisk_fields.get("title")
-            or oracle_fields.get("title")
-            or demant_fields.get("title")
-            or ji_fields.get("title")
-            or html_fields.get("title")
-            or art_fields.get("title")
-            or title,
-            "place": google_fields.get("place")
-            or thehub_fields.get("place")
-            or djinni_fields.get("place")
-            or danfoss_fields.get("place")
-            or vestas_fields.get("place")
-            or novonordisk_fields.get("place")
-            or oracle_fields.get("place")
-            or demant_fields.get("place")
-            or ji_fields.get("place")
-            or html_fields.get("place")
-            or art_fields.get("place")
-            or "",
-            "work_type": google_fields.get("work_type")
-            or thehub_fields.get("work_type")
-            or djinni_fields.get("work_type")
-            or danfoss_fields.get("work_type")
-            or vestas_fields.get("work_type")
-            or novonordisk_fields.get("work_type")
-            or oracle_fields.get("work_type")
-            or demant_fields.get("work_type")
-            or art_fields.get("work_type")
-            or (wt if wt else "Unknown"),
+        entry = {
+            "company": merged.get("company") or "",
+            "title": merged.get("title") or "",
+            "place": merged.get("place") or "",
+            "work_type": merged.get("work_type") or "",
             "position_link": normalized,
-            "raw_text": google_fields.get("raw_text")
-            or thehub_fields.get("raw_text")
-            or djinni_fields.get("raw_text")
-            or danfoss_fields.get("raw_text")
-            or vestas_fields.get("raw_text")
-            or novonordisk_fields.get("raw_text")
-            or oracle_fields.get("raw_text")
-            or demant_fields.get("raw_text")
-            or ji_fields.get("raw_text")
-            or html_fields.get("raw_text")
-            or art_fields.get("raw_text")
-            or text[:2500],
-            "source": google_fields.get("source")
-            or thehub_fields.get("source")
-            or djinni_fields.get("source")
-            or danfoss_fields.get("source")
-            or vestas_fields.get("source")
-            or novonordisk_fields.get("source")
-            or oracle_fields.get("source")
-            or demant_fields.get("source")
-            or art_fields.get("source")
-            or _provider_from_link(normalized),
+            "raw_text": merged.get("raw_text") or "",
+            "source": merged.get("source") or "",
         }
+        _fill_empty_fields(entry, art_fields)
+        if not entry.get("company"):
+            entry["company"] = company
+        if not entry.get("title"):
+            entry["title"] = title
+        if not entry.get("work_type"):
+            wt = _work_type_from_html_for_link(html_text, normalized)
+            entry["work_type"] = wt if wt else "Unknown"
+        if not entry.get("raw_text"):
+            entry["raw_text"] = text[:2500]
+        if not entry.get("source"):
+            entry["source"] = _provider_from_link(normalized)
+        by_link[normalized] = entry
 
     for normalized, art_fields in artifact_by_link.items():
         if normalized in by_link:

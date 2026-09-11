@@ -155,3 +155,7 @@ def __getattr__(name: str):
         from . import rescore
         return getattr(rescore, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__():
+    return sorted(set(globals()) | _RESCORE_EXPORTS)

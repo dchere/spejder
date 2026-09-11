@@ -234,6 +234,25 @@ class DashboardTemplatesTest(unittest.TestCase):
                 self.assertIn('id="panel-hidden"', source)
                 self.assertIn('{% include "partials/dashboard_card_stage.js" %}', source)
                 self.assertIn('{% include "partials/dashboard_card_actions.js" %}', source)
+                if name == "dashboard.html":
+                    ops_js = source.index(
+                        '{% include "partials/dashboard_ops.js" %}'
+                    )
+                    set_mode = source.index("setMode")
+                    card_actions = source.index(
+                        '{% include "partials/dashboard_card_actions.js" %}'
+                    )
+                    skills_js = source.index(
+                        '{% include "partials/dashboard_skills.js" %}'
+                    )
+                    self.assertLess(ops_js, set_mode)
+                    self.assertLess(set_mode, card_actions)
+                    self.assertLess(card_actions, skills_js)
+                    self.assertIn('{% include "partials/dashboard_portrait.js" %}', source)
+                else:
+                    self.assertNotIn('{% include "partials/dashboard_ops.js" %}', source)
+                    self.assertNotIn('{% include "partials/dashboard_portrait.js" %}', source)
+                    self.assertNotIn('{% include "partials/dashboard_skills.js" %}', source)
                 self.assertIn("function setApplied", html)
                 self.assertIn("function setHidden", html)
                 self.assertIn("function removeAppliedOnlyUI", html)
