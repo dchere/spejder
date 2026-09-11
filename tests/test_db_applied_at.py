@@ -140,7 +140,7 @@ class AppliedAtDbTest(unittest.TestCase):
         first = datetime(2024, 1, 1, tzinfo=timezone.utc)
         second = datetime(2024, 6, 1, tzinfo=timezone.utc)
 
-        with patch("spejder.db.mutations.datetime") as mock_dt:
+        with patch("spejder.db.mutations_pipeline.datetime") as mock_dt:
             mock_dt.now.return_value = first
             mock_dt.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
             self.assertTrue(set_job_applied(self.db_path, job_id, True))
@@ -148,7 +148,7 @@ class AppliedAtDbTest(unittest.TestCase):
 
         self.assertTrue(set_job_applied(self.db_path, job_id, False))
 
-        with patch("spejder.db.mutations.datetime") as mock_dt:
+        with patch("spejder.db.mutations_pipeline.datetime") as mock_dt:
             mock_dt.now.return_value = second
             mock_dt.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
             self.assertTrue(set_job_applied(self.db_path, job_id, True))
@@ -161,14 +161,14 @@ class AppliedAtDbTest(unittest.TestCase):
         job_id = _insert_job(self.db_path, "https://example.com/applied-at-stable")
         first = datetime(2024, 3, 15, tzinfo=timezone.utc)
 
-        with patch("spejder.db.mutations.datetime") as mock_dt:
+        with patch("spejder.db.mutations_pipeline.datetime") as mock_dt:
             mock_dt.now.return_value = first
             mock_dt.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
             self.assertTrue(set_job_applied(self.db_path, job_id, True))
         first_applied_at = _applied_at(self.db_path, job_id)
 
         later = datetime(2025, 1, 1, tzinfo=timezone.utc)
-        with patch("spejder.db.mutations.datetime") as mock_dt:
+        with patch("spejder.db.mutations_pipeline.datetime") as mock_dt:
             mock_dt.now.return_value = later
             mock_dt.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
             self.assertTrue(set_job_applied(self.db_path, job_id, True))
@@ -274,11 +274,11 @@ class AppliedAtDbTest(unittest.TestCase):
             self.db_path, "https://example.com/sort-late", title="Late Role"
         )
 
-        with patch("spejder.db.mutations.datetime") as mock_dt:
+        with patch("spejder.db.mutations_pipeline.datetime") as mock_dt:
             mock_dt.now.return_value = earlier
             mock_dt.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
             self.assertTrue(set_job_applied(self.db_path, job_early, True))
-        with patch("spejder.db.mutations.datetime") as mock_dt:
+        with patch("spejder.db.mutations_pipeline.datetime") as mock_dt:
             mock_dt.now.return_value = later
             mock_dt.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
             self.assertTrue(set_job_applied(self.db_path, job_late, True))
@@ -295,7 +295,7 @@ class AppliedAtDbTest(unittest.TestCase):
             self.db_path, "https://example.com/sort-null", title="Null Role"
         )
 
-        with patch("spejder.db.mutations.datetime") as mock_dt:
+        with patch("spejder.db.mutations_pipeline.datetime") as mock_dt:
             mock_dt.now.return_value = earlier
             mock_dt.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
             self.assertTrue(set_job_applied(self.db_path, job_dated, True))

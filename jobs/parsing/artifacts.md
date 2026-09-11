@@ -11,7 +11,8 @@
 | `artifact_interpreter.py` | HTML → `dict[normalized_link, fields]` (no LLM, no exec) |
 | `artifact_heuristic.py` | Deterministic CTA-digest drafts (iCIMS Apply-here + strong title) |
 | `html_shrink.py` | Deterministic shrink for synth prompts |
-| `artifact_synth.py` | Heuristic and/or shrink → GGUF → validate thresholds → overlay persist |
+| `artifact_synth_json.py` | Truncated-JSON recovery (`_balanced_json_slice` … `_recover_truncated_synth_payload` / `_extract_json_object`) |
+| `artifact_synth.py` | Heuristic and/or shrink → GGUF → validate thresholds → overlay persist; re-exports `_extract_json_object`. Still over ~300 after the JSON-recovery split (orchestration leftover; further cut skipped). |
 | `artifacts/*.json` | Shipped recipes (Jobs2Web Vestas/Danfoss/Novo Nordisk) |
 
 ## Storage

@@ -2,18 +2,19 @@
 Profile manager handling profile operations like saving, toggling and blocking skills.
 """
 from spejder.config import AppConfig
+from spejder.db.utils import _normalize_skill_name_key
 
-def _normalize_skill_name(skill_name: str) -> str:
-    if not skill_name:
-        return ""
-    return str(skill_name).strip()
+
+def _skill_display_name(skill_name: str) -> str:
+    return " ".join(str(skill_name).strip().split())
+
 
 def _save_profile(profile_path: str, profile: AppConfig) -> None:
     profile.save(profile_path)
 
 def _toggle_profile_skill(profile: AppConfig, field: str, skill_name: str, enabled: bool) -> bool:
-    skill = _normalize_skill_name(skill_name)
-    key = skill.lower()
+    skill = _skill_display_name(skill_name)
+    key = _normalize_skill_name_key(skill)
     if not key:
         return False
 
@@ -24,8 +25,8 @@ def _toggle_profile_skill(profile: AppConfig, field: str, skill_name: str, enabl
     seen = set()
     cleaned = []
     for item in values:
-        normalized = _normalize_skill_name(str(item))
-        normalized_key = normalized.lower()
+        normalized = _skill_display_name(str(item))
+        normalized_key = _normalize_skill_name_key(normalized)
         if not normalized_key or normalized_key in seen:
             continue
         seen.add(normalized_key)
@@ -37,7 +38,7 @@ def _toggle_profile_skill(profile: AppConfig, field: str, skill_name: str, enabl
         cleaned.append(skill)
         changed = True
     if not enabled and had:
-        cleaned = [item for item in cleaned if item.lower() != key]
+        cleaned = [item for item in cleaned if _normalize_skill_name_key(item) != key]
         changed = True
 
     setattr(profile, field, cleaned)
@@ -60,7 +61,7 @@ def _toggle_exclusive_profile_skill(
     return changed, dropped
 
 def _remove_skill_from_profile(profile: AppConfig, skill_name: str) -> dict[str, int]:
-    key = _normalize_skill_name(skill_name).lower()
+    key = _normalize_skill_name_key(skill_name)
     if not key:
         return {"removed": 0}
 
@@ -80,8 +81,7 @@ def _remove_skill_from_profile(profile: AppConfig, skill_name: str) -> dict[str,
             continue
         kept = []
         for item in values:
-            normalized = _normalize_skill_name(str(item))
-            if normalized.lower() == key:
+            if _normalize_skill_name_key(str(item)) == key:
                 removed += 1
                 continue
             kept.append(item)
@@ -94,8 +94,8 @@ def _remove_skill_from_profile(profile: AppConfig, skill_name: str) -> dict[str,
             if not isinstance(item, dict):
                 kept_patterns.append(item)
                 continue
-            name = _normalize_skill_name(str(item.get("name", "")))
-            if name.lower() == key:
+            name = str(item.get("name", ""))
+            if _normalize_skill_name_key(name) == key:
                 removed += 1
                 continue
             kept_patterns.append(item)
@@ -104,8 +104,8 @@ def _remove_skill_from_profile(profile: AppConfig, skill_name: str) -> dict[str,
     return {"removed": int(removed)}
 
 def _block_skill_in_profile(profile: AppConfig, skill_name: str) -> dict[str, int]:
-    skill = _normalize_skill_name(skill_name)
-    key = skill.lower()
+    skill = _skill_display_name(skill_name)
+    key = _normalize_skill_name_key(skill)
     if not key:
         return {"blocked_added": 0, "removed": 0}
 
@@ -117,8 +117,8 @@ def _block_skill_in_profile(profile: AppConfig, skill_name: str) -> dict[str, in
     cleaned = []
     seen = set()
     for item in blocked_values:
-        normalized = _normalize_skill_name(str(item))
-        normalized_key = normalized.lower()
+        normalized = _skill_display_name(str(item))
+        normalized_key = _normalize_skill_name_key(normalized)
         if not normalized_key or normalized_key in seen:
             continue
         seen.add(normalized_key)

@@ -44,8 +44,25 @@ Extracted from `jobs.py`. The rest of the application (including business logic 
 
 `db/__init__.py` re-exports the public query API from `queries.py`; callers should not import submodules unless testing internals.
 
+**Mutation modules (`mutations.py` facade):**
+- `mutations_upsert.py` — `upsert_job`, `update_jobs_relevance`, `delete_jobs`, `update_job_source`, `batch_update_and_delete_jobs`
+- `mutations_pipeline.py` — viewed/applied/hidden/interview/feedback plus `_INTERVIEW_FIELDS_CLEAR` / `_HIDDEN_CLEAR_IF_VIEWED_OR_APPLIED`
+- `mutations_content.py` — summary/description/place/title_english, applied raw-text, cover letter
+- `mutations.py` re-exports every public name; `db/__init__.py` is unchanged
+
+**Skill modules (`skills.py` facade):**
+- `skills_patterns.py` — get/upsert/migrate/`_skill_to_regex_simple`
+- `skills_links.py` — job_skills CRUD, delete, cleanup, top/count (slightly over ~300; kept as one links domain)
+- `skills_bad_ngrams.py` — `bad_ngram_*`
+- `skills.py` re-exports; `db/__init__.py` is unchanged
+
+**Connection (`connection.py`):**
+- Keeps `_connect`, `get_job_link`, `ensure_db` (one connection and one commit, as before)
+- `schema.py` — CREATE/ALTER/`jobs_new`/skill tables/`applied_at` backfill (`apply_schema(cur)`)
+- `maintenance.py` — title sanitize, link canonicalize/dedupe, source backfill, Emerson migrate, 90-day + allowed-link prune (`apply_maintenance(cur)`; `JOB_RETENTION_DAYS = 90`)
+
 **Dependencies:**
-- `sqlite3`, `spejder.config`
+- `sqlite3` (stdlib). db does **not** import `spejder.config`.
 
 **Position deduplication (`deduplication_utils.py`):**
 - `_position_dedupe_key(company, title, place="")` — normalized `company|title` key for all sources
@@ -55,6 +72,9 @@ Extracted from `jobs.py`. The rest of the application (including business logic 
 - **Tradeoff:** same title at the same company with different allowlisted trailing cities may still merge when `place` is empty/`unknown` (e.g. `Engineer, Copenhagen` vs `Engineer, Odense`); tightening requires a known `place` that does not match the trailing city
 - `_merge_duplicate_into_keeper`, `_merge_raw_text` — shared merge rules used by `upsert_job` and `jobs/deduplication.merge_duplicate_positions`; merge ORs `hidden` onto the keeper unless viewed/applied wins (then `hidden=0`)
 - `get_all_jobs_for_dedupe` / `_row_to_dedupe_item` include `hidden`; `batch_update_and_delete_jobs` update tuples are `(company, title, place, work_type, raw_text, viewed, applied, hidden, updated_at, id)`
+
+**Skill name keys (`utils.py`):**
+- `_normalize_skill_name_key(name)` — shared membership key: strip, lower, collapse whitespace (`" ".join((name or "").strip().lower().split())`). Used by skill table lookups, config sanitizer (`_skill_list_key` alias), profile toggle/remove/block, scoring, and suggestions. Extractor display cleanup may call it last after phrase-strip and length gates. Stored profile display names collapse whitespace but keep case.
 
 **Link normalization (`utils.py`):**
 - `_decode_mandrill_track_link`: unwraps Mandrill `track/click` URLs (base64 JSON payload → destination URL). Requires `base64` and `html.unescape`.

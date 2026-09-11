@@ -99,7 +99,7 @@ class ServerPortraitApiTest(unittest.TestCase):
         response = client.post("/api/portrait/generate")
         self.assertEqual(response.status_code, 400)
 
-    @patch("spejder.server.generate_portrait_draft")
+    @patch("spejder.server.routers.portrait.generate_portrait_draft")
     def test_portrait_generate_returns_draft_and_diff(self, mock_generate):
         mock_generate.return_value = "Updated portrait line"
         with open(self.portrait_path, "w", encoding="utf-8") as handle:
@@ -122,7 +122,7 @@ class ServerPortraitApiTest(unittest.TestCase):
         with open(self.portrait_path, encoding="utf-8") as handle:
             self.assertEqual(handle.read(), "Old portrait line")
 
-    @patch("spejder.server.generate_portrait_draft")
+    @patch("spejder.server.routers.portrait.generate_portrait_draft")
     def test_portrait_generate_returns_generic_error_on_failure(self, mock_generate):
         mock_generate.side_effect = RuntimeError("model exploded")
         _insert_applied_job(self.db_path, "https://example.com/p3")

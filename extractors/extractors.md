@@ -5,7 +5,7 @@ This module is responsible for parsing and extracting specialized entities (such
 
 ## Components
 - `skill_extractor/`: Package for extracting and normalizing professional/technical skills from text.
-  - `normalization.py` — canonical `_normalize_skill_name`
+  - `normalization.py` — canonical extraction cleanup (`_normalize_skill_name`: phrase-strip, punctuation strip, length gates). Lookup/toggle/score keys use `db.utils._normalize_skill_name_key`; the extractor may call that helper last after its own gates.
   - `constants.py` — shared regexes and cleanup heuristic sets
   - `utils.py` — text parsing, JSON helpers, regex generation
   - `filtering.py` — blocked/protected keys, phrase quality, cleanup reasons
@@ -33,5 +33,5 @@ This module is responsible for parsing and extracting specialized entities (such
 ## Architectural Constraints
 - **Pylint adherence**: Do not disable pylint rules (e.g. `# pylint: disable=...`) in this module. Refactor the code instead.
 - **Pure Functions**: Keep parsing utilities and heuristics as pure functions where possible.
-- **Normalization**: All skills should pass through a central `_normalize_skill_name` block before being added to any collection.
+- **Normalization**: Extraction display cleanup stays in `_normalize_skill_name` (phrase-strip, punctuation, length gates). Membership keys for DB lookup, profile toggle, and scoring are `db.utils._normalize_skill_name_key` (strip, lower, collapse whitespace). Extractor `_normalize_skill_name` may call the key helper last; it does not replace phrase-strip or the gates.
 - **LLM Use**: Prefer fallback to local DB/regex patterns if the LLM is not provided or fails.

@@ -2,6 +2,8 @@
 
 import re
 
+from spejder.db.utils import _normalize_skill_name_key
+
 
 def _normalize_skill_name(skill: str) -> str:
     s = (skill or "").strip()
@@ -45,4 +47,4 @@ def _normalize_skill_name(skill: str) -> str:
         return ""
     if len(s) < 2:
         return ""
-    return s
+    return _normalize_skill_name_key(s)

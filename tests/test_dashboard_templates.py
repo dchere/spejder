@@ -85,6 +85,39 @@ def _minimal_dashboard_context():
     }
 
 
+def _minimal_company_context():
+    return {
+        "company_label": "Acme",
+        "safe_company_label": "Acme",
+        "len_company_items": 0,
+        "len_relevant_items": 0,
+        "len_not_relevant_items": 0,
+        "len_viewed_today_items": 0,
+        "len_applied_items": 0,
+        "len_interview_items": 0,
+        "len_stopped_items": 0,
+        "len_hidden_items": 0,
+        "relevant_cards": "",
+        "not_relevant_cards": "",
+        "viewed_today_cards": "",
+        "applied_cards": "",
+        "interview_cards": "",
+        "stopped_cards": "",
+        "hidden_cards": "",
+        "skills_table_html": "",
+        "len_skills_items": 0,
+    }
+
+
+def _render_template(name: str) -> str:
+    context = (
+        _minimal_dashboard_context()
+        if name == "dashboard.html"
+        else _minimal_company_context()
+    )
+    return jinja_env.get_template(name).render(**context)
+
+
 class DashboardTemplatesTest(unittest.TestCase):
     def test_load_dashboard_card_corners_css_returns_file_content(self):
         css_path = os.path.join(
@@ -131,34 +164,14 @@ class DashboardTemplatesTest(unittest.TestCase):
 
     def test_company_dashboard_html_includes_corner_css_from_partial(self):
         template = jinja_env.get_template("company_dashboard.html")
-        html = template.render(
-            company_label="Acme",
-            safe_company_label="Acme",
-            len_company_items=0,
-            len_relevant_items=0,
-            len_not_relevant_items=0,
-            len_viewed_today_items=0,
-            len_applied_items=0,
-            len_interview_items=0,
-            len_stopped_items=0,
-            len_hidden_items=0,
-            relevant_cards="",
-            not_relevant_cards="",
-            viewed_today_cards="",
-            applied_cards="",
-            interview_cards="",
-            stopped_cards="",
-            hidden_cards="",
-            skills_table_html="",
-            len_skills_items=0,
-        )
+        html = template.render(**_minimal_company_context())
         self.assertIn(".applied-date { bottom: 8px; }", html)
         self.assertIn(".card.has-applied-date .feedback", html)
 
     def test_set_applied_true_branch_does_not_call_set_mode(self):
         for name in ("dashboard.html", "company_dashboard.html"):
             with self.subTest(template=name):
-                text = _read_template(name)
+                text = _render_template(name)
                 body = _extract_js_function_body(text, "setApplied")
                 applied_branch = _extract_if_block(body, "applied")
                 self.assertNotIn("setMode", applied_branch)
@@ -166,7 +179,7 @@ class DashboardTemplatesTest(unittest.TestCase):
     def test_set_hidden_does_not_call_set_mode(self):
         for name in ("dashboard.html", "company_dashboard.html"):
             with self.subTest(template=name):
-                text = _read_template(name)
+                text = _render_template(name)
                 body = _extract_js_function_body(text, "setHidden")
                 self.assertNotIn("setMode", body)
                 hidden_branch = _extract_if_block(body, "hidden")
@@ -180,7 +193,7 @@ class DashboardTemplatesTest(unittest.TestCase):
     def test_set_relevant_keeps_still_hidden_cards(self):
         for name in ("dashboard.html", "company_dashboard.html"):
             with self.subTest(template=name):
-                text = _read_template(name)
+                text = _render_template(name)
                 body = _extract_js_function_body(text, "setRelevant")
                 self.assertIn("stillHidden", body)
                 self.assertIn("hiddenCheckbox.checked", body)
@@ -188,7 +201,7 @@ class DashboardTemplatesTest(unittest.TestCase):
 
     def test_company_set_viewed_true_moves_to_edited_today(self):
         body = _extract_js_function_body(
-            _read_template("company_dashboard.html"), "setViewed"
+            _render_template("company_dashboard.html"), "setViewed"
         )
         self.assertNotIn("setMode", body)
         viewed_true = body.split("} else {", 1)[1]
@@ -208,24 +221,28 @@ class DashboardTemplatesTest(unittest.TestCase):
     def test_set_viewed_true_has_no_set_mode(self):
         for name in ("dashboard.html", "company_dashboard.html"):
             with self.subTest(template=name):
-                body = _extract_js_function_body(_read_template(name), "setViewed")
+                body = _extract_js_function_body(_render_template(name), "setViewed")
                 self.assertNotIn("setMode", body)
                 self.assertIn("panelEditedToday", body)
 
     def test_templates_include_hidden_tab(self):
         for name in ("dashboard.html", "company_dashboard.html"):
             with self.subTest(template=name):
-                text = _read_template(name)
-                self.assertIn('id="btn-hidden"', text)
-                self.assertIn('id="panel-hidden"', text)
-                self.assertIn("function setHidden", text)
-                self.assertIn("function removeAppliedOnlyUI", text)
+                source = _read_template(name)
+                html = _render_template(name)
+                self.assertIn('id="btn-hidden"', source)
+                self.assertIn('id="panel-hidden"', source)
+                self.assertIn('{% include "partials/dashboard_card_stage.js" %}', source)
+                self.assertIn('{% include "partials/dashboard_card_actions.js" %}', source)
+                self.assertIn("function setApplied", html)
+                self.assertIn("function setHidden", html)
+                self.assertIn("function removeAppliedOnlyUI", html)
 
     def test_remove_applied_only_ui_strips_applied_chrome(self):
         for name in ("dashboard.html", "company_dashboard.html"):
             with self.subTest(template=name):
                 body = _extract_js_function_body(
-                    _read_template(name), "removeAppliedOnlyUI"
+                    _render_template(name), "removeAppliedOnlyUI"
                 )
                 self.assertIn(".applied-date", body)
                 self.assertIn(".interview-wrap", body)
@@ -235,7 +252,7 @@ class DashboardTemplatesTest(unittest.TestCase):
     def test_interview_handlers_still_call_set_mode(self):
         for name in ("dashboard.html", "company_dashboard.html"):
             with self.subTest(template=name):
-                text = _read_template(name)
+                text = _render_template(name)
                 for fn in ("setOnInterview", "setInterviewStopped"):
                     with self.subTest(function=fn):
                         body = _extract_js_function_body(text, fn)
@@ -258,7 +275,7 @@ class DashboardTemplatesTest(unittest.TestCase):
         self.assertIn("btnPortrait.addEventListener('click', () => setMode('portrait'))", text)
 
     def test_dashboard_switch_tab_checks_stale_report(self):
-        body = _extract_js_function_body(_read_template("dashboard.html"), "switchTab")
+        body = _extract_js_function_body(_render_template("dashboard.html"), "switchTab")
         self.assertIn("fetchReportStatus", body)
         self.assertIn("pageReportMtime", body)
         self.assertIn("reloadWithTab", body)

@@ -43,6 +43,7 @@ Replaces the old dictionary-based profile system (`FALLBACK_DEFAULT_PROFILE`). A
 - `missing_skills_suggestions` — want-to-learn list
 - `unwanted_skills` — Skills tab **Not for me**; missing key in old `profile.json` = empty list. Mutually exclusive with have/learn (unwanted wins on load/save). Not `blocked_skills`: these stay extractable so the penalty can fire.
 - `blocked_skills` — hide/filter extraction; not the same as **Not for me**
+- Sanitizer `_skill_list_key` is an alias of `spejder.db.utils._normalize_skill_name_key` (strip, lower, collapse whitespace) — not a second implementation. `"foo  bar"` and `"foo bar"` are the same key, so `unwanted_skills=["foo  bar"]` drops `user_skills=["foo bar"]` on load/save.
 
 **Career-alert artifact profile fields:**
 - `career_alert_artifacts_dir` — user overlay directory for synthesized/edited JSON artifacts (default `./career_alert_artifacts`)
@@ -61,4 +62,4 @@ Replaces the old dictionary-based profile system (`FALLBACK_DEFAULT_PROFILE`). A
 - `server_host` / `server_port` (and other startup-bound paths such as inbox/db/report dir) persist immediately but still need a serve-gui restart to rebind or re-open those resources
 
 **Dependencies:**
-- `pydantic`, `json`, `os`
+- `pydantic`, `json`, `os`, `spejder.db.utils` (`_normalize_skill_name_key` only; db does not import config)

@@ -5,6 +5,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, model_validator
 
+from spejder.db.utils import _normalize_skill_name_key
+
 DEFAULT_PROFILE_FILE = "default_profile.json"
 SKILL_BIGRAM_THRESHOLD_MARGIN_DEFAULT = 0.5
 
@@ -138,8 +140,7 @@ class AppConfig(BaseModel):
         with open(profile_path, "w", encoding="utf-8") as f:
             json.dump(self.model_dump(), f, indent=2, ensure_ascii=False)
 
-def _skill_list_key(name: str) -> str:
-    return " ".join(str(name or "").strip().lower().split())
+_skill_list_key = _normalize_skill_name_key
 
 
 def _drop_legacy_antipattern_fields(data: dict) -> None:

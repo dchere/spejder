@@ -3,8 +3,27 @@
 **Purpose:**
 Provides an interactive dashboard (web GUI) to review extracted jobs and view their relevance scores.
 
+**Public API:**
+- `from spejder.server import create_app, start_server` — package re-exports only these two names (not rescore/LLM symbols).
+- `create_app(...)`: FastAPI factory; stores a `ServerRuntime` on `app.state.runtime`. Handlers read that state (via `Depends(get_runtime)`); they do not close over factory kwargs. `get_title_translation_llm` is kept on runtime for signature stability (unused in handlers). `runtime_profile` is an `AppConfig`; the public parameter type stays `dict`.
+- `start_server(host, port, app_factory_kwargs)` — port-scan then uvicorn; still imported from `spejder.server`.
+
+**Package layout:**
+
+| File | Owns |
+|------|------|
+| `__init__.py` | Re-export `create_app`, `start_server` only |
+| `context.py` | `ServerRuntime` dataclass + `get_runtime` |
+| `app.py` | `create_app` (CORS, `include_router` ×5, static mount last) and `start_server` |
+| `routers/jobs.py` | `/api/feedback`, `/applied`, `/interview`, `/interview/stopped`, `/interview/feedback`, `/viewed`, `/hidden`, `/applied/raw-text`, `/applied/cover-letter/request`, `/applied/cover-letter` |
+| `routers/skills.py` | `/api/skill/user\|learn\|unwanted\|block\|delete\|block-batch\|delete-batch` plus `_normalize_skill_batch`, `_run_skill_block`, `_run_skill_delete`, `_delete_skills_from_db`, `_merge_db_deleted` |
+| `routers/ops.py` | `/api/report/rebuild`, `/api/report/status`, `/api/inbox/sync`, `/api/inbox/sync/status`, `GET /company.html` |
+| `routers/portrait.py` | `/api/portrait`, `/portrait/save`, `/portrait/generate` |
+| `routers/profile.py` | `/api/profile`, `/api/profile/save` |
+
+Pydantic request models live at module level on the router that uses them.
+
 **API:**
-- `start_server(host, port, profile, ...)`
 - `create_app(...)`: FastAPI factory; `get_report_rebuild_idle` callback (default `lambda: True`) drives `idle` on `GET /api/report/status`
 - `POST /api/interview` — `{ job_id, on_interview }`; requires `applied=1`; clears `interview_stopped` when enabling
 - `POST /api/interview/stopped` — `{ job_id, stopped }`; requires `applied=1`; clears `on_interview` when enabling
@@ -34,7 +53,7 @@ Provides an interactive dashboard (web GUI) to review extracted jobs and view th
 - `POST /api/profile/save` — JSON object of AppConfig field→value (partial updates: only keys present are merged into live runtime); rejects non-object body and unknown keys (400); forces retain of readonly fields; validates via `AppConfig`; ordering merge → write `profile_path` → `reload_runtime_profile()`; ValidationError / ValueError / TypeError → 400 with Portrait-style envelope; `OSError` → 500 `{ ok: false, error: "failed to write profile" }`. Does not auto-rescore existing jobs.
 
 **Context:**
-Originally built with the built-in `http.server`, it has been upgraded to a modern asynchronous stack using **FastAPI** and **Uvicorn**. It provides endpoints like `/`, `/company.html`, `/logs`, `/action/submit_job`, etc. It fetches data via `db.py` and renders HTML via `managers/dashboard_manager.py` (Jinja2 templates).
+Originally built with the built-in `http.server`, it has been upgraded to a modern asynchronous stack using **FastAPI** and **Uvicorn**. It provides endpoints like `/`, `/company.html`, `/logs`, `/action/submit_job`, etc. It fetches data via `db.py` and renders HTML via `managers/dashboard_manager.py` (Jinja2 templates). Handlers read `app.state.runtime` (`ServerRuntime`); they do not close over factory arguments.
 
 **Dependencies:**
 - `fastapi`, `uvicorn`, `pydantic`

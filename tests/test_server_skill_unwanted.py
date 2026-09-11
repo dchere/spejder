@@ -127,7 +127,7 @@ class ServerSkillUnwantedApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertFalse(response.json()["ok"])
 
-    @patch("spejder.server.rescore_active_jobs", return_value=0)
+    @patch("spejder.server.routers.skills.rescore_active_jobs", return_value=0)
     def test_enable_unwanted_drops_have_and_learn_and_rescores(self, mock_rescore):
         response = self.client.post(
             "/api/skill/unwanted",
@@ -144,7 +144,7 @@ class ServerSkillUnwantedApiTest(unittest.TestCase):
         mock_rescore.assert_called_once()
         self.assertTrue(any("unwanted on python" in reason for reason in self.rebuild_calls))
 
-    @patch("spejder.server.rescore_active_jobs", return_value=0)
+    @patch("spejder.server.routers.skills.rescore_active_jobs", return_value=0)
     def test_enable_have_drops_unwanted_and_rescores(self, mock_rescore):
         self.runtime_profile.user_skills = []
         self.runtime_profile.unwanted_skills = ["python"]
@@ -160,7 +160,7 @@ class ServerSkillUnwantedApiTest(unittest.TestCase):
         self.assertEqual(self.runtime_profile.missing_skills_suggestions, ["python"])
         mock_rescore.assert_called_once()
 
-    @patch("spejder.server.rescore_active_jobs", return_value=0)
+    @patch("spejder.server.routers.skills.rescore_active_jobs", return_value=0)
     def test_enable_learn_drops_unwanted_and_rescores(self, mock_rescore):
         self.runtime_profile.user_skills = []
         self.runtime_profile.unwanted_skills = ["python"]
@@ -175,7 +175,7 @@ class ServerSkillUnwantedApiTest(unittest.TestCase):
         self.assertEqual(self.runtime_profile.unwanted_skills, [])
         mock_rescore.assert_called_once()
 
-    @patch("spejder.server.rescore_active_jobs", return_value=0)
+    @patch("spejder.server.routers.skills.rescore_active_jobs", return_value=0)
     def test_enable_learn_without_unwanted_does_not_rescore(self, mock_rescore):
         self.runtime_profile.user_skills = []
         self.runtime_profile.unwanted_skills = []
@@ -190,7 +190,7 @@ class ServerSkillUnwantedApiTest(unittest.TestCase):
         mock_rescore.assert_not_called()
         self.assertTrue(any("skill learn on python" in reason for reason in self.rebuild_calls))
 
-    @patch("spejder.server.rescore_active_jobs", return_value=0)
+    @patch("spejder.server.routers.skills.rescore_active_jobs", return_value=0)
     def test_disable_unwanted_removes_and_rescores(self, mock_rescore):
         self.runtime_profile.user_skills = []
         self.runtime_profile.missing_skills_suggestions = []

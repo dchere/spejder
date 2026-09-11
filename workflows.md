@@ -41,7 +41,7 @@ Core orchestration for CLI commands, GUI background sync, and heavy multi-step p
 | `career_alert_artifacts.py` | CLI list/disable/enable for career-alert format artifacts |
 
 **Context:**
-`cli.py` is a thin argparse layer delegating here. Workflows are callable from tests and `server.py` without going through the CLI.
+`cli.py` is a thin argparse layer delegating here. Workflows are callable from tests and `spejder.server` without going through the CLI.
 
 **Dashboard rebuild:** `DashboardRebuildQueue` (`workflows/dashboard.py`) reloads three applied-stage query subsets — `get_applied_jobs`, `get_interview_jobs`, and `get_stopped_interview_jobs` — when rendering Applied / Interview / Stopped tabs, plus Hidden via `build_hidden_dashboard_records` and Edited today via `build_viewed_today_dashboard_records`. Inbox report writes (`write_inbox_dashboard_report`) and enrichment report writes (`enrichment.py` after `refresh-descriptions`) use the same helpers and pass `hidden_items` / `viewed_today_items` to `_render_html_dashboard`.
 

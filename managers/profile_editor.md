@@ -28,4 +28,4 @@ Dashboard Profile panel: field metadata for every `AppConfig` field, GET payload
 5. Invalid number → 400 with field error and Unsaved edits restored; Save still enabled.
 
 **Context:**
-Used by `GET /api/profile` and `POST /api/profile/save` in `server.py`. Does not own a second skills store; skills lists remain on `AppConfig`.
+Used by `GET /api/profile` and `POST /api/profile/save` in `spejder.server` (`routers/profile.py`). Does not own a second skills store; skills lists remain on `AppConfig`.
