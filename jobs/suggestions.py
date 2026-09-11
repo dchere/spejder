@@ -88,6 +88,11 @@ def _suggest_missing_skills_from_applied_jobs(
         if _normalize_skill_name_key(str(s))
     }
     blocked_skills = _blocked_skill_keys(profile)
+    unwanted_skills = {
+        _normalize_skill_name_key(s)
+        for s in (profile.unwanted_skills or [])
+        if _normalize_skill_name_key(str(s))
+    }
 
     freq: Counter = Counter()
     display_by_key: dict[str, str] = {}
@@ -95,7 +100,7 @@ def _suggest_missing_skills_from_applied_jobs(
         skills = get_job_skills(db_path, int(job_id or 0))
         for skill in skills:
             key = _normalize_skill_name_key(skill)
-            if not key or key in user_skills or key in blocked_skills:
+            if not key or key in user_skills or key in blocked_skills or key in unwanted_skills:
                 continue
             display_by_key.setdefault(key, skill)
             freq[key] += 1

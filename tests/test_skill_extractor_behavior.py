@@ -10,6 +10,7 @@ from spejder.extractors.skill_extractor.extraction_llm import _extract_job_skill
 from spejder.extractors.skill_extractor.filtering import (
     _filter_blocked_skill_names,
     _passes_phrase_quality,
+    _protected_skill_keys,
     _skill_cleanup_reason,
 )
 from spejder.extractors.skill_extractor.utils import _format_skills, _profile_skill_pattern_fields
@@ -131,6 +132,12 @@ class ImportOrderTest(unittest.TestCase):
 
         importlib.import_module("spejder.jobs.scoring")
         importlib.import_module("spejder.extractors.skill_extractor.learning")
+
+
+class ProtectedSkillKeysTest(unittest.TestCase):
+    def test_includes_unwanted_skill_name(self):
+        profile = AppConfig(unwanted_skills=["Sales"])
+        self.assertIn("sales", _protected_skill_keys(profile))
 
 
 if __name__ == "__main__":

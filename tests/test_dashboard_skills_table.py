@@ -86,6 +86,10 @@ class DashboardSkillsTableTest(unittest.TestCase):
             'class="skills-sortable skills-sort-active" data-sort-key="added_at"',
             self.table_html,
         )
+        self.assertIn('data-sort-key="not_for_me"', self.table_html)
+        self.assertIn("Not for me", self.table_html)
+        self.assertIn("setUnwantedSkill", self.table_html)
+        self.assertIn("data-sort-not-for-me=", self.table_html)
 
         row_htmls = _extract_skill_rows(self.table_html)
         row_names = [
@@ -123,6 +127,8 @@ class DashboardSkillsTableTest(unittest.TestCase):
     def test_skills_sort_sentinel_wired_into_js(self):
         expected = f"const SKILLS_EMPTY_ADDED_AT_SORT = {json.dumps(SKILLS_EMPTY_ADDED_AT_SORT)};"
         self.assertIn(expected, self.html)
+        self.assertIn("function setUnwantedSkill", self.html)
+        self.assertIn("sortNotForMe", self.html)
 
 
 if __name__ == "__main__":

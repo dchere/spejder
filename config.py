@@ -3,7 +3,7 @@ import os
 import json
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 DEFAULT_PROFILE_FILE = "default_profile.json"
 SKILL_BIGRAM_THRESHOLD_MARGIN_DEFAULT = 0.5
@@ -60,6 +60,7 @@ class AppConfig(BaseModel):
     skill_learning_max_new_patterns: int = 20
     skill_match_weight: float = 1.2
     skill_missing_penalty: float = 0.15
+    skill_unwanted_penalty: float = 1.2
     easy_apply_bonus: float = 0.75
     applied_company_bonus: float = 0.75
     missing_skills_max_items: int = 25
@@ -78,6 +79,7 @@ class AppConfig(BaseModel):
     itday_portal_sync_enabled: bool = True
 
     user_skills: list[str] = Field(default_factory=list)
+    unwanted_skills: list[str] = Field(default_factory=list)
     blocked_skills: list[str] = Field(default_factory=list)
     skill_bigram_toxicity_threshold: Optional[float] = None
     skill_bigram_threshold_margin: float = SKILL_BIGRAM_THRESHOLD_MARGIN_DEFAULT
@@ -85,6 +87,25 @@ class AppConfig(BaseModel):
 
     missing_skills_suggestions: list[str] = Field(default_factory=list)
     known_skill_patterns: list[dict] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def drop_unwanted_from_have_and_learn(self) -> "AppConfig":
+        unwanted_keys = {
+            _skill_list_key(item)
+            for item in (self.unwanted_skills or [])
+            if _skill_list_key(item)
+        }
+        if not unwanted_keys:
+            return self
+        self.user_skills = [
+            item for item in (self.user_skills or [])
+            if _skill_list_key(item) not in unwanted_keys
+        ]
+        self.missing_skills_suggestions = [
+            item for item in (self.missing_skills_suggestions or [])
+            if _skill_list_key(item) not in unwanted_keys
+        ]
+        return self
 
     @classmethod
     def load(cls, profile_path: str = None) -> "AppConfig":
@@ -116,6 +137,10 @@ class AppConfig(BaseModel):
             profile_path = _default_profile_file_path()
         with open(profile_path, "w", encoding="utf-8") as f:
             json.dump(self.model_dump(), f, indent=2, ensure_ascii=False)
+
+def _skill_list_key(name: str) -> str:
+    return " ".join(str(name or "").strip().lower().split())
+
 
 def _drop_legacy_antipattern_fields(data: dict) -> None:
     for key in _LEGACY_ANTIPATTERN_KEYS:

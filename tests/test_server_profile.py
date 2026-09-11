@@ -111,6 +111,20 @@ class ProfileEditorMergeTest(unittest.TestCase):
             [{"name": "Python", "pattern": r"\bpython\b"}],
         )
 
+    def test_dirty_skill_lists_unwanted_wins(self):
+        profile = AppConfig(user_skills=["Rust"])
+        updated = merge_profile_updates(
+            profile,
+            {
+                "user_skills": ["Python", "Rust"],
+                "missing_skills_suggestions": ["python", "Docker"],
+                "unwanted_skills": ["python"],
+            },
+        )
+        self.assertEqual(updated.unwanted_skills, ["python"])
+        self.assertEqual(updated.user_skills, ["Rust"])
+        self.assertEqual(updated.missing_skills_suggestions, ["Docker"])
+
     def test_validation_rejects_bad_types(self):
         profile = AppConfig()
         from pydantic import ValidationError

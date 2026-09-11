@@ -83,6 +83,10 @@ PROFILE_FIELD_META: dict[str, dict[str, Any]] = {
     ),
     "skill_match_weight": _field("keywords_scoring", "Skill match weight", "number"),
     "skill_missing_penalty": _field("keywords_scoring", "Skill missing penalty", "number"),
+    "skill_unwanted_penalty": _field(
+        "keywords_scoring", "Skill unwanted penalty", "number",
+        help="Penalty per extracted skill marked Not for me (0 disables).",
+    ),
     "easy_apply_bonus": _field(
         "keywords_scoring", "Easy Apply bonus", "number",
         help="Extra relevance for LinkedIn Easy Apply (0 disables).",
@@ -149,6 +153,10 @@ PROFILE_FIELD_META: dict[str, dict[str, Any]] = {
     ),
     "user_skills": _field(
         "skills", "User skills", "list_str", help="One skill name per line.",
+    ),
+    "unwanted_skills": _field(
+        "skills", "Unwanted skills", "list_str",
+        help="One skill name per line. Mutually exclusive with I have / Want to learn.",
     ),
     "blocked_skills": _field(
         "skills", "Blocked skills", "list_str", help="One skill name per line.",

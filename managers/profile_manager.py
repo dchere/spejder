@@ -43,6 +43,22 @@ def _toggle_profile_skill(profile: AppConfig, field: str, skill_name: str, enabl
     setattr(profile, field, cleaned)
     return changed
 
+def _toggle_exclusive_profile_skill(
+    profile: AppConfig,
+    field: str,
+    skill_name: str,
+    enabled: bool,
+    drop_from: tuple[str, ...] = (),
+) -> tuple[bool, bool]:
+    changed = _toggle_profile_skill(profile, field, skill_name, enabled)
+    dropped = False
+    if enabled:
+        for other in drop_from:
+            if _toggle_profile_skill(profile, other, skill_name, False):
+                dropped = True
+                changed = True
+    return changed, dropped
+
 def _remove_skill_from_profile(profile: AppConfig, skill_name: str) -> dict[str, int]:
     key = _normalize_skill_name(skill_name).lower()
     if not key:
@@ -51,6 +67,7 @@ def _remove_skill_from_profile(profile: AppConfig, skill_name: str) -> dict[str,
     removed = 0
     list_fields = [
         "user_skills",
+        "unwanted_skills",
         "missing_skills_suggestions",
         "include_keywords",
         "exclude_keywords",

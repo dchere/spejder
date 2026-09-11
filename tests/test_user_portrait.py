@@ -63,6 +63,7 @@ class UserPortraitWorkflowTest(unittest.TestCase):
         self.profile = AppConfig(
             user_skills=["python", "apis"],
             missing_skills_suggestions=["docker"],
+            unwanted_skills=["salesforce"],
             default_portrait_path=self.portrait_path,
             default_cv_path=self.cv_path,
             max_input_chars=8000,
@@ -90,6 +91,8 @@ class UserPortraitWorkflowTest(unittest.TestCase):
         self.assertIn("python", context)
         self.assertIn("SKILLS TO LEARN", context)
         self.assertIn("docker", context)
+        self.assertIn("SKILLS NOT FOR ME", context)
+        self.assertIn("salesforce", context)
         self.assertIn("CV TEXT", context)
         self.assertIn("APPLIED JOBS", context)
         self.assertIn("Acme", context)
@@ -105,6 +108,11 @@ class UserPortraitWorkflowTest(unittest.TestCase):
         empty_profile = AppConfig(default_cv_path=self.cv_path)
         os.remove(self.cv_path)
         self.assertFalse(portrait_has_context(self.db_path, empty_profile, cv_path=self.cv_path))
+        unwanted_only = AppConfig(
+            unwanted_skills=["salesforce"],
+            default_cv_path=self.cv_path,
+        )
+        self.assertTrue(portrait_has_context(self.db_path, unwanted_only, cv_path=self.cv_path))
 
     def test_collect_portrait_context_truncates_long_fields(self):
         long_text = "x" * 5000
@@ -162,6 +170,7 @@ class UserPortraitWorkflowTest(unittest.TestCase):
         profile = AppConfig(
             user_skills=["  ", ""],
             missing_skills_suggestions=["\t"],
+            unwanted_skills=[" "],
             default_cv_path=self.cv_path,
         )
         os.remove(self.cv_path)

@@ -36,6 +36,13 @@ Replaces the old dictionary-based profile system (`FALLBACK_DEFAULT_PROFILE`). A
 **Scoring profile fields:**
 - `easy_apply_bonus` — extra relevance for LinkedIn Easy Apply (default `0.75`; `0` disables)
 - `applied_company_bonus` — extra relevance for jobs at companies with an active applied/interview pipeline row and no stopped row for that normalized company key (default `0.75`; `0` disables; score-only, no UI)
+- `skill_unwanted_penalty` — extra relevance subtracted per extracted job skill whose key is in `unwanted_skills` (default `1.2`; `0` disables). Independent of the `user_skills` match/missing gate.
+
+**Skill list profile fields:**
+- `user_skills` — skills you have (scoring match bonus)
+- `missing_skills_suggestions` — want-to-learn list
+- `unwanted_skills` — Skills tab **Not for me**; missing key in old `profile.json` = empty list. Mutually exclusive with have/learn (unwanted wins on load/save). Not `blocked_skills`: these stay extractable so the penalty can fire.
+- `blocked_skills` — hide/filter extraction; not the same as **Not for me**
 
 **Career-alert artifact profile fields:**
 - `career_alert_artifacts_dir` — user overlay directory for synthesized/edited JSON artifacts (default `./career_alert_artifacts`)

@@ -33,6 +33,11 @@ def _build_skills_tab_items(db_path: str, profile: AppConfig) -> list[dict]:
         for s in (profile.missing_skills_suggestions or [])
         if _normalize_skill_name(str(s)) and _normalize_skill_name(str(s)).lower() not in blocked_keys
     }
+    unwanted_keys = {
+        _normalize_skill_name(str(s)).lower()
+        for s in (profile.unwanted_skills or [])
+        if _normalize_skill_name(str(s)) and _normalize_skill_name(str(s)).lower() not in blocked_keys
+    }
 
     by_key: dict[str, dict] = {}
 
@@ -58,6 +63,7 @@ def _build_skills_tab_items(db_path: str, profile: AppConfig) -> list[dict]:
                 "added_at": added_at or "",
                 "has_skill": key in user_keys,
                 "want_to_learn": key in learn_keys,
+                "not_for_me": key in unwanted_keys,
             }
             by_key[key] = row
             return
@@ -69,6 +75,7 @@ def _build_skills_tab_items(db_path: str, profile: AppConfig) -> list[dict]:
                 row["added_at"] = added_at
         row["has_skill"] = row["has_skill"] or (key in user_keys)
         row["want_to_learn"] = row["want_to_learn"] or (key in learn_keys)
+        row["not_for_me"] = row["not_for_me"] or (key in unwanted_keys)
 
     for item in get_db_skill_patterns(db_path, enabled_only=False):
         upsert(
@@ -87,6 +94,9 @@ def _build_skills_tab_items(db_path: str, profile: AppConfig) -> list[dict]:
         upsert(str(item), "profile")
 
     for item in profile.missing_skills_suggestions or []:
+        upsert(str(item), "profile")
+
+    for item in profile.unwanted_skills or []:
         upsert(str(item), "profile")
 
     rows = list(by_key.values())

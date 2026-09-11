@@ -43,7 +43,7 @@ from .managers.profile_editor import (
 from .managers.profile_manager import (
     _block_skill_in_profile,
     _remove_skill_from_profile,
-    _toggle_profile_skill,
+    _toggle_exclusive_profile_skill,
 )
 from .workflows.job_enrichment import (
     _translate_text_to_english_if_needed,
@@ -317,7 +317,13 @@ def create_app(
         if not skill:
             return JSONResponse(status_code=400, content={"ok": False, "error": "skill is required"})
 
-        changed = _toggle_profile_skill(runtime_profile, "user_skills", skill, req.has_skill)
+        changed, _dropped = _toggle_exclusive_profile_skill(
+            runtime_profile,
+            "user_skills",
+            skill,
+            req.has_skill,
+            drop_from=("unwanted_skills",) if req.has_skill else (),
+        )
         if changed:
             persist_runtime_profile()
             reload_runtime_profile()
@@ -336,12 +342,50 @@ def create_app(
         if not skill:
             return JSONResponse(status_code=400, content={"ok": False, "error": "skill is required"})
 
-        changed = _toggle_profile_skill(runtime_profile, "missing_skills_suggestions", skill, req.learn)
+        changed, dropped_unwanted = _toggle_exclusive_profile_skill(
+            runtime_profile,
+            "missing_skills_suggestions",
+            skill,
+            req.learn,
+            drop_from=("unwanted_skills",) if req.learn else (),
+        )
         if changed:
             persist_runtime_profile()
             reload_runtime_profile()
+            if dropped_unwanted:
+                rescored = rescore_active_jobs(db_path, runtime_profile)
+                print(
+                    f"API: rescore_active_jobs after learn cleared unwanted (rescored={rescored})"
+                )
             queue_dashboard_rebuild(reason=f"skill learn {'on' if req.learn else 'off'} {skill}")
         return {"ok": True, "skill": skill, "learn": req.learn, "changed": bool(changed)}
+
+    class SkillUnwantedRequest(BaseModel):
+        skill: str
+        unwanted: bool
+
+    @app.post("/api/skill/unwanted")
+    def api_skill_unwanted(req: SkillUnwantedRequest):
+        skill = _normalize_skill_name(req.skill)
+        if not skill:
+            return JSONResponse(status_code=400, content={"ok": False, "error": "skill is required"})
+
+        changed, _dropped = _toggle_exclusive_profile_skill(
+            runtime_profile,
+            "unwanted_skills",
+            skill,
+            req.unwanted,
+            drop_from=("user_skills", "missing_skills_suggestions") if req.unwanted else (),
+        )
+        if changed:
+            persist_runtime_profile()
+            reload_runtime_profile()
+            rescored = rescore_active_jobs(db_path, runtime_profile)
+            print(f"API: rescore_active_jobs after unwanted skill toggle (rescored={rescored})")
+            queue_dashboard_rebuild(
+                reason=f"skill unwanted {'on' if req.unwanted else 'off'} {skill}"
+            )
+        return {"ok": True, "skill": skill, "unwanted": req.unwanted, "changed": bool(changed)}
 
     class SkillBlockRequest(BaseModel):
         skill: str

@@ -105,6 +105,34 @@ class ServerSkillBlockApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertFalse(response.json()["ok"])
 
+    def test_block_skill_strips_unwanted(self):
+        self.runtime_profile.user_skills = ["Python"]
+        self.runtime_profile.missing_skills_suggestions = ["Python"]
+        self.runtime_profile.unwanted_skills = ["Python"]
+
+        response = self.client.post("/api/skill/block", json={"skill": "Python"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["ok"])
+        self.assertEqual(self.runtime_profile.unwanted_skills, [])
+        self.assertEqual(self.runtime_profile.user_skills, [])
+        self.assertEqual(self.runtime_profile.missing_skills_suggestions, [])
+        self.assertIn("python", self.runtime_profile.blocked_skills)
+
+    def test_delete_skill_strips_unwanted(self):
+        self.runtime_profile.user_skills = ["Python"]
+        self.runtime_profile.missing_skills_suggestions = ["Python"]
+        self.runtime_profile.unwanted_skills = ["Python"]
+
+        response = self.client.post("/api/skill/delete", json={"skill": "Python"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["ok"])
+        self.assertEqual(self.runtime_profile.unwanted_skills, [])
+        self.assertEqual(self.runtime_profile.user_skills, [])
+        self.assertEqual(self.runtime_profile.missing_skills_suggestions, [])
+        self.assertNotIn("python", self.runtime_profile.blocked_skills)
+
 
 if __name__ == "__main__":
     unittest.main()

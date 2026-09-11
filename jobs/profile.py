@@ -30,6 +30,9 @@ def load_profile(profile_path: Optional[str]) -> AppConfig:
     profile.user_skills = _unique_keywords(
         list(profile.user_skills or [])
     )
+    profile.unwanted_skills = _unique_keywords(
+        list(profile.unwanted_skills or [])
+    )
     profile.blocked_skills = _unique_keywords(
         list(profile.blocked_skills or [])
     )

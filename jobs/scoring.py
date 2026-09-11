@@ -67,21 +67,38 @@ def score_relevance(
             text, skill_patterns or [])
     required_keys = {_normalize_skill_name_key(s) for s in extracted_required}
 
+    unwanted_keys = {
+        _normalize_skill_name_key(s)
+        for s in (profile.unwanted_skills or [])
+        if _normalize_skill_name_key(str(s))
+    }
+    unwanted_hits = sorted(
+        [s for s in extracted_required if _normalize_skill_name_key(s) in unwanted_keys]
+    )
     matched = sorted(
-        [s for s in extracted_required if _normalize_skill_name_key(
-            s) in user_skills]
+        [
+            s for s in extracted_required
+            if _normalize_skill_name_key(s) in user_skills
+            and _normalize_skill_name_key(s) not in unwanted_keys
+        ]
     )
     missing = sorted(
-        [s for s in extracted_required if _normalize_skill_name_key(
-            s) not in user_skills]
+        [
+            s for s in extracted_required
+            if _normalize_skill_name_key(s) not in user_skills
+            and _normalize_skill_name_key(s) not in unwanted_keys
+        ]
     )
 
     skill_match_weight = profile.skill_match_weight
     skill_missing_penalty = profile.skill_missing_penalty
+    skill_unwanted_penalty = profile.skill_unwanted_penalty
 
     if user_skills:
         score += float(len(matched)) * skill_match_weight
         score -= float(len(missing)) * skill_missing_penalty
+    if unwanted_hits and skill_unwanted_penalty:
+        score -= float(len(unwanted_hits)) * skill_unwanted_penalty
 
     easy_apply_bonus = profile.easy_apply_bonus
     source_low = (source or "").strip().lower()
@@ -113,7 +130,9 @@ def score_relevance(
         f"skill_source={skill_source}; "
         f"easy_apply={has_easy_apply}; easy_apply_bonus={easy_apply_bonus if has_easy_apply else 0}; "
         f"applied_company={has_applied_company}; "
-        f"applied_company_bonus={applied_company_bonus if has_applied_company else 0}"
+        f"applied_company_bonus={applied_company_bonus if has_applied_company else 0}; "
+        f"unwanted_skills={unwanted_hits[:8]}; "
+        f"skill_unwanted_penalty={skill_unwanted_penalty if unwanted_hits else 0}"
     )
     return score, reason, relevant, category
 

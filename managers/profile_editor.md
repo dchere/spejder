@@ -4,7 +4,7 @@
 Dashboard Profile panel: field metadata for every `AppConfig` field, GET payload shaping, and validated save with live runtime reload.
 
 **Modules:**
-- `profile_editor_fields.py` — `PROFILE_FIELD_META`, `GROUP_ORDER` / `GROUP_TITLES` (includes `portals` / "Job portals" with `itday_portal_sync_enabled` checkbox), `READONLY_FIELDS` (`skill_bigram_toxicity_threshold`, `bad_cloud_seeded`)
+- `profile_editor_fields.py` — `PROFILE_FIELD_META`, `GROUP_ORDER` / `GROUP_TITLES` (includes `portals` / "Job portals" with `itday_portal_sync_enabled` checkbox), `READONLY_FIELDS` (`skill_bigram_toxicity_threshold`, `bad_cloud_seeded`); editable skill lists include `unwanted_skills` (`list_str`) and scoring weight `skill_unwanted_penalty` (`number`)
 - `profile_editor.py` — `build_profile_get_response`, `merge_profile_updates`, `save_profile_updates`, `validation_errors_by_field`; import-time `assert_field_meta_complete()` ensures `set(PROFILE_FIELD_META) == set(AppConfig.model_fields)`
 
 **Save semantics:**
@@ -14,7 +14,7 @@ Dashboard Profile panel: field metadata for every `AppConfig` field, GET payload
 - Validate via `AppConfig.model_validate`
 - Ordering: merge → write `profile_path` → `reload_runtime_profile()` so Sync/scoring see live values. If write succeeds and reload fails, disk is ahead of memory until the next successful reload. `OSError` on write/reload surfaces as HTTP 500 `{ ok: false, error: "failed to write profile" }`.
 - Editable vs readonly: all other AppConfig fields are editable in the UI and accepted on save
-- Score-affecting edits (`min_score`, keywords, skill weights, etc.) apply to **future** scoring immediately after reload; existing DB scores/`relevant` flags stay until Sync / Regenerate report / CLI rescore (not auto-triggered on Profile save)
+- Score-affecting edits (`min_score`, keywords, skill weights, `unwanted_skills`, `skill_unwanted_penalty`, etc.) apply to **future** scoring immediately after reload; existing DB scores/`relevant` flags stay until Sync / Regenerate report / CLI rescore (not auto-triggered on Profile save). Skills-tab toggles that change have/unwanted lists rescore active jobs via their APIs; Profile save does not.
 
 **Known MVP limits:**
 - No profile-file lock. Partial HTTP merge avoids full-form overwrite, but concurrent writers (Profile save, Skills APIs, Sync persist/reload) still last-write-win on the whole `profile.json`. Same-field races remain.

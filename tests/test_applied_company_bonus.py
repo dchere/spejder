@@ -206,8 +206,10 @@ class AppliedCompanyBonusScoreTest(unittest.TestCase):
         profile.exclude_keywords = []
         profile.min_score = 0.0
         profile.user_skills = []
+        profile.unwanted_skills = []
         profile.skill_match_weight = 1.0
         profile.skill_missing_penalty = 0.5
+        profile.skill_unwanted_penalty = 0.0
         profile.easy_apply_bonus = 0.0
         profile.applied_company_bonus = 0.75
         for key, value in overrides.items():
@@ -301,10 +303,12 @@ class AppliedCompanyBonusWiringTest(unittest.TestCase):
         profile.exclude_keywords = []
         profile.min_score = 0.0
         profile.user_skills = []
+        profile.unwanted_skills = []
         profile.blocked_skills = []
         profile.known_skill_patterns = []
         profile.skill_match_weight = 0.0
         profile.skill_missing_penalty = 0.0
+        profile.skill_unwanted_penalty = 0.0
         profile.easy_apply_bonus = 0.0
         profile.applied_company_bonus = 0.75
         return profile

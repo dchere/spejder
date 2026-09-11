@@ -157,8 +157,10 @@ class RescoreJobsIfActiveTest(unittest.TestCase):
         self.profile.exclude_keywords = []
         self.profile.min_score = 0.0
         self.profile.user_skills = ["python"]
+        self.profile.unwanted_skills = []
         self.profile.skill_match_weight = 1.0
         self.profile.skill_missing_penalty = 0.5
+        self.profile.skill_unwanted_penalty = 0.0
         self.profile.easy_apply_bonus = 0.0
         self.profile.applied_company_bonus = 0.0
 

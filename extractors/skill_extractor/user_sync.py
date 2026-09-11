@@ -127,7 +127,7 @@ def sync_user_skills(
 
     print(f"Sync user skills: extracted {len(extracted)} skills, updating profile")
 
-    profile_data = load_profile(DEFAULT_PROFILE_PATH)
+    profile_data = load_profile(DEFAULT_PROFILE_PATH).model_dump()
     if profile_path and os.path.exists(profile_path):
         try:
             with open(profile_path, encoding="utf-8") as f:
@@ -136,6 +136,12 @@ def sync_user_skills(
                 profile_data.update(loaded)
         except (OSError, json.JSONDecodeError, ValueError, TypeError):
             pass
+
+    unwanted_keys = {
+        _normalize_skill_name(str(s)).lower()
+        for s in (profile_data.get("unwanted_skills") or [])
+        if _normalize_skill_name(str(s))
+    }
 
     existing = [_normalize_skill_name(s) for s in (profile_data.get("user_skills") or [])]
     existing = [s for s in existing if s]
@@ -154,8 +160,10 @@ def sync_user_skills(
             dedup.append(s)
         merged = dedup
 
+    merged = [s for s in merged if s.lower() not in unwanted_keys]
+
     profile_data["user_skills"] = merged
-    _save_profile(profile_path, profile_data)
+    _save_profile(profile_path, AppConfig.model_validate(profile_data))
 
     print(
         f"User skills synced from CV: extracted={len(extracted)}, "

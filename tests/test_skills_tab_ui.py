@@ -101,6 +101,23 @@ class SkillsTabUiTest(unittest.TestCase):
         self.assertEqual(rows["python"]["occurrences"], 5)
         self.assertEqual(rows["rust"]["position_pct"], 0.0)
 
+    def test_not_for_me_flag_from_unwanted_skills(self):
+        self.profile.unwanted_skills = ["SQL"]
+        job_id = _insert_job(self.db_path, "https://example.com/sql", title="Engineer A")
+        set_job_skills(self.db_path, job_id, ["SQL"])
+        upsert_skill_pattern(
+            self.db_path,
+            name="SQL",
+            pattern=r"\bSQL\b",
+            source="learned",
+        )
+
+        rows = {row["name"]: row for row in _build_skills_tab_items(self.db_path, self.profile)}
+
+        self.assertTrue(rows["sql"]["not_for_me"])
+        self.assertFalse(rows["sql"]["has_skill"])
+        self.assertFalse(rows["rust"]["not_for_me"])
+
     def test_rows_default_to_added_at_desc_then_name_asc(self):
         upsert_skill_pattern(self.db_path, name="Alpha", pattern=r"\bAlpha\b", source="test")
         upsert_skill_pattern(self.db_path, name="Zebra", pattern=r"\bZebra\b", source="test")

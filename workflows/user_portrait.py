@@ -110,6 +110,7 @@ def collect_portrait_context(db_path: str, profile: AppConfig, cv_path: Optional
 
     user_skills = _stripped_skill_list(profile.user_skills)
     learn_skills = _stripped_skill_list(profile.missing_skills_suggestions)
+    unwanted_skills = _stripped_skill_list(profile.unwanted_skills)
     applied_jobs = get_all_applied_jobs(db_path, limit=_PORTRAIT_MAX_APPLIED_JOBS)
 
     remaining = budget - len(cv_text)
@@ -124,6 +125,8 @@ def collect_portrait_context(db_path: str, profile: AppConfig, cv_path: Optional
         sections.append("SKILLS I HAVE:\n" + "\n".join(f"- {s}" for s in user_skills))
     if learn_skills:
         sections.append("SKILLS TO LEARN:\n" + "\n".join(f"- {s}" for s in learn_skills))
+    if unwanted_skills:
+        sections.append("SKILLS NOT FOR ME:\n" + "\n".join(f"- {s}" for s in unwanted_skills))
     if applied_jobs:
         job_ids = [int(row.get("id", 0) or 0) for row in applied_jobs]
         skills_by_job = get_job_skills_for_jobs(db_path, job_ids)
@@ -142,7 +145,11 @@ def collect_portrait_context(db_path: str, profile: AppConfig, cv_path: Optional
 
 
 def portrait_has_context(db_path: str, profile: AppConfig, cv_path: Optional[str] = None) -> bool:
-    if _stripped_skill_list(profile.user_skills) or _stripped_skill_list(profile.missing_skills_suggestions):
+    if (
+        _stripped_skill_list(profile.user_skills)
+        or _stripped_skill_list(profile.missing_skills_suggestions)
+        or _stripped_skill_list(profile.unwanted_skills)
+    ):
         return True
     if get_all_applied_jobs(db_path, limit=1):
         return True

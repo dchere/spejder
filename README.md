@@ -138,7 +138,7 @@ Open `http://127.0.0.1:8765/report.html`.
   - **Added** — date the skill was first stored in SQLite `skill_patterns` (`YYYY-MM-DD`). Profile-only skills (your lists / seed patterns without a DB row) show **—**; hover for the tooltip.
   - **Job share** — share of jobs with extracted skills that list this skill. Hover a cell for exact counts.
   - **Learned** — pattern-learning score from applied/relevant jobs (not the same as job share; see [Profile fields](#profile-fields-related-to-skills)).
-  - **I have** / **Want to learn** — toggles for your profile skill list and want-to-learn suggestions.
+  - **I have** / **Want to learn** / **Not for me** — toggles for your profile skill list, want-to-learn suggestions, and skills to penalize in scoring. **I have** and **Want to learn** can both be on. **Not for me** is exclusive with both (checking it clears the other two; checking either of those clears **Not for me**). This is not **Block**: Block hides a skill from extraction; **Not for me** stays visible and extractable so the score penalty can apply.
 
 ## CLI commands
 
@@ -375,6 +375,7 @@ Default profile values are stored in `spejder/default_profile.json`. Runtime loa
 In `profile.json`:
 
 - `user_skills`: your editable skill list used for scoring.
+- `unwanted_skills`: Skills tab **Not for me**; subtracted in scoring via `skill_unwanted_penalty`. Missing key in old `profile.json` = empty. Mutually exclusive with `user_skills` / `missing_skills_suggestions` (unwanted wins on load/save). Not `blocked_skills`.
 - `blocked_skills`: skills hidden from the Skills tab and filtered out from extracted skill results; blocking also deletes matching rows from SQLite `skill_patterns` and `job_skills`, ingests bigrams into `bad_ngram_weights`, and may prune redundant blocked entries once the cloud learns them.
 - `skill_bigram_toxicity_threshold`: last sync-computed toxicity cutoff (auto-updated on GUI background sync; used as a cache between syncs).
 - `skill_bigram_threshold_margin`: calibration margin between mature good and blocked skill score distributions (default `0.5`; the operator-tunable coefficient).
@@ -383,6 +384,7 @@ In `profile.json`:
 - `skill_new_confidence_threshold`: minimum LLM confidence for accepting a novel skill candidate (default `0.9`).
 - `skill_match_weight`: bonus per matched required skill.
 - `skill_missing_penalty`: penalty per missing required skill.
+- `skill_unwanted_penalty`: penalty per extracted skill marked **Not for me** (default `1.2`; `0` disables). Does not stack with `skill_missing_penalty` for the same skill.
 - `easy_apply_bonus`: extra score added for LinkedIn jobs when `Easy Apply` is detected in existing text.
 - `applied_company_bonus`: extra score for jobs at companies you already have in Applied or Interview (not Stopped); default `0.75`; set to `0` to disable.
 - `missing_skills_max_items`: max missing-skill suggestions written to profile.
