@@ -5,6 +5,25 @@ import json
 
 from spejder.extractors.skill_extractor.ui import SKILLS_EMPTY_ADDED_AT_SORT
 
+_SKILL_ICON_SVG_ATTRS = (
+    'xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" '
+    'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" '
+    'stroke-linejoin="round" aria-hidden="true"'
+)
+_BLOCK_SKILL_ICON_SVG = (
+    f"<svg {_SKILL_ICON_SVG_ATTRS}>"
+    '<circle cx="12" cy="12" r="10"/>'
+    '<path d="m4.9 4.9 14.2 14.2"/>'
+    "</svg>"
+)
+_DELETE_SKILL_ICON_SVG = (
+    f"<svg {_SKILL_ICON_SVG_ATTRS}>"
+    '<path d="M3 6h18"/>'
+    '<path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>'
+    '<path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>'
+    "</svg>"
+)
+
 
 def _render_skills_table_html(skills_items: list[dict]) -> str:
     skills_rows = []
@@ -51,6 +70,7 @@ def _render_skills_table_html(skills_items: list[dict]) -> str:
                 data-sort-has-skill="{'1' if has_skill else '0'}"
                 data-sort-want-learn="{'1' if want_to_learn else '0'}"
                 data-sort-not-for-me="{'1' if not_for_me else '0'}">
+                <td><button type="button" class="block-skill-btn" onclick="blockSkill({skill_key_js}, this)" title="Block" aria-label="Block">{_BLOCK_SKILL_ICON_SVG}</button><button type="button" class="delete-skill-btn" onclick="deleteSkill({skill_key_js}, this)" title="Delete" aria-label="Delete">{_DELETE_SKILL_ICON_SVG}</button></td>
                 <td><input type="checkbox" class="skill-row-select" aria-label="Select skill" onchange="updateSkillsBulkBar()" /></td>
                 <td>{skill_name}</td>
                 <td title="{added_title}">{added_display}</td>
@@ -60,7 +80,6 @@ def _render_skills_table_html(skills_items: list[dict]) -> str:
                 <td><input type="checkbox" class="skill-has-checkbox" {has_skill_checked} onchange="setUserSkill({skill_key_js}, this.checked, this)" /></td>
                 <td><input type="checkbox" class="skill-learn-checkbox" {learn_checked} onchange="setLearnSkill({skill_key_js}, this.checked, this)" /></td>
                 <td><input type="checkbox" class="skill-unwanted-checkbox" {unwanted_checked} onchange="setUnwantedSkill({skill_key_js}, this.checked, this)" /></td>
-                <td><button type="button" class="block-skill-btn" onclick="blockSkill({skill_key_js}, this)">Block</button><button type="button" class="delete-skill-btn" onclick="deleteSkill({skill_key_js}, this)">Delete</button></td>
             </tr>
             """.strip()
         )
@@ -73,6 +92,7 @@ def _render_skills_table_html(skills_items: list[dict]) -> str:
         <table class="skills-table" id="skills-table">
             <thead>
                 <tr>
+                    <th title="Block hides the skill; Delete removes it from profile and DB.">Action</th>
                     <th title="Select skills for bulk Block or Delete."><input type="checkbox" id="skills-select-all" aria-label="Select all skills" onchange="toggleSelectAllSkills(this.checked)" /></th>
                     <th class="skills-sortable" data-sort-key="name" title="Skill name (normalized). Click to sort.">Skill<span class="skills-sort-indicator" aria-hidden="true"></span></th>
                     <th class="skills-sortable skills-sort-active" data-sort-key="added_at" title="When the skill was first stored in skill_patterns (profile-only skills show —). Click to sort.">Added<span class="skills-sort-indicator" aria-hidden="true"></span></th>
@@ -82,7 +102,6 @@ def _render_skills_table_html(skills_items: list[dict]) -> str:
                     <th class="skills-sortable" data-sort-key="has_skill" title="Whether the skill is in your profile user_skills list. Click to sort.">I have<span class="skills-sort-indicator" aria-hidden="true"></span></th>
                     <th class="skills-sortable" data-sort-key="want_learn" title="Whether the skill is in missing_skills_suggestions (want to learn). Click to sort.">Want to learn<span class="skills-sort-indicator" aria-hidden="true"></span></th>
                     <th class="skills-sortable" data-sort-key="not_for_me" title="Whether the skill is in unwanted_skills (not for me). Mutually exclusive with I have and Want to learn. Click to sort.">Not for me<span class="skills-sort-indicator" aria-hidden="true"></span></th>
-                    <th title="Block hides the skill; Delete removes it from profile and DB.">Action</th>
                 </tr>
             </thead>
             <tbody>

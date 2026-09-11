@@ -91,11 +91,62 @@ class DashboardSkillsTableTest(unittest.TestCase):
         self.assertIn("setUnwantedSkill", self.table_html)
         self.assertIn("data-sort-not-for-me=", self.table_html)
 
+        thead = re.search(r"<thead>.*?</thead>", self.table_html, flags=re.DOTALL).group(0)
+        ths = re.findall(r"<th\b[^>]*>.*?</th>", thead, flags=re.DOTALL)
+        header_texts = [re.sub(r"<[^>]+>", "", th).strip() for th in ths]
+        self.assertEqual(
+            header_texts,
+            [
+                "Action",
+                "",
+                "Skill",
+                "Added",
+                "Source",
+                "Job share",
+                "Learned",
+                "I have",
+                "Want to learn",
+                "Not for me",
+            ],
+        )
+        self.assertIn(
+            'title="Block hides the skill; Delete removes it from profile and DB."',
+            ths[0],
+        )
+        self.assertIn('id="skills-select-all"', ths[1])
+
+        self.assertIn(">Block selected</button>", self.html)
+        self.assertIn(">Delete selected</button>", self.html)
+        self.assertNotIn(">Block</button>", self.table_html)
+        self.assertNotIn(">Delete</button>", self.table_html)
+
         row_htmls = _extract_skill_rows(self.table_html)
-        row_names = [
-            re.search(r"<td>([^<]+)</td>", row_html).group(1).lower()
-            for row_html in row_htmls
-        ]
+        row_names = []
+        for row_html in row_htmls:
+            tds = re.findall(r"<td\b[^>]*>(.*?)</td>", row_html, flags=re.DOTALL)
+            self.assertGreaterEqual(len(tds), 3)
+            self.assertIn('class="block-skill-btn"', tds[0])
+            self.assertIn('class="delete-skill-btn"', tds[0])
+            self.assertIn('class="skill-row-select"', tds[1])
+            block_btn = re.search(
+                r'<button[^>]*class="block-skill-btn"[^>]*>.*?</button>',
+                tds[0],
+                flags=re.DOTALL,
+            ).group(0)
+            delete_btn = re.search(
+                r'<button[^>]*class="delete-skill-btn"[^>]*>.*?</button>',
+                tds[0],
+                flags=re.DOTALL,
+            ).group(0)
+            self.assertIn('title="Block"', block_btn)
+            self.assertIn('aria-label="Block"', block_btn)
+            self.assertIn("<circle", block_btn)
+            self.assertIn('title="Delete"', delete_btn)
+            self.assertIn('aria-label="Delete"', delete_btn)
+            self.assertIn("M3 6h18", delete_btn)
+            self.assertNotIn("<circle", delete_btn)
+            self.assertNotIn("M3 6h18", block_btn)
+            row_names.append(tds[2].strip().lower())
         self.assertEqual(row_names, ["zebra", "alpha", "rust"])
 
     def test_skills_table_added_at_attributes_and_display(self):
