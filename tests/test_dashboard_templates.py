@@ -150,6 +150,32 @@ class DashboardTemplatesTest(unittest.TestCase):
         self.assertIn("text-overflow: ellipsis", html)
         self.assertNotIn('id="btn-block-selected"', html)
 
+    def test_templates_include_chrome_and_skills_css(self):
+        for name in ("dashboard.html", "company_dashboard.html"):
+            with self.subTest(template=name):
+                source = _read_template(name)
+                self.assertIn(
+                    '{% include "partials/dashboard_chrome.css" %}', source
+                )
+                self.assertIn(
+                    '{% include "partials/dashboard_card_corners.css" %}', source
+                )
+                html = _render_template(name)
+                if name == "dashboard.html":
+                    self.assertIn(
+                        '{% include "partials/dashboard_skills.css" %}', source
+                    )
+                    self.assertIn(
+                        ".skills-table th.skills-action, .skills-table td.skills-action { white-space: nowrap; }",
+                        html,
+                    )
+                else:
+                    self.assertNotIn(
+                        '{% include "partials/dashboard_skills.css" %}', source
+                    )
+                    self.assertNotIn(".skills-table", html)
+                    self.assertNotIn(".skills-action", html)
+
     def test_dashboard_html_shows_skills_bulk_bar_when_skills_present(self):
         template = jinja_env.get_template("dashboard.html")
         context = _minimal_dashboard_context()
@@ -210,6 +236,13 @@ class DashboardTemplatesTest(unittest.TestCase):
         self.assertNotIn("panelRelevant", viewed_true)
         self.assertNotIn("panelNotRelevant", viewed_true)
 
+    def test_company_bump_panel_total_is_empty_noop(self):
+        body = _extract_js_function_body(
+            _render_template("company_dashboard.html"), "bumpPanelTotal"
+        )
+        self.assertFalse(body.strip())
+        self.assertNotIn("dataset.total", body)
+
     def test_templates_include_edited_today_tab(self):
         for name in ("dashboard.html", "company_dashboard.html"):
             with self.subTest(template=name):
@@ -242,17 +275,41 @@ class DashboardTemplatesTest(unittest.TestCase):
                     card_actions = source.index(
                         '{% include "partials/dashboard_card_actions.js" %}'
                     )
-                    skills_js = source.index(
-                        '{% include "partials/dashboard_skills.js" %}'
+                    skills_flags = source.index(
+                        '{% include "partials/dashboard_skills_flags.js" %}'
+                    )
+                    skills_bulk = source.index(
+                        '{% include "partials/dashboard_skills_bulk.js" %}'
+                    )
+                    skills_sort = source.index(
+                        '{% include "partials/dashboard_skills_sort.js" %}'
+                    )
+                    portrait = source.index(
+                        '{% include "partials/dashboard_portrait.js" %}'
                     )
                     self.assertLess(ops_js, set_mode)
                     self.assertLess(set_mode, card_actions)
-                    self.assertLess(card_actions, skills_js)
+                    self.assertLess(card_actions, portrait)
+                    self.assertLess(portrait, skills_flags)
+                    self.assertLess(skills_flags, skills_bulk)
+                    self.assertLess(skills_bulk, skills_sort)
                     self.assertIn('{% include "partials/dashboard_portrait.js" %}', source)
+                    self.assertNotIn(
+                        '{% include "partials/dashboard_skills.js" %}', source
+                    )
                 else:
                     self.assertNotIn('{% include "partials/dashboard_ops.js" %}', source)
                     self.assertNotIn('{% include "partials/dashboard_portrait.js" %}', source)
                     self.assertNotIn('{% include "partials/dashboard_skills.js" %}', source)
+                    self.assertNotIn(
+                        '{% include "partials/dashboard_skills_flags.js" %}', source
+                    )
+                    self.assertNotIn(
+                        '{% include "partials/dashboard_skills_bulk.js" %}', source
+                    )
+                    self.assertNotIn(
+                        '{% include "partials/dashboard_skills_sort.js" %}', source
+                    )
                 self.assertIn("function setApplied", html)
                 self.assertIn("function setHidden", html)
                 self.assertIn("function removeAppliedOnlyUI", html)

@@ -70,9 +70,9 @@ def _render_skills_table_html(skills_items: list[dict]) -> str:
                 data-sort-has-skill="{'1' if has_skill else '0'}"
                 data-sort-want-learn="{'1' if want_to_learn else '0'}"
                 data-sort-not-for-me="{'1' if not_for_me else '0'}">
-                <td><button type="button" class="block-skill-btn" onclick="blockSkill({skill_key_js}, this)" title="Block" aria-label="Block">{_BLOCK_SKILL_ICON_SVG}</button><button type="button" class="delete-skill-btn" onclick="deleteSkill({skill_key_js}, this)" title="Delete" aria-label="Delete">{_DELETE_SKILL_ICON_SVG}</button></td>
                 <td><input type="checkbox" class="skill-row-select" aria-label="Select skill" onchange="updateSkillsBulkBar()" /></td>
                 <td>{skill_name}</td>
+                <td class="skills-action"><button type="button" class="block-skill-btn" onclick="blockSkill({skill_key_js}, this)" title="Block" aria-label="Block">{_BLOCK_SKILL_ICON_SVG}</button><button type="button" class="delete-skill-btn" onclick="deleteSkill({skill_key_js}, this)" title="Delete" aria-label="Delete">{_DELETE_SKILL_ICON_SVG}</button></td>
                 <td title="{added_title}">{added_display}</td>
                 <td>{source}</td>
                 <td title="{position_title}">{position_display}</td>
@@ -92,9 +92,9 @@ def _render_skills_table_html(skills_items: list[dict]) -> str:
         <table class="skills-table" id="skills-table">
             <thead>
                 <tr>
-                    <th title="Block hides the skill; Delete removes it from profile and DB.">Action</th>
                     <th title="Select skills for bulk Block or Delete."><input type="checkbox" id="skills-select-all" aria-label="Select all skills" onchange="toggleSelectAllSkills(this.checked)" /></th>
                     <th class="skills-sortable" data-sort-key="name" title="Skill name (normalized). Click to sort.">Skill<span class="skills-sort-indicator" aria-hidden="true"></span></th>
+                    <th class="skills-action" title="Block hides the skill; Delete removes it from profile and DB.">Action</th>
                     <th class="skills-sortable skills-sort-active" data-sort-key="added_at" title="When the skill was first stored in skill_patterns (profile-only skills show —). Click to sort.">Added<span class="skills-sort-indicator" aria-hidden="true"></span></th>
                     <th class="skills-sortable" data-sort-key="source" title="Where defined: db (SQLite pattern) or profile (your lists / seed patterns). Click to sort.">Source<span class="skills-sort-indicator" aria-hidden="true"></span></th>
                     <th class="skills-sortable" data-sort-key="position_pct" title="Share of jobs with extracted skills that list this skill. Cell tooltip shows exact counts. Click to sort.">Job share<span class="skills-sort-indicator" aria-hidden="true"></span></th>

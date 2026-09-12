@@ -1,0 +1,19 @@
+            .skills-wrap { background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 12px; overflow-x: auto; }
+            .skills-table { width: 100%; border-collapse: collapse; min-width: 900px; }
+            .skills-table th, .skills-table td { border-bottom: 1px solid #eee; text-align: left; padding: 8px; font-size: 13px; }
+            .skills-table th { background: #fafafa; font-weight: 700; }
+            .skills-table th.skills-sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+            .skills-table th.skills-sortable:hover { background: #f0f4fa; }
+            .skills-sort-indicator { display: inline-block; width: 0.9em; margin-left: 4px; color: #6b7a99; font-size: 11px; }
+            .skills-table th.skills-sort-active .skills-sort-indicator::after { content: '▲'; }
+            .skills-table th.skills-sort-active.skills-sort-desc .skills-sort-indicator::after { content: '▼'; }
+            .skills-table tbody tr.skill-row-focus { outline: 2px solid #0a58ca; outline-offset: -2px; background: #eef4ff; transition: background-color 0.8s ease; }
+            .delete-skill-btn { border: 1px solid #cc8c8c; color: #7b1111; background: #fff; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
+            .block-skill-btn { border: 1px solid #d2a24a; color: #7a5200; background: #fff7e8; border-radius: 6px; padding: 4px 8px; cursor: pointer; margin-right: 6px; }
+            .skills-table .block-skill-btn, .skills-table .delete-skill-btn { display: inline-flex; align-items: center; justify-content: center; padding: 4px; min-width: 24px; min-height: 24px; line-height: 0; }
+            .skills-table .block-skill-btn { margin-right: 6px; }
+            .skills-table th.skills-action, .skills-table td.skills-action { white-space: nowrap; }
+            .skills-table .block-skill-btn svg, .skills-table .delete-skill-btn svg { width: 14px; height: 14px; }
+            .skills-bulk-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+            .skills-bulk-bar button:disabled { opacity: 0.55; cursor: not-allowed; }
+            #skills-selected-label { font-size: 13px; color: #555; min-width: 6rem; }

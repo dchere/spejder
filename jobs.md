@@ -43,7 +43,7 @@ The previously monolithic `parsing.py` has been transitioned into a `spejder.job
 - `text_parser.py`: Pure text transformations.
 - `linkedin.py`: Rules specific to LinkedIn formatting inside jobs.
 - `companies.py`: Entity and title inferences.
-- `links.py`, `platforms.py`: Source routing via external links. Jobindex extractor lives in `platforms_jobindex.py` and is re-exported from `platforms.py` (Demant/Google stay in `platforms.py`). `platforms_jobindex.py` is over ~300 because `_extract_jobindex_entries_by_link` is one host extractor (not split further). `parsing/utils.py` is left unsplit (one Jobindex-heuristics domain). `parsing/core.py` remains the `extract_job_entries` orchestrator; first-wins field merge lives in `parsing/merge.py`.
+- `links.py`, `platforms.py`: Source routing via external links. Jobindex extractor lives in `platforms_jobindex.py` and is re-exported from `platforms.py` (Demant/Google stay in `platforms.py`). `platforms_jobindex.py` is over ~300 because `_extract_jobindex_entries_by_link` is one host extractor (not split further). `parsing/utils.py` is left unsplit (one Jobindex-heuristics domain). `parsing/core.py` remains the `extract_job_entries` orchestrator; first-wins field merge lives in `parsing/merge.py` (`merge.py` first-wins unit-tested in `tests/test_job_parsing_merge.py`).
 - `jobs2web.py`: Oracle Jobs2Web anchor parsing and Vestas/Danfoss/Novo Nordisk extractors (Python fallback; mirrored by shipped artifacts).
 - `djinni_alerts.py`, `thehub_alerts.py`, `oracle_cx_alerts.py`: Other career-alert email extractors.
 - `platforms_career_alerts.py`: Re-export barrel for career-alert extractors (stable import path).
