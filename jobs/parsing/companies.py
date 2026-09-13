@@ -53,6 +53,16 @@ def extract_company_title(text: str, title_hint: str = "") -> tuple[str, str]:
             company = m_alert.group("company").strip(" \"'“”|:-")[:180]
 
     if not company:
+        # Teamtailor Connect: "Danske Commodities: one new job matching your profile"
+        m_matching = re.search(
+            r"^(?P<company>.+?):\s+(?:one|\d+)\s+new jobs? matching your profile\s*$",
+            title,
+            flags=re.IGNORECASE,
+        )
+        if m_matching:
+            company = m_matching.group("company").strip(" \"'“”|:-")[:180]
+
+    if not company:
         # "New job opportunities in Danske Bank" / "jobs posted to Acme Corp"
         m_in = re.search(
             r"\b(?:opportunities?|jobs?|openings?)\s+(?:in|at|to)\s+([A-Z][^\n.!?]{2,60}?)(?:\s*$|\s+today|\s+now|\s+posted)",

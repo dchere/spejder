@@ -1,4 +1,4 @@
-"""Tests for career-alert email parsing (The Hub, Vestas, Oracle CX, Djinni, Google Careers)."""
+"""Tests for career-alert email parsing (The Hub, Vestas, Oracle CX, Djinni, Teamtailor, Google Careers)."""
 
 import os
 import unittest
@@ -7,6 +7,7 @@ from unittest.mock import patch
 from spejder.db import (
     _decode_mandrill_track_link,
     _is_djinni_position_link,
+    _is_teamtailor_position_link,
     _normalize_position_link,
     _provider_from_link,
 )
@@ -158,6 +159,33 @@ class JobLinkRecognitionTest(unittest.TestCase):
         link = "https://djinni.co/jobs/830919-python-developer"
         self.assertTrue(_is_djinni_position_link(link))
         self.assertTrue(_is_job_link(link))
+
+    def test_teamtailor_job_link(self):
+        link = (
+            "https://danskecommoditiesas.teamtailor.com/jobs/"
+            "8248086-quantitative-analyst-for-short-term-automated-trading"
+            "?utm_source=email"
+        )
+        normalized = _normalize_position_link(link)
+        self.assertTrue(_is_teamtailor_position_link(normalized))
+        self.assertTrue(_is_job_link(normalized))
+        self.assertNotIn("?", normalized)
+        self.assertEqual(_provider_from_link(normalized), "Teamtailor")
+        self.assertEqual(
+            normalized,
+            "https://danskecommoditiesas.teamtailor.com/jobs/"
+            "8248086-quantitative-analyst-for-short-term-automated-trading",
+        )
+
+    def test_teamtailor_career_site_is_not_job_link(self):
+        for link in (
+            "https://danskecommoditiesas.teamtailor.com/",
+            "https://www.teamtailor.com/",
+            "https://danskecommoditiesas.teamtailor.com/connect/profile",
+        ):
+            normalized = _normalize_position_link(link)
+            self.assertFalse(_is_teamtailor_position_link(normalized), msg=link)
+            self.assertFalse(_is_job_link(normalized), msg=link)
 
     def test_google_careers_job_link_preserves_host_and_query(self):
         normalized = _normalize_position_link(GOOGLE_FACILITIES_MANAGER_LINK)
@@ -336,6 +364,38 @@ View job: https://careers.novonordisk.com/job/S%C3%B8borg-Lead-Software-Engineer
         self.assertEqual(entry["place"], "Søborg")
         self.assertEqual(entry["work_type"], "On-site")
         self.assertEqual(entry["source"], "Novo Nordisk")
+
+
+class TeamtailorConnectAlertTest(unittest.TestCase):
+    def test_extracts_title_anchor_job_and_skips_career_site(self):
+        html = _read_fixture("teamtailor_snippet.html")
+        job_link = (
+            "https://danskecommoditiesas.teamtailor.com/jobs/"
+            "8248086-quantitative-analyst-for-short-term-automated-trading"
+        )
+        doc = {
+            "html": html,
+            "text": (
+                "we have one new job that matches your profile\n"
+                f"Quantitative analyst for Short-term Automated Trading ({job_link})\n"
+            ),
+            "title": "Danske Commodities: one new job matching your profile",
+            "links": [
+                job_link,
+                "https://danskecommoditiesas.teamtailor.com/",
+                "https://www.teamtailor.com/",
+            ],
+        }
+        entries = extract_job_entries(doc)
+        self.assertEqual(len(entries), 1)
+        entry = entries[0]
+        self.assertEqual(entry["position_link"], job_link)
+        self.assertEqual(
+            entry["title"],
+            "Quantitative analyst for Short-term Automated Trading",
+        )
+        self.assertEqual(entry["company"], "Danske Commodities")
+        self.assertEqual(entry["source"], "Teamtailor")
 
 
 class PlatformMergeOrderTest(unittest.TestCase):

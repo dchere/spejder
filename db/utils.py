@@ -10,11 +10,17 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 EMERSON_ORACLE_FA_HOST = "hdjq.fa.us2.oraclecloud.com"
 _DJINNI_JOB_ID_RE = re.compile(r"/jobs/\d+")
+_TEAMTAILOR_JOB_RE = re.compile(r"teamtailor\.com/jobs/\d+", re.IGNORECASE)
 
 
 def _is_djinni_position_link(link: str) -> bool:
     low = (link or "").lower()
     return "djinni.co" in low and bool(_DJINNI_JOB_ID_RE.search(low))
+
+
+def _is_teamtailor_position_link(link: str) -> bool:
+    low = (link or "").lower()
+    return "teamtailor.com" in low and bool(_TEAMTAILOR_JOB_RE.search(low))
 
 TITLE_GARBAGE_MARKERS = [
     "translated title",
@@ -158,6 +164,11 @@ def _normalize_position_link(link: str) -> str:
     if m:
         return f"https://djinni.co/jobs/{m.group(1).rstrip('/')}"
 
+    if _is_teamtailor_position_link(link) and parsed.path:
+        scheme = parsed.scheme or "https"
+        netloc = parsed.netloc or ""
+        return f"{scheme}://{netloc}{parsed.path}".rstrip("/")
+
     base = (
         f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
         if parsed.scheme and parsed.netloc
@@ -232,6 +243,8 @@ def _provider_from_link(link: str) -> str:
         return "Tetra Pak"
     if _is_djinni_position_link(link):
         return "Djinni"
+    if _is_teamtailor_position_link(link):
+        return "Teamtailor"
 
     host = (parsed.netloc or "").strip().lower()
     if host.startswith("www."):

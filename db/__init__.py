@@ -73,6 +73,7 @@ _EXPORTS = {
     "_extract_jobindex_id": "utils",
     "_provider_from_link": "utils",
     "_is_djinni_position_link": "utils",
+    "_is_teamtailor_position_link": "utils",
 }
 
 __all__ = list(_EXPORTS)

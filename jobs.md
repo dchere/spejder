@@ -42,7 +42,7 @@ The previously monolithic `parsing.py` has been transitioned into a `spejder.job
 - `html_parser.py`: Functions manipulating `bs4.BeautifulSoup`.
 - `text_parser.py`: Pure text transformations.
 - `linkedin.py`: Rules specific to LinkedIn formatting inside jobs.
-- `companies.py`: Entity and title inferences.
+- `companies.py`: Entity and title inferences. Teamtailor Connect subjects (`{Company}: one|N new job(s) matching your profile`) yield the company; title still comes from the HTML job-anchor text.
 - `links.py`, `platforms.py`: Source routing via external links. Jobindex extractor lives in `platforms_jobindex.py` and is re-exported from `platforms.py` (Demant/Google stay in `platforms.py`). `platforms_jobindex.py` is over ~300 because `_extract_jobindex_entries_by_link` is one host extractor (not split further). `parsing/utils.py` is left unsplit (one Jobindex-heuristics domain). `parsing/core.py` remains the `extract_job_entries` orchestrator; first-wins field merge lives in `parsing/merge.py` (`merge.py` first-wins unit-tested in `tests/test_job_parsing_merge.py`).
 - `jobs2web.py`: Oracle Jobs2Web anchor parsing and Vestas/Danfoss/Novo Nordisk extractors (Python fallback; mirrored by shipped artifacts).
 - `djinni_alerts.py`, `thehub_alerts.py`, `oracle_cx_alerts.py`: Other career-alert email extractors.
@@ -69,6 +69,7 @@ The previously monolithic `parsing.py` has been transitioned into a `spejder.job
 | Oracle CX | `*.fa.{region}.oraclecloud.com/.../CandidateExperience/.../job/{id}` (not Emerson host) | `_extract_oracle_cx_entries_by_link` | Oracle CX |
 | Emerson Career Site | `hdjq.fa.us2.oraclecloud.com/.../CandidateExperience/.../job/{id}` | `_extract_oracle_cx_entries_by_link` | Emerson Career Site (`company=Emerson`) |
 | Djinni | `djinni.co/jobs/{id}-{slug}` (often via Mandrill track links) | `_extract_djinni_entries_by_link` | Djinni |
+| Teamtailor | `{tenant}.teamtailor.com/jobs/{numeric_id}[-slug]` | generic HTML (`_is_job_link`) | Teamtailor |
 | Google Careers | `www.google.com` or `careers.google.com` … `/about/careers/applications/jobs/results/{id}-…` (query params preserved) | `_extract_google_entries_by_link` | Google Careers (`company=Google`) |
 
 Djinni subscription digests use `div.card` blocks inside `table.table-cards`. Titles and descriptions may be English, Ukrainian, or mixed; Ukrainian text is translated during ingest via `language_manager` (see `spejder/managers/language_manager.md`). When both remote-only markers and subscription employment type appear, `work_type` prefers explicit part-time/full-time over remote.

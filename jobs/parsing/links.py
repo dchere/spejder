@@ -1,6 +1,9 @@
 import re
 
-from spejder.db.utils import _is_djinni_position_link
+from spejder.db.utils import (
+    _is_djinni_position_link,
+    _is_teamtailor_position_link,
+)
 
 
 def _is_job_link(link: str) -> bool:
@@ -51,6 +54,8 @@ def _is_job_link(link: str) -> bool:
     if "jobs.tetrapak.com" in low and re.search(r"/job/[^/]+/\d+", low):
         return True
     if _is_djinni_position_link(link):
+        return True
+    if _is_teamtailor_position_link(link):
         return True
     return False
 
