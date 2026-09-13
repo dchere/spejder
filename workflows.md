@@ -18,7 +18,8 @@ Core orchestration for CLI commands, GUI background sync, and heavy multi-step p
 
 | Module | Role |
 |--------|------|
-| `dashboard.py` | Dashboard record building + rebuild queue worker |
+| `dashboard.py` | Rebuild queue worker + missing-skill helper; re-exports record builders |
+| `dashboard_records.py` | Row → dashboard dict + Hidden / Edited-today loaders |
 | `gui.py` | GUI/server thread orchestration |
 | `gui_sync.py` | Background inbox sync pipeline (9 steps) |
 | `portal_sync.py` | External job portal sync (IT-DAY); gated by `itday_portal_sync_enabled` |
@@ -43,7 +44,7 @@ Core orchestration for CLI commands, GUI background sync, and heavy multi-step p
 **Context:**
 `cli.py` is a thin argparse layer delegating here. Workflows are callable from tests and `spejder.server` without going through the CLI.
 
-**Dashboard rebuild:** `DashboardRebuildQueue` (`workflows/dashboard.py`) reloads three applied-stage query subsets — `get_applied_jobs`, `get_interview_jobs`, and `get_stopped_interview_jobs` — when rendering Applied / Interview / Stopped tabs, plus Hidden via `build_hidden_dashboard_records` and Edited today via `build_viewed_today_dashboard_records`. Inbox report writes (`write_inbox_dashboard_report`) and enrichment report writes (`enrichment.py` after `refresh-descriptions`) use the same helpers and pass `hidden_items` / `viewed_today_items` to `_render_html_dashboard`.
+**Dashboard rebuild:** `DashboardRebuildQueue` (`workflows/dashboard.py`) reloads three applied-stage query subsets — `get_applied_jobs`, `get_interview_jobs`, and `get_stopped_interview_jobs` — when rendering Applied / Interview / Stopped tabs, plus Hidden via `build_hidden_dashboard_records` and Edited today via `build_viewed_today_dashboard_records`. Those helpers live in `dashboard_records.py`, imported via `dashboard.py`. Inbox report writes (`write_inbox_dashboard_report`) and enrichment report writes (`enrichment.py` after `refresh-descriptions`) use the same helpers and pass `hidden_items` / `viewed_today_items` to `_render_html_dashboard`.
 
 **GUI background sync** (`run_inbox_sync` in `gui_sync.py`):
 0. Sync IT-DAY job portal (when `itday_portal_sync_enabled`)

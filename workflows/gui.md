@@ -8,7 +8,7 @@ GUI server orchestrator (`serve_gui`) that handles profile/path setup, backgroun
 
 **Context:**
 Extracted workflow module. `gui.py` now focuses on server orchestration + dependency wiring and delegates:
-- dashboard record/rebuild queue logic to `spejder/workflows/dashboard.py`
+- dashboard rebuild queue to `spejder/workflows/dashboard.py`; the queue uses builders defined in `dashboard_records.py` (re-exported from `dashboard.py`)
 - background inbox synchronization to `spejder/workflows/gui_sync.py`
 
 **Constraints:**
