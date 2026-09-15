@@ -9,8 +9,9 @@ Background inbox synchronization pipeline extracted from `gui.py`, preserving ex
 - `run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult`
 - `InboxSyncRunner` — thread-safe runner; at most one sync at a time (`_running` claimed under lock before the worker thread is spawned); `trigger()` is used for both `serve_gui` startup sync and the dashboard **Sync inbox** button. Wires `on_stage` into `run_inbox_sync`, then `DashboardRebuildQueue.wait_until_idle` after a successful or skipped run (skipped waits for in-flight rebuilds so startup snapshot does not race the status message). If rebuild wait times out after a successful sync, terminal `status` stays `complete` but `message` notes rebuild may still be in progress.
 
-**Pipeline (9 steps):**
+**Pipeline (10 steps):**
 0. Sync IT-DAY job portal listings (`sync_itday_portal`) when `runtime_profile.itday_portal_sync_enabled` (default true); emit stage `"portal"` / `"Checking IT-DAY job portal"` only when enabled; otherwise skip fetch/ingest with zeros (no portal stage)
+0b. When portal `inserted_new > 0`, run company+title dedupe immediately (`run_cross_source_dedupe`, stage `"portal_dedupe"`) so portal rows that already exist from LinkedIn/Jobindex are merged before inbox ingest; keep the later post-ingest dedupe for new inbox overlaps
 1. Ingest inbox input (or detect missing-description backfill mode)
 2. Delete processed inbox files
 3. Run company+title position deduplication (`merge_duplicate_positions`)

@@ -12,6 +12,7 @@ Coordinates the ingestion of new job postings from the inbox folder, matching jo
 
 **Ingest flow (ordered):**
 0. Sync IT-DAY job portal (`sync_itday_portal(..., enabled=profile.itday_portal_sync_enabled)`) — after `ensure_db` / entry transform; LLM is not required for fetch; skipped when the profile flag is false
+0b. When portal `inserted_new > 0`, run company+title dedupe (`run_cross_source_dedupe`) so portal duplicates of existing LinkedIn/Jobindex rows merge before inbox ingest
 1. Ingest docs + inbox cleanup (docs may be empty when continuing for portal/backfill)
 2. Generate missing descriptions
 3. Materialize skills (+ conditional rescore on skill change in active scope)

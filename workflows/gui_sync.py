@@ -102,6 +102,15 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
             entry_transform=entry_transform,
             enabled=portal_enabled,
         )
+        if int(portal_stats.get("inserted_new", 0) or 0) > 0:
+            _emit_stage(context, "portal_dedupe", "Deduplicating portal positions")
+            try:
+                run_cross_source_dedupe(
+                    context.db_path,
+                    log_prefix="Background sync: post-portal dedupe",
+                )
+            except Exception as exc:
+                print(f"Background sync: post-portal dedupe failed: {exc}")
 
         if (
             not docs

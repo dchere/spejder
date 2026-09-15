@@ -257,6 +257,80 @@ class RunInboxSyncPortalTest(unittest.TestCase):
         result = run_inbox_sync(self.context)
         self.assertEqual(result.status, "done")
 
+    @patch(
+        "spejder.workflows.gui_sync.sync_itday_portal",
+        return_value={"found": 1, "inserted_new": 1, "skipped_existing": 0, "processed": 1},
+    )
+    @patch(
+        "spejder.workflows.gui_sync.recalibrate_and_store_threshold",
+        return_value=0.1,
+    )
+    @patch(
+        "spejder.workflows.gui_sync.ensure_bad_cloud_initialized",
+        return_value={"seeded": False, "pruned": []},
+    )
+    @patch(
+        "spejder.workflows.gui_sync._learn_skill_patterns_from_positions",
+        return_value={
+            "considered_positions": 0,
+            "new_skill_patterns": 0,
+            "total_known_skill_patterns": 0,
+        },
+    )
+    @patch(
+        "spejder.workflows.gui_sync.cleanup_blocked_skills_from_db",
+        return_value={
+            "skills_processed": 0,
+            "skill_rows_deleted": 0,
+            "job_skill_links_deleted": 0,
+            "affected_job_ids": [],
+        },
+    )
+    @patch("spejder.workflows.gui_sync._generate_missing_descriptions_for_ingest", return_value=(0, 0))
+    @patch("spejder.workflows.gui_sync.run_cross_source_dedupe", return_value={})
+    @patch("spejder.workflows.gui_sync.delete_processed_inbox_files", return_value={})
+    @patch("spejder.workflows.gui_sync.get_jobs_for_active_rescore", return_value=[])
+    @patch("spejder.workflows.gui_sync.get_jobs_for_description_refresh", return_value=[])
+    def test_runs_post_portal_and_post_ingest_dedupe_when_portal_inserts(
+        self,
+        _desc_refresh,
+        _active_rescore,
+        _delete_files,
+        mock_dedupe,
+        *_rest,
+    ):
+        stages: list[str] = []
+        context = replace(
+            self.context,
+            on_stage=lambda stage_id, _message: stages.append(stage_id),
+        )
+        result = run_inbox_sync(context)
+        self.assertEqual(result.status, "done")
+        self.assertEqual(mock_dedupe.call_count, 2)
+        self.assertEqual(
+            mock_dedupe.call_args_list[0].kwargs.get("log_prefix"),
+            "Background sync: post-portal dedupe",
+        )
+        self.assertEqual(
+            mock_dedupe.call_args_list[1].kwargs.get("log_prefix"),
+            "Background sync: cross-source dedupe",
+        )
+        self.assertIn("portal_dedupe", stages)
+        self.assertIn("dedupe", stages)
+
+    @patch(
+        "spejder.workflows.gui_sync.sync_itday_portal",
+        return_value={"found": 5, "inserted_new": 0, "skipped_existing": 5, "processed": 5},
+    )
+    @patch("spejder.workflows.gui_sync.get_jobs_for_description_refresh", return_value=[])
+    @patch("spejder.workflows.gui_sync.run_cross_source_dedupe")
+    def test_skips_post_portal_dedupe_when_portal_inserts_nothing(
+        self, mock_dedupe, *_mocks
+    ):
+        result = run_inbox_sync(self.context)
+        self.assertEqual(result.status, "skipped")
+        mock_dedupe.assert_not_called()
+
     @patch("spejder.workflows.portal_sync.fetch_itday_portal_entries")
     @patch("spejder.workflows.gui_sync.get_jobs_for_description_refresh", return_value=[])
     def test_skips_portal_fetch_when_disabled(self, _desc_mock, mock_fetch):

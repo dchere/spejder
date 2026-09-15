@@ -48,9 +48,10 @@ Core orchestration for CLI commands, GUI background sync, and heavy multi-step p
 
 **GUI background sync** (`run_inbox_sync` in `gui_sync.py`):
 0. Sync IT-DAY job portal (when `itday_portal_sync_enabled`)
+0b. Post-portal company+title dedupe when `inserted_new > 0` (overlaps with existing LinkedIn/Jobindex drop before inbox ingest)
 1. Ingest inbox (or backfill missing descriptions)
 2. Delete processed inbox files
-3. Company+title position dedupe
+3. Company+title position dedupe (post-ingest)
 4. Skill materialization (+ dashboard rebuild when `skills_updated > 0`)
 5. Description generation (+ rebuild when updated)
 6. Skill-pattern learning (+ rebuild when new patterns)

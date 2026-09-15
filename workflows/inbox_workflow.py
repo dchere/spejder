@@ -23,6 +23,7 @@ from spejder.workflows.job_enrichment import (
     materialize_relevant_and_applied_skills,
 )
 from spejder.workflows.portal_sync import sync_itday_portal
+from spejder.workflows.deduplication import run_cross_source_dedupe
 
 
 def process_inbox(inbox: str = None, db: str = None, profile: str = None, model: str = "", report_dir: str = None, limit: int = 0, max_tokens: int = 220, max_input_chars: int = None, prune_irrelevant: bool = False, verbose: bool = False):
@@ -53,6 +54,11 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
         entry_transform=entry_transform,
         enabled=profile.itday_portal_sync_enabled,
     )
+    if int(portal_stats.get("inserted_new", 0) or 0) > 0:
+        run_cross_source_dedupe(
+            db_path,
+            log_prefix="process-inbox: post-portal dedupe",
+        )
     missing_descriptions = get_jobs_for_description_refresh(
         db_path, missing_only=True, limit=1
     )
