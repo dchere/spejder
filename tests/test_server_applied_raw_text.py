@@ -72,7 +72,7 @@ class ServerAppliedRawTextApiTest(unittest.TestCase):
     def tearDown(self):
         self._tmpdir.cleanup()
 
-    @patch("spejder.server.routers.jobs.materialize_job_skills")
+    @patch("spejder.server.routers.jobs_applied_extras.materialize_job_skills")
     def test_applied_raw_text_rescores_after_skill_clear(self, mock_materialize):
         mock_materialize.return_value = ("", "enriched", False)
         job_id = _insert_applied_job(self.db_path, "https://example.com/applied-raw")
@@ -102,7 +102,7 @@ class ServerAppliedRawTextApiTest(unittest.TestCase):
         self.assertFalse(response.json()["ok"])
         self.assertEqual(response.json()["error"], "text is required")
 
-    @patch("spejder.server.routers.jobs.get_all_applied_jobs", return_value=[])
+    @patch("spejder.server.routers.jobs_applied_extras.get_all_applied_jobs", return_value=[])
     def test_applied_raw_text_fails_when_row_missing_after_save(self, _mock_rows):
         job_id = _insert_applied_job(self.db_path, "https://example.com/missing-row")
 

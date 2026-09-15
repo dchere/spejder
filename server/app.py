@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from spejder.server.context import ServerRuntime
 from spejder.server.routers.jobs import router as jobs_router
+from spejder.server.routers.jobs_applied_extras import router as jobs_applied_extras_router
 from spejder.server.routers.ops import router as ops_router
 from spejder.server.routers.portrait import router as portrait_router
 from spejder.server.routers.profile import router as profile_router
@@ -56,6 +57,7 @@ def create_app(
     )
 
     app.include_router(jobs_router)
+    app.include_router(jobs_applied_extras_router)
     app.include_router(skills_router)
     app.include_router(ops_router)
     app.include_router(portrait_router)

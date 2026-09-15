@@ -14,8 +14,9 @@ Provides an interactive dashboard (web GUI) to review extracted jobs and view th
 |------|------|
 | `__init__.py` | Re-export `create_app`, `start_server` only |
 | `context.py` | `ServerRuntime` dataclass + `get_runtime` |
-| `app.py` | `create_app` (CORS, `include_router` ×5, static mount last) and `start_server` |
-| `routers/jobs.py` | `/api/feedback`, `/applied`, `/interview`, `/interview/stopped`, `/interview/feedback`, `/viewed`, `/hidden`, `/applied/raw-text`, `/applied/cover-letter/request`, `/applied/cover-letter` |
+| `app.py` | `create_app` (CORS, `include_router` ×6, static mount last) and `start_server` |
+| `routers/jobs.py` | `/api/feedback`, `/applied`, `/interview`, `/interview/stopped`, `/interview/feedback`, `/viewed`, `/hidden` |
+| `routers/jobs_applied_extras.py` | `/api/applied/raw-text`, `/api/applied/cover-letter/request`, `/api/applied/cover-letter` |
 | `routers/skills.py` | `/api/skill/user\|learn\|unwanted\|block\|delete\|block-batch\|delete-batch` plus `_normalize_skill_batch`, `_run_skill_block`, `_run_skill_delete`, `_delete_skills_from_db`, `_merge_db_deleted` |
 | `routers/ops.py` | `/api/report/rebuild`, `/api/report/status`, `/api/inbox/sync`, `/api/inbox/sync/status`, `GET /company.html` |
 | `routers/portrait.py` | `/api/portrait`, `/portrait/save`, `/portrait/generate` |
