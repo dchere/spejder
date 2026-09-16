@@ -13,6 +13,7 @@ from spejder.server.routers.ops import router as ops_router
 from spejder.server.routers.portrait import router as portrait_router
 from spejder.server.routers.profile import router as profile_router
 from spejder.server.routers.skills import router as skills_router
+from spejder.server.routers.skills_block_delete import router as skills_block_delete_router
 
 
 def create_app(
@@ -59,6 +60,7 @@ def create_app(
     app.include_router(jobs_router)
     app.include_router(jobs_applied_extras_router)
     app.include_router(skills_router)
+    app.include_router(skills_block_delete_router)
     app.include_router(ops_router)
     app.include_router(portrait_router)
     app.include_router(profile_router)
