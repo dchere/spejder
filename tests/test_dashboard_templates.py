@@ -267,6 +267,9 @@ class DashboardTemplatesTest(unittest.TestCase):
                 self.assertIn('id="panel-hidden"', source)
                 self.assertIn('{% include "partials/dashboard_card_stage.js" %}', source)
                 self.assertIn('{% include "partials/dashboard_card_actions.js" %}', source)
+                self.assertIn(
+                    '{% include "partials/dashboard_card_applied_extras.js" %}', source
+                )
                 if name == "dashboard.html":
                     ops_js = source.index(
                         '{% include "partials/dashboard_ops.js" %}'
@@ -274,6 +277,9 @@ class DashboardTemplatesTest(unittest.TestCase):
                     set_mode = source.index("setMode")
                     card_actions = source.index(
                         '{% include "partials/dashboard_card_actions.js" %}'
+                    )
+                    applied_extras = source.index(
+                        '{% include "partials/dashboard_card_applied_extras.js" %}'
                     )
                     skills_flags = source.index(
                         '{% include "partials/dashboard_skills_flags.js" %}'
@@ -289,7 +295,8 @@ class DashboardTemplatesTest(unittest.TestCase):
                     )
                     self.assertLess(ops_js, set_mode)
                     self.assertLess(set_mode, card_actions)
-                    self.assertLess(card_actions, portrait)
+                    self.assertLess(card_actions, applied_extras)
+                    self.assertLess(applied_extras, portrait)
                     self.assertLess(portrait, skills_flags)
                     self.assertLess(skills_flags, skills_bulk)
                     self.assertLess(skills_bulk, skills_sort)
@@ -298,6 +305,17 @@ class DashboardTemplatesTest(unittest.TestCase):
                         '{% include "partials/dashboard_skills.js" %}', source
                     )
                 else:
+                    card_stage = source.index(
+                        '{% include "partials/dashboard_card_stage.js" %}'
+                    )
+                    card_actions = source.index(
+                        '{% include "partials/dashboard_card_actions.js" %}'
+                    )
+                    applied_extras = source.index(
+                        '{% include "partials/dashboard_card_applied_extras.js" %}'
+                    )
+                    self.assertLess(card_stage, card_actions)
+                    self.assertLess(card_actions, applied_extras)
                     self.assertNotIn('{% include "partials/dashboard_ops.js" %}', source)
                     self.assertNotIn('{% include "partials/dashboard_portrait.js" %}', source)
                     self.assertNotIn('{% include "partials/dashboard_skills.js" %}', source)
@@ -312,6 +330,12 @@ class DashboardTemplatesTest(unittest.TestCase):
                     )
                 self.assertIn("function setApplied", html)
                 self.assertIn("function setHidden", html)
+                self.assertIn("function setOnInterview", html)
+                self.assertIn("function setInterviewStopped", html)
+                self.assertIn("function saveCompanyFeedback", html)
+                self.assertIn("function appendAppliedRawText", html)
+                self.assertIn("function setCoverLetterRequested", html)
+                self.assertIn("function saveCoverLetter", html)
                 self.assertIn("function removeAppliedOnlyUI", html)
 
     def test_remove_applied_only_ui_strips_applied_chrome(self):
