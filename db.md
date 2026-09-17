@@ -88,6 +88,8 @@ Extracted from `jobs.py`. The rest of the application (including business logic 
   - **Emerson Career Site:** same Oracle FA path shape on host `hdjq.fa.us2.oraclecloud.com` (`EMERSON_ORACLE_FA_HOST` in `utils.py`).
   - **Google Careers:** `www.google.com/about/careers/applications/jobs/results/{id}-…` (or same path on `careers.google.com`) — passthrough: keeps original scheme, host, path, and full query string; HTML-entity unescapes the link (`&amp;` → `&`); strips fragment and trailing slash on path only (does not rewrite to `careers.google.com`).
   - **Teamtailor:** `{tenant}.teamtailor.com/jobs/{numeric_id}[-slug]` — strips query/fragment, keeps `scheme://netloc/path`.
+  - **HR-Manager:** `hr-manager.net` / `*.hr-manager.net` — identity in query (`ProjectId` required and non-empty; keep non-empty `cid`/`DepartmentId` when present; drop `MediaId`/`SkipAdvertisement`; stable alphabetical param order; no path rewrite). No `ProjectId` or blank `ProjectId=` → full-query passthrough (strip fragment, rstrip path `/` only). Already path-only rows are not repaired by this change.
+
 - `_provider_from_link`: returns display source label (`The Hub`, `Vestas`, `Oracle CX`, `Emerson Career Site`, `Djinni`, `Teamtailor`, `Google Careers`, etc.). Emerson host is checked before the generic Oracle FA rule.
 - `_is_djinni_position_link`: shared Djinni job URL check (`djinni.co/jobs/{numeric_id}`); used by `_is_job_link`, `_normalize_position_link`, and `_provider_from_link`.
 - `_is_teamtailor_position_link`: shared Teamtailor job URL check (`*.teamtailor.com/jobs/{numeric_id}`); used by `_is_job_link`, `_normalize_position_link`, and `_provider_from_link`. Career-site / marketing hosts without `/jobs/{id}` are not jobs.

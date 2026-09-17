@@ -6,7 +6,7 @@ import json
 from datetime import datetime, timezone
 from html import unescape
 from typing import Optional
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
 EMERSON_ORACLE_FA_HOST = "hdjq.fa.us2.oraclecloud.com"
 _DJINNI_JOB_ID_RE = re.compile(r"/jobs/\d+")
@@ -21,6 +21,21 @@ def _is_djinni_position_link(link: str) -> bool:
 def _is_teamtailor_position_link(link: str) -> bool:
     low = (link or "").lower()
     return "teamtailor.com" in low and bool(_TEAMTAILOR_JOB_RE.search(low))
+
+
+def _is_hr_manager_host(netloc: str) -> bool:
+    host = (netloc or "").split("@")[-1].split(":")[0].lower()
+    return host == "hr-manager.net" or host.endswith(".hr-manager.net")
+
+
+def _qs_value_ci(query: dict, name: str) -> Optional[str]:
+    want = name.lower()
+    for key, vals in query.items():
+        if key.lower() == want and vals:
+            value = (vals[0] or "").strip()
+            if value:
+                return value
+    return None
 
 TITLE_GARBAGE_MARKERS = [
     "translated title",
@@ -168,6 +183,26 @@ def _normalize_position_link(link: str) -> str:
         scheme = parsed.scheme or "https"
         netloc = parsed.netloc or ""
         return f"{scheme}://{netloc}{parsed.path}".rstrip("/")
+
+    if _is_hr_manager_host(parsed.netloc or ""):
+        scheme = parsed.scheme or "https"
+        netloc = parsed.netloc or ""
+        path = (parsed.path or "").rstrip("/")
+        q = parse_qs(parsed.query, keep_blank_values=True)
+        project_id = _qs_value_ci(q, "ProjectId")
+        if project_id:
+            params = [("ProjectId", project_id)]
+            cid = _qs_value_ci(q, "cid")
+            if cid:
+                params.append(("cid", cid))
+            department_id = _qs_value_ci(q, "DepartmentId")
+            if department_id:
+                params.append(("DepartmentId", department_id))
+            params.sort(key=lambda item: item[0])
+            return f"{scheme}://{netloc}{path}?{urlencode(params)}"
+        if parsed.query:
+            return f"{scheme}://{netloc}{path}?{parsed.query}"
+        return f"{scheme}://{netloc}{path}"
 
     base = (
         f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
