@@ -167,11 +167,16 @@ def _build_job_cards(
         cover_letter_controls = ""
         if is_applied:
             if cover_letter_saved:
+                escaped_body = html_lib.escape(str(item.get("cover_letter", "") or ""))
                 cover_letter_controls = (
                     '<div class="cover-letter-section">'
                     '<label class="cover-letter-wrap">'
                     '<input type="checkbox" checked disabled /> Cover letter</label>'
-                    '</div>'
+                    '<details class="cover-letter-viewer">'
+                    "<summary>Show letter</summary>"
+                    f'<pre class="cover-letter-saved-text">{escaped_body}</pre>'
+                    "</details>"
+                    "</div>"
                 )
             else:
                 cover_letter_input = ""

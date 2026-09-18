@@ -221,6 +221,57 @@ class DashboardCardsTest(unittest.TestCase):
         )
         self.assertNotIn("Applied:", html)
 
+    def test_build_job_cards_saved_cover_letter_shows_viewer(self):
+        html = _build_job_cards(
+            [_applied_card_item(cover_letter="Dear hiring manager,\nThanks.")],
+            card_panel="applied",
+        )
+        self.assertIn('class="cover-letter-viewer"', html)
+        self.assertIn('class="cover-letter-saved-text"', html)
+        self.assertIn("Dear hiring manager,\nThanks.", html)
+        self.assertIn('type="checkbox" checked disabled', html)
+        self.assertNotIn("cover-letter-input", html)
+        self.assertNotIn("saveCoverLetter", html)
+
+    def test_build_job_cards_empty_cover_letter_no_viewer(self):
+        html = _build_job_cards(
+            [_applied_card_item(cover_letter="", cover_letter_requested=0)],
+            card_panel="applied",
+        )
+        self.assertNotIn("cover-letter-viewer", html)
+        self.assertNotIn("cover-letter-saved-text", html)
+        self.assertIn("setCoverLetterRequested", html)
+        self.assertNotIn("cover-letter-input", html)
+
+    def test_build_job_cards_requested_cover_letter_paste_ui_no_viewer(self):
+        html = _build_job_cards(
+            [_applied_card_item(cover_letter="", cover_letter_requested=1)],
+            card_panel="applied",
+        )
+        self.assertNotIn("cover-letter-viewer", html)
+        self.assertIn("cover-letter-input", html)
+        self.assertIn("saveCoverLetter", html)
+        self.assertIn('class="cover-letter-text"', html)
+
+    def test_build_job_cards_saved_cover_letter_escapes_html(self):
+        html = _build_job_cards(
+            [_applied_card_item(cover_letter='<script>alert(1)</script> A & B')],
+            card_panel="applied",
+        )
+        self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt; A &amp; B", html)
+        self.assertNotIn("<script>alert(1)</script>", html)
+        self.assertNotIn(" A & B", html)
+
+    def test_build_job_cards_saved_cover_letter_viewer_on_interview_stopped(self):
+        for panel in ("interview", "stopped"):
+            with self.subTest(panel=panel):
+                html = _build_job_cards(
+                    [_applied_card_item(cover_letter="Saved letter body")],
+                    card_panel=panel,
+                )
+                self.assertIn('class="cover-letter-viewer"', html)
+                self.assertIn("Saved letter body", html)
+
 
 if __name__ == "__main__":
     unittest.main()
