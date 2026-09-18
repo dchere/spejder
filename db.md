@@ -53,7 +53,8 @@ Extracted from `jobs.py`. The rest of the application (including business logic 
 
 **Skill modules (`skills.py` facade):**
 - `skills_patterns.py` — get/upsert/migrate/`_skill_to_regex_simple`
-- `skills_links.py` — job_skills CRUD, rank/count
+- `skills_links.py` — job_skills CRUD only (`replace`/`set`/`get`/`clear`/`get_job_ids_for_skill`)
+- `skills_rank.py` — `count_jobs_with_skill_links`, `get_top_skills_by_job_links`, `count_job_links_for_skills`
 - `skills_delete.py` — `delete_skill_from_db`, `cleanup_blocked_skills_from_db`
 - `skills_bad_ngrams.py` — `bad_ngram_*`
 - `skills.py` re-exports every public name; `db/__init__.py` lazily maps them via `_EXPORTS` / `__getattr__` / `__dir__` (same as the queries facade)
