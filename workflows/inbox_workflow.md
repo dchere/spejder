@@ -9,6 +9,7 @@ Coordinates the ingestion of new job postings from the inbox folder, matching jo
 **Related modules:**
 - `spejder.workflows.ingest_utils` — per-file ingest stats + inbox file cleanup
 - `spejder.workflows.inbox_report` — relevant-job LLM summaries + HTML dashboard write
+- `spejder.workflows.skill_hygiene` — stale low-share skill retention after pattern learning
 
 **Ingest flow (ordered):**
 0. Sync IT-DAY job portal (`sync_itday_portal(..., enabled=profile.itday_portal_sync_enabled)`) — after `ensure_db` / entry transform; LLM is not required for fetch; skipped when the profile flag is false
@@ -16,6 +17,9 @@ Coordinates the ingestion of new job postings from the inbox folder, matching jo
 1. Ingest docs + inbox cleanup (docs may be empty when continuing for portal/backfill)
 2. Generate missing descriptions
 3. Materialize skills (+ conditional rescore on skill change in active scope)
+3b. Learn skill patterns from applied/relevant positions
+3c. Stale low-share skill cleanup (`run_stale_skill_cleanup`): after learning, delete unflagged DB skills older than retention (same rule as job retention) with Job share < 0.1%; skips Skills-tab flags and `blocked_skills` keys; rescore affected jobs; `save_profile` when profile patterns/keywords pruned (no dashboard queue; does not append `blocked_skills`)
+3d. `update_profile_from_db_signals` (learned keywords / missing skills)
 4. Summarize relevant jobs + write inbox report
 
 Portal sync runs (when enabled) even when the inbox is empty. Early return only when the inbox is empty, the portal inserted zero new rows, **and** there are no missing descriptions (`get_jobs_for_description_refresh`). If the portal inserted rows (or descriptions are missing), the enrichment/report pipeline continues and still requires a model (`SystemExit` without one — existing constraint).

@@ -240,6 +240,17 @@ class RunInboxSyncPortalTest(unittest.TestCase):
         },
     )
     @patch(
+        "spejder.workflows.gui_sync.run_stale_skill_cleanup",
+        return_value={
+            "skills_deleted": 0,
+            "skill_rows_deleted": 0,
+            "job_skill_links_deleted": 0,
+            "affected_job_ids": [],
+            "profile_removed": 0,
+            "deleted_skill_names": [],
+        },
+    )
+    @patch(
         "spejder.workflows.gui_sync.cleanup_blocked_skills_from_db",
         return_value={
             "skills_processed": 0,
@@ -253,9 +264,26 @@ class RunInboxSyncPortalTest(unittest.TestCase):
     @patch("spejder.workflows.gui_sync.delete_processed_inbox_files", return_value={})
     @patch("spejder.workflows.gui_sync.get_jobs_for_active_rescore", return_value=[])
     @patch("spejder.workflows.gui_sync.get_jobs_for_description_refresh", return_value=[])
-    def test_runs_pipeline_when_portal_inserts_new_jobs(self, *_mocks):
+    def test_runs_pipeline_when_portal_inserts_new_jobs(
+        self,
+        _desc_refresh,
+        _active_rescore,
+        _delete_files,
+        _dedupe,
+        _gen_desc,
+        _blocked_cleanup,
+        mock_stale_cleanup,
+        _learn,
+        _bad_cloud,
+        _recalibrate,
+        _portal,
+    ):
         result = run_inbox_sync(self.context)
         self.assertEqual(result.status, "done")
+        mock_stale_cleanup.assert_called_once_with(
+            self.context.db_path,
+            self.context.runtime_profile,
+        )
 
     @patch(
         "spejder.workflows.gui_sync.sync_itday_portal",
@@ -278,6 +306,17 @@ class RunInboxSyncPortalTest(unittest.TestCase):
         },
     )
     @patch(
+        "spejder.workflows.gui_sync.run_stale_skill_cleanup",
+        return_value={
+            "skills_deleted": 0,
+            "skill_rows_deleted": 0,
+            "job_skill_links_deleted": 0,
+            "affected_job_ids": [],
+            "profile_removed": 0,
+            "deleted_skill_names": [],
+        },
+    )
+    @patch(
         "spejder.workflows.gui_sync.cleanup_blocked_skills_from_db",
         return_value={
             "skills_processed": 0,
@@ -297,7 +336,13 @@ class RunInboxSyncPortalTest(unittest.TestCase):
         _active_rescore,
         _delete_files,
         mock_dedupe,
-        *_rest,
+        _gen_desc,
+        _blocked_cleanup,
+        mock_stale_cleanup,
+        _learn,
+        _bad_cloud,
+        _recalibrate,
+        _portal,
     ):
         stages: list[str] = []
         context = replace(
@@ -306,6 +351,7 @@ class RunInboxSyncPortalTest(unittest.TestCase):
         )
         result = run_inbox_sync(context)
         self.assertEqual(result.status, "done")
+        mock_stale_cleanup.assert_called_once_with(context.db_path, context.runtime_profile)
         self.assertEqual(mock_dedupe.call_count, 2)
         self.assertEqual(
             mock_dedupe.call_args_list[0].kwargs.get("log_prefix"),

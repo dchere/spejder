@@ -8,6 +8,28 @@ from unittest.mock import patch
 from spejder.config import AppConfig
 from spejder.workflows.gui_sync import GuiSyncContext, run_inbox_sync
 
+_STALE_CLEANUP_EMPTY = {
+    "skills_deleted": 0,
+    "skill_rows_deleted": 0,
+    "job_skill_links_deleted": 0,
+    "affected_job_ids": [],
+    "profile_removed": 0,
+    "deleted_skill_names": [],
+}
+
+_BLOCKED_CLEANUP_EMPTY = {
+    "skills_processed": 0,
+    "skill_rows_deleted": 0,
+    "job_skill_links_deleted": 0,
+    "affected_job_ids": [],
+}
+
+_LEARN_EMPTY = {
+    "considered_positions": 0,
+    "new_skill_patterns": 0,
+    "total_known_skill_patterns": 0,
+}
+
 
 class RunInboxSyncRebuildTest(unittest.TestCase):
     def setUp(self):
@@ -42,20 +64,15 @@ class RunInboxSyncRebuildTest(unittest.TestCase):
     )
     @patch(
         "spejder.workflows.gui_sync._learn_skill_patterns_from_positions",
-        return_value={
-            "considered_positions": 0,
-            "new_skill_patterns": 0,
-            "total_known_skill_patterns": 0,
-        },
+        return_value=_LEARN_EMPTY,
+    )
+    @patch(
+        "spejder.workflows.gui_sync.run_stale_skill_cleanup",
+        return_value=_STALE_CLEANUP_EMPTY,
     )
     @patch(
         "spejder.workflows.gui_sync.cleanup_blocked_skills_from_db",
-        return_value={
-            "skills_processed": 0,
-            "skill_rows_deleted": 0,
-            "job_skill_links_deleted": 0,
-            "affected_job_ids": [],
-        },
+        return_value=_BLOCKED_CLEANUP_EMPTY,
     )
     @patch("spejder.workflows.gui_sync._generate_missing_descriptions_for_ingest", return_value=(0, 0))
     @patch("spejder.workflows.gui_sync.run_cross_source_dedupe", return_value={})
@@ -64,10 +81,24 @@ class RunInboxSyncRebuildTest(unittest.TestCase):
     @patch("spejder.workflows.gui_sync.get_jobs_for_description_refresh", return_value=[{"id": 1}])
     def test_skips_skills_rebuild_when_nothing_updated(
         self,
-        *_mocks,
+        _desc_refresh,
+        _active_rescore,
+        _delete_files,
+        _dedupe,
+        _gen_desc,
+        _blocked_cleanup,
+        mock_stale_cleanup,
+        _learn,
+        _bad_cloud,
+        _recalibrate,
+        _portal,
     ):
         result = run_inbox_sync(self.context)
         self.assertEqual(result.status, "done")
+        mock_stale_cleanup.assert_called_once_with(
+            self.context.db_path,
+            self.context.runtime_profile,
+        )
         self.assertFalse(
             any("skills materialized" in reason for reason in self.rebuild_reasons),
             msg=f"unexpected rebuild reasons: {self.rebuild_reasons}",
@@ -94,20 +125,32 @@ class RunInboxSyncRebuildTest(unittest.TestCase):
         },
     )
     @patch(
+        "spejder.workflows.gui_sync.run_stale_skill_cleanup",
+        return_value=_STALE_CLEANUP_EMPTY,
+    )
+    @patch(
         "spejder.workflows.gui_sync.cleanup_blocked_skills_from_db",
-        return_value={
-            "skills_processed": 0,
-            "skill_rows_deleted": 0,
-            "job_skill_links_deleted": 0,
-            "affected_job_ids": [],
-        },
+        return_value=_BLOCKED_CLEANUP_EMPTY,
     )
     @patch("spejder.workflows.gui_sync._generate_missing_descriptions_for_ingest", return_value=(0, 0))
     @patch("spejder.workflows.gui_sync.run_cross_source_dedupe", return_value={})
     @patch("spejder.workflows.gui_sync.delete_processed_inbox_files", return_value={})
     @patch("spejder.workflows.gui_sync.get_jobs_for_active_rescore", return_value=[{"id": 1}])
     @patch("spejder.workflows.gui_sync.get_jobs_for_description_refresh", return_value=[{"id": 1}])
-    def test_queues_skills_rebuild_when_jobs_updated(self, *_mocks):
+    def test_queues_skills_rebuild_when_jobs_updated(
+        self,
+        _desc_refresh,
+        _active_rescore,
+        _delete_files,
+        _dedupe,
+        _gen_desc,
+        _blocked_cleanup,
+        mock_stale_cleanup,
+        _learn,
+        _bad_cloud,
+        _recalibrate,
+        _portal,
+    ):
         context = GuiSyncContext(
             db_path=self.context.db_path,
             inbox_path=self.context.inbox_path,
@@ -121,6 +164,7 @@ class RunInboxSyncRebuildTest(unittest.TestCase):
         )
         result = run_inbox_sync(context)
         self.assertEqual(result.status, "done")
+        mock_stale_cleanup.assert_called_once_with(context.db_path, context.runtime_profile)
         self.assertIn("skills materialized=3", self.rebuild_reasons)
 
 

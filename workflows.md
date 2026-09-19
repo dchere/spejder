@@ -21,7 +21,8 @@ Core orchestration for CLI commands, GUI background sync, and heavy multi-step p
 | `dashboard.py` | Rebuild queue worker + missing-skill helper; re-exports record builders |
 | `dashboard_records.py` | Row → dashboard dict + Hidden / Edited-today loaders |
 | `gui.py` | GUI/server thread orchestration |
-| `gui_sync.py` | Background inbox sync pipeline (9 steps) |
+| `gui_sync.py` | Background inbox sync pipeline (portal → ingest → enrichment → blocked/stale skill hygiene → bad cloud) |
+| `skill_hygiene.py` | Stale low-share skill cleanup orchestration (`run_stale_skill_cleanup`) |
 | `portal_sync.py` | External job portal sync (IT-DAY); gated by `itday_portal_sync_enabled` |
 | `ingest_utils.py` | Per-file ingest stats + inbox file cleanup |
 | `inbox_report.py` | Inbox relevant-job summaries + HTML dashboard write |
@@ -56,4 +57,5 @@ Core orchestration for CLI commands, GUI background sync, and heavy multi-step p
 5. Description generation (+ rebuild when updated)
 6. Skill-pattern learning (+ rebuild when new patterns)
 7. Blocked-skills DB cleanup + rescore (+ rebuild when DB changed)
+7b. Stale low-share skill cleanup + rescore (+ rebuild; profile save/reload when pruned)
 8. Bad cloud seed / threshold calibration (sync)

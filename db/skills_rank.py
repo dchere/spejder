@@ -5,6 +5,13 @@ from .connection import _connect
 from .utils import _normalize_skill_name_key
 
 
+def position_pct(position_count: int, jobs_with_skills: int) -> float:
+    """Job-share percent for Skills tab and stale-skill cleanup (one decimal)."""
+    if jobs_with_skills <= 0 or position_count <= 0:
+        return 0.0
+    return round(100.0 * position_count / jobs_with_skills, 1)
+
+
 def count_jobs_with_skill_links(db_path: str) -> int:
     """Return how many distinct jobs have at least one cached skill link."""
     conn = _connect(db_path)

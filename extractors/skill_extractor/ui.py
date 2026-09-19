@@ -5,6 +5,7 @@ from spejder.db import (
     count_job_links_for_skills,
     count_jobs_with_skill_links,
     get_skill_patterns as get_db_skill_patterns,
+    position_pct,
 )
 
 from .filtering import _blocked_skill_keys
@@ -13,11 +14,8 @@ from .normalization import _normalize_skill_name
 # Safe sentinel for profile-only rows; no real ISO date starts with 0000.
 SKILLS_EMPTY_ADDED_AT_SORT = "0000"
 
-
-def _position_pct(position_count: int, jobs_with_skills: int) -> float:
-    if jobs_with_skills <= 0 or position_count <= 0:
-        return 0.0
-    return round(100.0 * position_count / jobs_with_skills, 1)
+# Alias for callers/tests that still import the private name from this module.
+_position_pct = position_pct
 
 
 def _build_skills_tab_items(db_path: str, profile: AppConfig) -> list[dict]:

@@ -1,12 +1,12 @@
 import os
 
-from spejder.core import DEFAULT_PROFILE_PATH, load_runtime_profile
+from spejder.core import DEFAULT_PROFILE_PATH, load_runtime_profile, save_profile
 from spejder.db import ensure_db, get_jobs_for_description_refresh, get_relevant_jobs
 from spejder.extractors.skill_extractor import (
     _ensure_skill_pattern_seed_migration,
     _learn_skill_patterns_from_positions,
 )
-from spejder.jobs import ingest_docs_to_db, update_profile_from_db_signals
+from spejder.jobs import ingest_docs_to_db, rescore_jobs_if_active, update_profile_from_db_signals
 from spejder.llm import LocalLLM
 from spejder.parsers import email_parser
 from spejder.workflows.ingest_utils import (
@@ -24,6 +24,7 @@ from spejder.workflows.job_enrichment import (
 )
 from spejder.workflows.portal_sync import sync_itday_portal
 from spejder.workflows.deduplication import run_cross_source_dedupe
+from spejder.workflows.skill_hygiene import run_stale_skill_cleanup
 
 
 def process_inbox(inbox: str = None, db: str = None, profile: str = None, model: str = "", report_dir: str = None, limit: int = 0, max_tokens: int = 220, max_input_chars: int = None, prune_irrelevant: bool = False, verbose: bool = False):
@@ -129,6 +130,24 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
         f"new_patterns={skill_learning.get('new_skill_patterns', 0)}, "
         f"total_patterns={skill_learning.get('total_known_skill_patterns', 0)}"
     )
+
+    stale_cleanup = run_stale_skill_cleanup(db_path, profile)
+    print(
+        "process-inbox: stale-skills cleanup "
+        f"(deleted={stale_cleanup.get('skills_deleted', 0)}, "
+        f"links_deleted={stale_cleanup.get('job_skill_links_deleted', 0)}, "
+        f"patterns_deleted={stale_cleanup.get('skill_rows_deleted', 0)}, "
+        f"affected_jobs={len(stale_cleanup.get('affected_job_ids', []))})"
+    )
+    stale_rescored = rescore_jobs_if_active(
+        db_path,
+        profile,
+        list(stale_cleanup.get("affected_job_ids", [])),
+    )
+    if stale_rescored:
+        print(f"process-inbox: rescored stale-skill jobs ({stale_rescored})")
+    if int(stale_cleanup.get("profile_removed", 0) or 0) > 0:
+        save_profile(profile, profile_path)
 
     learning_info = update_profile_from_db_signals(db_path, profile_path)
     print(

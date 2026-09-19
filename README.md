@@ -295,6 +295,7 @@ Notes:
 
 - The command protects profile seed skills and explicit user skills.
 - Removed skills are added to `blocked_skills` so they stay hidden and are not reintroduced into the dashboard.
+- Separate from automatic retention: GUI sync and `process-inbox` also delete unflagged DB skills older than 90 days (same rule as job retention) with Job share below 0.1%. That path does **not** add to `blocked_skills` or update the bad cloud.
 
 ### `dedupe-jobs`
 
@@ -364,6 +365,8 @@ Main fields in the `jobs` table include:
 - `updated_at`
 
 Jobs older than 90 days by `created_at` are auto-pruned on DB open (`ensure_db`), except interview and stopped applied rows (`applied=1` with `on_interview=1` or `interview_stopped=1`). Plain applied jobs still age out. Unchecking **On interview** or **Stopped** on an old retained job removes that exemption — the next `ensure_db` prunes it like any other plain applied row.
+
+During GUI background sync and `process-inbox`, unflagged skill patterns with parseable `created_at` older than 90 days (same rule as job retention) and Job share below 0.1% are deleted from SQLite (and matching `known_skill_patterns` / keyword list entries may be pruned). Flagged skills (`user_skills`, `missing_skills_suggestions`, `unwanted_skills`) and `blocked_skills` keys are kept (blocked path owns the latter). This retention path does not add names to `blocked_skills`.
 
 Additional table:
 

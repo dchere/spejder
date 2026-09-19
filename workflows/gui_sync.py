@@ -30,6 +30,7 @@ from spejder.workflows.job_enrichment import (
     make_translate_job_entry_for_storage,
 )
 from spejder.workflows.portal_sync import sync_itday_portal
+from spejder.workflows.skill_hygiene import run_stale_skill_cleanup
 
 if TYPE_CHECKING:
     from spejder.llm import LocalLLM
@@ -276,6 +277,45 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
                     f"patterns_deleted={blocked_cleanup.get('skill_rows_deleted', 0)})"
                 )
             )
+
+        _emit_stage(context, "stale_skills", "Cleaning stale low-share skills")
+        stale_cleanup = run_stale_skill_cleanup(
+            context.db_path,
+            context.runtime_profile,
+        )
+        print(
+            "Background sync: stale-skills cleanup "
+            f"(deleted={stale_cleanup.get('skills_deleted', 0)}, "
+            f"links_deleted={stale_cleanup.get('job_skill_links_deleted', 0)}, "
+            f"patterns_deleted={stale_cleanup.get('skill_rows_deleted', 0)}, "
+            f"affected_jobs={len(stale_cleanup.get('affected_job_ids', []))})"
+        )
+
+        stale_rescored = rescore_jobs_if_active(
+            context.db_path,
+            context.runtime_profile,
+            list(stale_cleanup.get("affected_job_ids", [])),
+        )
+        if stale_rescored:
+            print(f"Background sync: rescored stale-skill jobs ({stale_rescored})")
+
+        if (
+            stale_rescored
+            or int(stale_cleanup.get("job_skill_links_deleted", 0) or 0) > 0
+            or int(stale_cleanup.get("skill_rows_deleted", 0) or 0) > 0
+        ):
+            context.queue_dashboard_rebuild(
+                reason=(
+                    f"stale-skills cleanup "
+                    f"(rescored={stale_rescored}, "
+                    f"links_deleted={stale_cleanup.get('job_skill_links_deleted', 0)}, "
+                    f"patterns_deleted={stale_cleanup.get('skill_rows_deleted', 0)})"
+                )
+            )
+
+        if int(stale_cleanup.get("profile_removed", 0) or 0) > 0:
+            save_profile(context.runtime_profile, context.profile_path)
+            context.reload_runtime_profile()
 
         ensure_db(context.db_path)
         cloud_stats = ensure_bad_cloud_initialized(

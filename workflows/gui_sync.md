@@ -9,7 +9,7 @@ Background inbox synchronization pipeline extracted from `gui.py`, preserving ex
 - `run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult`
 - `InboxSyncRunner` — thread-safe runner; at most one sync at a time (`_running` claimed under lock before the worker thread is spawned); `trigger()` is used for both `serve_gui` startup sync and the dashboard **Sync inbox** button. Wires `on_stage` into `run_inbox_sync`, then `DashboardRebuildQueue.wait_until_idle` after a successful or skipped run (skipped waits for in-flight rebuilds so startup snapshot does not race the status message). If rebuild wait times out after a successful sync, terminal `status` stays `complete` but `message` notes rebuild may still be in progress.
 
-**Pipeline (10 steps):**
+**Pipeline (11 steps):**
 0. Sync IT-DAY job portal listings (`sync_itday_portal`) when `runtime_profile.itday_portal_sync_enabled` (default true); emit stage `"portal"` / `"Checking IT-DAY job portal"` only when enabled; otherwise skip fetch/ingest with zeros (no portal stage)
 0b. When portal `inserted_new > 0`, run company+title dedupe immediately (`run_cross_source_dedupe`, stage `"portal_dedupe"`) so portal rows that already exist from LinkedIn/Jobindex are merged before inbox ingest; keep the later post-ingest dedupe for new inbox overlaps
 1. Ingest inbox input (or detect missing-description backfill mode)
@@ -19,6 +19,7 @@ Background inbox synchronization pipeline extracted from `gui.py`, preserving ex
 5. Generate missing descriptions; dashboard rebuild when descriptions updated
 6. Learn skill patterns from applied/relevant positions; dashboard rebuild when new patterns added
 7. Clean blocked skills from SQLite (`cleanup_blocked_skills_from_db` on `runtime_profile.blocked_skills`); rescore affected jobs (`rescore_jobs_if_active`); dashboard rebuild when links/patterns deleted or jobs rescored (deferred hygiene — does not block earlier enrichment)
+7b. Stale low-share skill cleanup (`run_stale_skill_cleanup` in `skill_hygiene.py`): after blocked cleanup, delete unflagged DB skills older than retention (same rule as job retention) with Job share < 0.1%; skips Skills-tab flags and remaining `blocked_skills` keys; rescore affected jobs; dashboard rebuild when rows/links deleted or jobs rescored; `save_profile` + `reload_runtime_profile` when profile patterns/keywords were pruned (does **not** append `blocked_skills` or touch bad cloud)
 8. Initialize bad cloud (`ensure_bad_cloud_initialized`): one-time seed from `blocked_skills`, prune redundant blocked entries outside the seeded batch; then **always** recalibrate `skill_bigram_toxicity_threshold` via `recalibrate_and_store_threshold` (mature non-blocked DB skills vs blocked list). Save profile / reload / rebuild when seed, prune, or threshold changed.
 
 **Removed from pipeline:** full-DB `apply_relevance` on every sync; early dashboard rebuild after ingest/dedupe.
