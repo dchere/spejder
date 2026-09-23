@@ -1,6 +1,6 @@
 import threading
 import time
-from typing import Optional
+from typing import Callable, Optional
 
 from spejder.config import AppConfig
 from spejder.db import (
@@ -51,6 +51,7 @@ def populate_missing_dashboard_skills(
     *,
     llm: Optional[LocalLLM] = None,
     progress_label: str = "",
+    on_progress: Optional[Callable[[int, int, int], None]] = None,
 ) -> int:
     if not rows:
         return 0
@@ -63,6 +64,7 @@ def populate_missing_dashboard_skills(
         rescore=True,
         skip_cached=True,
         progress_label=progress_label,
+        on_progress=on_progress,
     )
     return updated
 

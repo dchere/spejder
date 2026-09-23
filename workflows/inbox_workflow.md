@@ -10,6 +10,10 @@ Coordinates the ingestion of new job postings from the inbox folder, matching jo
 - `spejder.workflows.ingest_utils` — per-file ingest stats + inbox file cleanup
 - `spejder.workflows.inbox_report` — relevant-job LLM summaries + HTML dashboard write
 - `spejder.workflows.skill_hygiene` — stale low-share skill retention after pattern learning
+- `spejder.workflows.sync_log` — append-only `{report_dir}/sync.log` (source=`process_inbox`)
+
+**Sync log:**
+Opens `SyncRunLog` at `default_sync_log_path(report_dir)` for the run (default `echo_stdout=True`, so the CLI mirrors each event as `sync …`). Wraps overlapping stages with the same ids as GUI sync (`portal`, `portal_dedupe`, `ingest`, `cleanup`, `descriptions`, `skills`, `patterns`, `stale_skills`) and passes progress callbacks into ingest / descriptions / materialize / pattern learning. Ingest progress uses **job** counts with `total=0` (no pct) plus `files=` via `IngestProgressTracker` (ticks on `inserted_new` change, every 25 processed jobs, and a final line when needed). Materialize / pattern learning use `progress_label=""` / `progress=False` when `on_progress` is wired (stage/progress events cover cadence). Does **not** invent `blocked_skills` / `bad_cloud` / `dedupe` stages when the CLI pipeline omits those steps. Early empty return logs `pipeline_end status=skipped`; success/failure use `pipeline_end` + `run_end`. Kept non-event prints: empty-inbox notice, ingest/cleanup/description/pattern/stale summaries, final rollups, hard failures.
 
 **Ingest flow (ordered):**
 0. Sync IT-DAY job portal (`sync_itday_portal(..., enabled=profile.itday_portal_sync_enabled)`) — after `ensure_db` / entry transform; LLM is not required for fetch; skipped when the profile flag is false

@@ -1,7 +1,7 @@
 """Batch skill pattern learning from applied and relevant job positions."""
 
 from collections import Counter
-from typing import Optional
+from typing import Callable, Optional
 
 from spejder.config import AppConfig
 from spejder.db import (
@@ -24,6 +24,7 @@ def _learn_skill_patterns_from_positions(
     llm: Optional[LocalLLM] = None,
     progress: bool = False,
     progress_label: str = "Skill pattern learning",
+    on_progress: Optional[Callable[[int, int], None]] = None,
 ) -> dict:
     applied_rows = get_all_applied_jobs(db_path, limit=0)
     relevant_rows = get_jobs_by_category(
@@ -74,6 +75,7 @@ def _learn_skill_patterns_from_positions(
     if progress:
         print(f"{progress_label}: starting (positions={min(len(rows), max_positions)})")
 
+    learn_total = min(len(rows), max_positions)
     for row, weight in rows[:max_positions]:
         job_id = int(row.get("id", 0) or 0)
         cached = get_job_skills(db_path, job_id) if job_id else []
@@ -100,8 +102,11 @@ def _learn_skill_patterns_from_positions(
         for skill in skills:
             counts[skill] += int(weight)
         considered += 1
-        if progress and (considered % 10 == 0 or considered == min(len(rows), max_positions)):
-            print(f"{progress_label}: {considered}/{min(len(rows), max_positions)} processed")
+        if considered % 10 == 0 or considered == learn_total:
+            if progress:
+                print(f"{progress_label}: {considered}/{learn_total} processed")
+            if on_progress is not None:
+                on_progress(considered, learn_total)
 
     existing_patterns = _get_skill_patterns(db_path, runtime_profile)
     existing_names = {name.strip().lower() for name, _ in existing_patterns}

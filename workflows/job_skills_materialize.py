@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Callable, Optional
 
 from spejder.config import AppConfig
 from spejder.db import get_jobs_for_active_rescore
@@ -58,6 +58,7 @@ def materialize_jobs_skills(
     rescore: bool = False,
     skip_cached: bool = False,
     progress_label: str = "",
+    on_progress: Optional[Callable[[int, int, int], None]] = None,
 ) -> int:
     """Materialize skills for multiple jobs. Returns count of jobs that received skills."""
     if not rows:
@@ -70,27 +71,33 @@ def materialize_jobs_skills(
     updated = 0
     total = len(rows)
     for idx, row in enumerate(rows, start=1):
-        job_id = int(row.get("id", 0) or 0)
-        if not job_id:
-            continue
-        if skip_cached and get_job_skills(db_path, job_id):
-            continue
+        try:
+            job_id = int(row.get("id", 0) or 0)
+            if not job_id:
+                continue
+            if skip_cached and get_job_skills(db_path, job_id):
+                continue
 
-        had_cache = bool(get_job_skills(db_path, job_id))
-        skills_text, _, skills_changed = materialize_job_skills(
-            db_path,
-            row,
-            llm=llm,
-            runtime_profile=runtime_profile,
-            page_context_cache=page_context_cache,
-            title_translation_cache=title_translation_cache,
-            rescore=rescore,
-            first_materialize=not had_cache,
-        )
-        if skills_text or skills_changed:
-            updated += 1
-        if progress_label and (idx % 25 == 0 or idx == total):
-            print(f"{progress_label}: checked={idx}/{total}, updated={updated}")
+            had_cache = bool(get_job_skills(db_path, job_id))
+            skills_text, _, skills_changed = materialize_job_skills(
+                db_path,
+                row,
+                llm=llm,
+                runtime_profile=runtime_profile,
+                page_context_cache=page_context_cache,
+                title_translation_cache=title_translation_cache,
+                rescore=rescore,
+                first_materialize=not had_cache,
+            )
+            if skills_text or skills_changed:
+                updated += 1
+            # Stdout only when this row actually ran materialize (skip paths stay silent).
+            if progress_label and (idx % 25 == 0 or idx == total):
+                print(f"{progress_label}: checked={idx}/{total}, updated={updated}")
+        finally:
+            # Always tick on_progress on cadence / last idx so skips still reach 100%.
+            if on_progress is not None and (idx % 25 == 0 or idx == total):
+                on_progress(idx, total, updated)
     return updated
 
 
@@ -106,6 +113,7 @@ def materialize_relevant_and_applied_skills(
     rescore: bool = True,
     skip_cached: bool = True,
     progress_label: str = "Skill materialization",
+    on_progress: Optional[Callable[[int, int, int], None]] = None,
 ) -> int:
     """Phase-2 batch: enrich, extract, persist, and optionally rescore scoped jobs."""
     rows = _collect_relevant_and_applied_rows(db_path)
@@ -119,6 +127,7 @@ def materialize_relevant_and_applied_skills(
         rescore=rescore,
         skip_cached=skip_cached,
         progress_label=progress_label,
+        on_progress=on_progress,
     )
     if progress_label:
         print(f"{progress_label}: done (updated={updated})")

@@ -1,6 +1,6 @@
 import re
 import time
-from typing import Optional
+from typing import Callable, Optional
 
 from spejder.config import AppConfig
 from spejder.db import get_jobs_for_description_refresh, set_job_description
@@ -20,6 +20,7 @@ def _generate_missing_descriptions_for_ingest(
     allow_empty: bool = False,
     progress: bool = False,
     progress_label: str = "Description generation",
+    on_progress: Optional[Callable[[int, int, int], None]] = None,
 ) -> tuple[int, int]:
     rows = get_jobs_for_description_refresh(
         db_path,
@@ -63,46 +64,50 @@ def _generate_missing_descriptions_for_ingest(
                 f"(updated={updated}, skipped={skipped}, elapsed={_fmt_eta(elapsed)}, eta={_fmt_eta(eta_sec)})"
             )
 
-        source_raw = row.get("raw_text", "") or ""
-        raw = _enrich_raw_text_with_position_page(
-            db_path,
-            row,
-            page_context_cache=page_context_cache,
-            llm=llm,
-            runtime_profile=runtime_profile,
-        )
-        if not raw:
-            skipped += 1
-            continue
-
-        description = _build_description_summary(
-            raw,
-            llm=llm,
-            position_link=row.get("position_link", ""),
-            runtime_profile=runtime_profile,
-            page_context_cache=page_context_cache,
-        )
-        if (
-            not description
-            or _has_invalid_description_marker(description)
-            or _is_low_quality_description(
-                description,
-                raw_text=raw,
-                title=_get_title_english_for_row(
-                    db_path,
-                    row,
-                    runtime_profile=runtime_profile,
-                    title_translation_cache=title_translation_cache,
-                ),
+        try:
+            source_raw = row.get("raw_text", "") or ""
+            raw = _enrich_raw_text_with_position_page(
+                db_path,
+                row,
+                page_context_cache=page_context_cache,
+                llm=llm,
+                runtime_profile=runtime_profile,
             )
-        ):
-            description = _fallback_description_text("", source_raw or raw)
-        if not description and not allow_empty:
-            skipped += 1
-            continue
+            if not raw:
+                skipped += 1
+                continue
 
-        set_job_description(db_path, row.get("id", 0), description)
-        updated += 1
+            description = _build_description_summary(
+                raw,
+                llm=llm,
+                position_link=row.get("position_link", ""),
+                runtime_profile=runtime_profile,
+                page_context_cache=page_context_cache,
+            )
+            if (
+                not description
+                or _has_invalid_description_marker(description)
+                or _is_low_quality_description(
+                    description,
+                    raw_text=raw,
+                    title=_get_title_english_for_row(
+                        db_path,
+                        row,
+                        runtime_profile=runtime_profile,
+                        title_translation_cache=title_translation_cache,
+                    ),
+                )
+            ):
+                description = _fallback_description_text("", source_raw or raw)
+            if not description and not allow_empty:
+                skipped += 1
+                continue
+
+            set_job_description(db_path, row.get("id", 0), description)
+            updated += 1
+        finally:
+            if on_progress is not None and (idx % 25 == 0 or idx == total_rows):
+                on_progress(idx, total_rows, updated)
 
     if progress:
         total_elapsed = time.monotonic() - started_at

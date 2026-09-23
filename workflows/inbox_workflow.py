@@ -1,5 +1,3 @@
-import os
-
 from spejder.core import DEFAULT_PROFILE_PATH, load_runtime_profile, save_profile
 from spejder.db import ensure_db, get_jobs_for_description_refresh, get_relevant_jobs
 from spejder.extractors.skill_extractor import (
@@ -25,6 +23,11 @@ from spejder.workflows.job_enrichment import (
 from spejder.workflows.portal_sync import sync_itday_portal
 from spejder.workflows.deduplication import run_cross_source_dedupe
 from spejder.workflows.skill_hygiene import run_stale_skill_cleanup
+from spejder.workflows.sync_log import (
+    IngestProgressTracker,
+    SyncRunLog,
+    default_sync_log_path,
+)
 
 
 def process_inbox(inbox: str = None, db: str = None, profile: str = None, model: str = "", report_dir: str = None, limit: int = 0, max_tokens: int = 220, max_input_chars: int = None, prune_irrelevant: bool = False, verbose: bool = False):
@@ -40,137 +43,218 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
         else int(profile.max_input_chars or 4500)
     )
 
-    docs = email_parser.load_files(inbox)
+    sync_log = SyncRunLog.open(default_sync_log_path(report_dir))
+    sync_log.run_start(source="process_inbox")
+    run_status = "failed"
+    run_message = ""
 
-    ensure_db(db_path)
-    _ensure_skill_pattern_seed_migration(db_path, profile_path)
-    text_translation_cache: dict[str, str] = {}
+    try:
+        docs = email_parser.load_files(inbox)
 
-    title_translation_cache: dict[str, str] = {}
-    entry_transform = make_translate_job_entry_for_storage(
-        profile, text_translation_cache, title_translation_cache
-    )
-    portal_stats = sync_itday_portal(
-        db_path,
-        entry_transform=entry_transform,
-        enabled=profile.itday_portal_sync_enabled,
-    )
-    if int(portal_stats.get("inserted_new", 0) or 0) > 0:
-        run_cross_source_dedupe(
-            db_path,
-            log_prefix="process-inbox: post-portal dedupe",
+        ensure_db(db_path)
+        _ensure_skill_pattern_seed_migration(db_path, profile_path)
+        text_translation_cache: dict[str, str] = {}
+
+        title_translation_cache: dict[str, str] = {}
+        entry_transform = make_translate_job_entry_for_storage(
+            profile, text_translation_cache, title_translation_cache
         )
-    missing_descriptions = get_jobs_for_description_refresh(
-        db_path, missing_only=True, limit=1
-    )
-    has_missing_descriptions = bool(missing_descriptions)
-    if (
-        not docs
-        and int(portal_stats.get("inserted_new", 0) or 0) == 0
-        and not has_missing_descriptions
-    ):
-        print("No documents found in inbox:", inbox)
-        return
+        portal_enabled = profile.itday_portal_sync_enabled
+        if portal_enabled:
+            sync_log.stage_start("portal", "Checking IT-DAY job portal")
+        portal_stats = sync_itday_portal(
+            db_path,
+            entry_transform=entry_transform,
+            enabled=portal_enabled,
+        )
+        if int(portal_stats.get("inserted_new", 0) or 0) > 0:
+            sync_log.stage_start("portal_dedupe", "Deduplicating portal positions")
+            run_cross_source_dedupe(
+                db_path,
+                log_prefix="process-inbox: post-portal dedupe",
+            )
+        missing_descriptions = get_jobs_for_description_refresh(
+            db_path, missing_only=True, limit=1
+        )
+        has_missing_descriptions = bool(missing_descriptions)
+        if (
+            not docs
+            and int(portal_stats.get("inserted_new", 0) or 0) == 0
+            and not has_missing_descriptions
+        ):
+            print("No documents found in inbox:", inbox)
+            sync_log.pipeline_end(status="skipped", message="Nothing to process")
+            run_status = "skipped"
+            return
 
-    llm = LocalLLM(model_path=model_path, n_ctx=int(profile.n_ctx), verbose=bool(verbose)) if model_path else None
-    if not llm:
-        raise SystemExit("Model init: model is required for process-inbox")
+        llm = LocalLLM(model_path=model_path, n_ctx=int(profile.n_ctx), verbose=bool(verbose)) if model_path else None
+        if not llm:
+            raise SystemExit("Model init: model is required for process-inbox")
 
-    ingest_stats = ingest_docs_to_db(
-        db_path,
-        docs,
-        entry_transform=entry_transform,
-        runtime_profile=profile,
-        llm=llm,
-    )
-    print(
-        "Ingestion done: "
-        f"processed={ingest_stats.get('processed', 0)}, "
-        f"inserted_new={ingest_stats.get('inserted_new', 0)}, "
-        f"skipped_existing={ingest_stats.get('skipped_existing', 0)} "
-        f"into DB: {db_path}"
-    )
-    print_ingest_file_stats(ingest_stats)
-    delete_stats = delete_processed_inbox_files(ingest_stats, inbox_root=inbox)
-    print(
-        "Inbox cleanup: "
-        f"eligible={delete_stats.get('eligible', 0)}, "
-        f"deleted={delete_stats.get('deleted', 0)}, "
-        f"missing={delete_stats.get('missing', 0)}, "
-        f"failed={delete_stats.get('failed', 0)}"
-    )
+        sync_log.stage_start("ingest", f"Ingesting {len(docs)} inbox file(s)")
+        ingest_file_count = len(docs)
+        ingest_progress = IngestProgressTracker()
 
-    desc_updated, desc_skipped = _generate_missing_descriptions_for_ingest(
-        db_path, llm=llm, runtime_profile=profile, allow_empty=False
-    )
-    print(f"Descriptions generated during ingest: updated={desc_updated}, skipped={desc_skipped}")
+        def _emit_ingest_progress(
+            processed: int, inserted_new: int, skipped_existing: int
+        ) -> None:
+            sync_log.progress(
+                "ingest",
+                checked=processed,
+                total=0,
+                inserted=inserted_new,
+                skipped_existing=skipped_existing,
+                files=ingest_file_count,
+            )
 
-    materialize_relevant_and_applied_skills(
-        db_path,
-        llm=llm,
-        runtime_profile=profile,
-        rescore=True,
-        skip_cached=True,
-        progress_label="Skill materialization",
-    )
+        def _on_ingest_progress(processed: int, inserted_new: int, skipped_existing: int):
+            # Job counts (not files); total=0 skips pct. Tick on insert change or milestone.
+            if not ingest_progress.note(processed, inserted_new):
+                return
+            _emit_ingest_progress(processed, inserted_new, skipped_existing)
 
-    relevant_jobs = get_relevant_jobs(db_path, limit=limit)
-    print(f"Relevant after skill scoring: {len(relevant_jobs)}")
+        ingest_stats = ingest_docs_to_db(
+            db_path,
+            docs,
+            entry_transform=entry_transform,
+            runtime_profile=profile,
+            llm=llm,
+            on_progress=_on_ingest_progress if docs else None,
+        )
+        final_processed = int(ingest_stats.get("processed", 0) or 0)
+        if docs and ingest_progress.needs_final(final_processed):
+            _emit_ingest_progress(
+                final_processed,
+                int(ingest_stats.get("inserted_new", 0) or 0),
+                int(ingest_stats.get("skipped_existing", 0) or 0),
+            )
+            ingest_progress.last_processed = final_processed
+        print(
+            "Ingestion done: "
+            f"processed={ingest_stats.get('processed', 0)}, "
+            f"inserted_new={ingest_stats.get('inserted_new', 0)}, "
+            f"skipped_existing={ingest_stats.get('skipped_existing', 0)} "
+            f"into DB: {db_path}"
+        )
+        print_ingest_file_stats(ingest_stats)
+        sync_log.stage_start("cleanup", "Cleaning up processed inbox files")
+        delete_stats = delete_processed_inbox_files(ingest_stats, inbox_root=inbox)
+        print(
+            "Inbox cleanup: "
+            f"eligible={delete_stats.get('eligible', 0)}, "
+            f"deleted={delete_stats.get('deleted', 0)}, "
+            f"missing={delete_stats.get('missing', 0)}, "
+            f"failed={delete_stats.get('failed', 0)}"
+        )
 
-    skill_learning = _learn_skill_patterns_from_positions(
-        db_path,
-        runtime_profile=profile,
-        llm=llm,
-        progress=True,
-        progress_label="Skill pattern learning",
-    )
-    print(
-        "Skill pattern learning: "
-        f"considered={skill_learning.get('considered_positions', 0)}, "
-        f"new_patterns={skill_learning.get('new_skill_patterns', 0)}, "
-        f"total_patterns={skill_learning.get('total_known_skill_patterns', 0)}"
-    )
+        sync_log.stage_start("descriptions", "Generating missing descriptions")
 
-    stale_cleanup = run_stale_skill_cleanup(db_path, profile)
-    print(
-        "process-inbox: stale-skills cleanup "
-        f"(deleted={stale_cleanup.get('skills_deleted', 0)}, "
-        f"links_deleted={stale_cleanup.get('job_skill_links_deleted', 0)}, "
-        f"patterns_deleted={stale_cleanup.get('skill_rows_deleted', 0)}, "
-        f"affected_jobs={len(stale_cleanup.get('affected_job_ids', []))})"
-    )
-    stale_rescored = rescore_jobs_if_active(
-        db_path,
-        profile,
-        list(stale_cleanup.get("affected_job_ids", [])),
-    )
-    if stale_rescored:
-        print(f"process-inbox: rescored stale-skill jobs ({stale_rescored})")
-    if int(stale_cleanup.get("profile_removed", 0) or 0) > 0:
-        save_profile(profile, profile_path)
+        def _on_desc_progress(checked: int, total: int, updated: int) -> None:
+            sync_log.progress(
+                "descriptions", checked=checked, total=total, updated=updated
+            )
 
-    learning_info = update_profile_from_db_signals(db_path, profile_path)
-    print(
-        "Profile learning: "
-        f"labeled={learning_info.get('labeled_count', 0)}, "
-        f"include={learning_info.get('learned_include_count', 0)}, "
-        f"exclude={learning_info.get('learned_exclude_count', 0)}, "
-        f"missing_skills={learning_info.get('missing_skills_count', 0)}"
-    )
+        desc_updated, desc_skipped = _generate_missing_descriptions_for_ingest(
+            db_path,
+            llm=llm,
+            runtime_profile=profile,
+            allow_empty=False,
+            on_progress=_on_desc_progress,
+        )
+        print(f"Descriptions generated during ingest: updated={desc_updated}, skipped={desc_skipped}")
 
-    summarize_relevant_jobs_for_inbox(
-        db_path,
-        relevant_jobs,
-        llm,
-        max_tokens=max_tokens,
-        max_input_chars=max_input_chars,
-    )
+        sync_log.stage_start("skills", "Materializing skills and rescoring jobs")
 
-    write_inbox_dashboard_report(db_path, profile, llm, report_dir)
+        def _on_skills_progress(checked: int, total: int, updated: int) -> None:
+            sync_log.progress(
+                "skills", checked=checked, total=total, updated=updated
+            )
 
-    if not relevant_jobs:
-        print("No relevant positions after filtering.")
+        materialize_relevant_and_applied_skills(
+            db_path,
+            llm=llm,
+            runtime_profile=profile,
+            rescore=True,
+            skip_cached=True,
+            progress_label="",
+            on_progress=_on_skills_progress,
+        )
 
-    print(f"Done. Relevant summarized={len(relevant_jobs)}")
+        relevant_jobs = get_relevant_jobs(db_path, limit=limit)
+        print(f"Relevant after skill scoring: {len(relevant_jobs)}")
 
+        sync_log.stage_start("patterns", "Learning skill patterns")
 
+        def _on_patterns_progress(checked: int, total: int) -> None:
+            sync_log.progress("patterns", checked=checked, total=total)
+
+        skill_learning = _learn_skill_patterns_from_positions(
+            db_path,
+            runtime_profile=profile,
+            llm=llm,
+            progress=False,
+            on_progress=_on_patterns_progress,
+        )
+        print(
+            "Skill pattern learning: "
+            f"considered={skill_learning.get('considered_positions', 0)}, "
+            f"new_patterns={skill_learning.get('new_skill_patterns', 0)}, "
+            f"total_patterns={skill_learning.get('total_known_skill_patterns', 0)}"
+        )
+
+        sync_log.stage_start("stale_skills", "Cleaning stale low-share skills")
+        stale_cleanup = run_stale_skill_cleanup(db_path, profile)
+        print(
+            "process-inbox: stale-skills cleanup "
+            f"(deleted={stale_cleanup.get('skills_deleted', 0)}, "
+            f"links_deleted={stale_cleanup.get('job_skill_links_deleted', 0)}, "
+            f"patterns_deleted={stale_cleanup.get('skill_rows_deleted', 0)}, "
+            f"affected_jobs={len(stale_cleanup.get('affected_job_ids', []))})"
+        )
+        stale_rescored = rescore_jobs_if_active(
+            db_path,
+            profile,
+            list(stale_cleanup.get("affected_job_ids", [])),
+        )
+        if stale_rescored:
+            print(f"process-inbox: rescored stale-skill jobs ({stale_rescored})")
+        if int(stale_cleanup.get("profile_removed", 0) or 0) > 0:
+            save_profile(profile, profile_path)
+
+        learning_info = update_profile_from_db_signals(db_path, profile_path)
+        print(
+            "Profile learning: "
+            f"labeled={learning_info.get('labeled_count', 0)}, "
+            f"include={learning_info.get('learned_include_count', 0)}, "
+            f"exclude={learning_info.get('learned_exclude_count', 0)}, "
+            f"missing_skills={learning_info.get('missing_skills_count', 0)}"
+        )
+
+        summarize_relevant_jobs_for_inbox(
+            db_path,
+            relevant_jobs,
+            llm,
+            max_tokens=max_tokens,
+            max_input_chars=max_input_chars,
+        )
+
+        write_inbox_dashboard_report(db_path, profile, llm, report_dir)
+
+        if not relevant_jobs:
+            print("No relevant positions after filtering.")
+
+        print(f"Done. Relevant summarized={len(relevant_jobs)}")
+        sync_log.pipeline_end(status="done", message="process-inbox complete")
+        run_status = "complete"
+    except SystemExit as exc:
+        run_status = "failed"
+        run_message = str(exc)
+        sync_log.pipeline_end(status="failed", message=run_message)
+        raise
+    except Exception as exc:
+        run_status = "failed"
+        run_message = str(exc)
+        sync_log.pipeline_end(status="failed", message=run_message)
+        raise
+    finally:
+        sync_log.run_end(status=run_status, message=run_message)

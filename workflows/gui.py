@@ -68,6 +68,7 @@ def serve_gui(
         *,
         llm: Optional[LocalLLM] = None,
         progress_label: str = "",
+        on_progress=None,
     ) -> int:
         return populate_missing_dashboard_skills(
             db_path,
@@ -75,6 +76,7 @@ def serve_gui(
             rows,
             llm=llm,
             progress_label=progress_label,
+            on_progress=on_progress,
         )
 
     sync_context = GuiSyncContext(
@@ -87,6 +89,7 @@ def serve_gui(
         queue_dashboard_rebuild=rebuild_queue.queue,
         reload_runtime_profile=_reload_runtime_profile,
         populate_missing_dashboard_skills=_populate_missing_dashboard_skills,
+        sync_log_path=os.path.join(report_dir, "sync.log"),
     )
     inbox_sync_runner = InboxSyncRunner(sync_context, rebuild_queue)
     app_factory_kwargs = {

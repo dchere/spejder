@@ -31,6 +31,7 @@ from spejder.workflows.job_enrichment import (
 )
 from spejder.workflows.portal_sync import sync_itday_portal
 from spejder.workflows.skill_hygiene import run_stale_skill_cleanup
+from spejder.workflows.sync_log import IngestProgressTracker, SyncRunLog, SyncRunLogLike
 
 if TYPE_CHECKING:
     from spejder.llm import LocalLLM
@@ -43,6 +44,7 @@ class _PopulateSkillsFn(Protocol):
         *,
         llm: Optional["LocalLLM"] = None,
         progress_label: str = "",
+        on_progress: Optional[Callable[[int, int, int], None]] = None,
     ) -> int: ...
 
 
@@ -69,11 +71,20 @@ class GuiSyncContext:
     reload_runtime_profile: Callable[[], None]
     populate_missing_dashboard_skills: _PopulateSkillsFn
     on_stage: Optional[Callable[[str, str], None]] = None
+    sync_log_path: str = ""
+    sync_log: Optional[SyncRunLogLike] = None
 
 
 def _emit_stage(context: GuiSyncContext, stage_id: str, message: str) -> None:
     if context.on_stage is not None:
         context.on_stage(stage_id, message)
+    sync_log = context.sync_log
+    if sync_log is None:
+        return
+    if stage_id in ("done", "failed", "skipped"):
+        sync_log.pipeline_end(status=stage_id, message=message)
+    else:
+        sync_log.stage_start(stage_id, message)
 
 
 def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
@@ -142,22 +153,34 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
             else None
         )
         if docs:
-            print(f"Background sync started: files={len(docs)}")
             _emit_stage(context, "ingest", f"Ingesting {len(docs)} inbox file(s)")
         else:
-            print("Background sync started: backfilling missing descriptions/skills")
             _emit_stage(context, "ingest", "Backfilling missing descriptions and skills")
 
-        last_inserted_logged = -1
+        ingest_file_count = len(docs)
+        ingest_progress = IngestProgressTracker()
+
+        def _emit_ingest_progress(
+            processed: int,
+            inserted_new: int,
+            skipped_existing: int,
+        ) -> None:
+            if context.sync_log is not None:
+                context.sync_log.progress(
+                    "ingest",
+                    checked=processed,
+                    total=0,
+                    inserted=inserted_new,
+                    skipped_existing=skipped_existing,
+                    files=ingest_file_count,
+                )
 
         def _on_progress(processed: int, inserted_new: int, skipped_existing: int):
-            nonlocal last_inserted_logged
-            if inserted_new != last_inserted_logged:
-                print(
-                    f"Background sync progress: processed={processed}, inserted={inserted_new}, "
-                    f"skipped_existing={skipped_existing}"
-                )
-                last_inserted_logged = inserted_new
+            # Job counts (not files); total=0 skips pct. Emit on insert/milestone;
+            # console mirrors via sync_log.
+            if not ingest_progress.note(processed, inserted_new):
+                return
+            _emit_ingest_progress(processed, inserted_new, skipped_existing)
 
         if docs:
             ingest_stats = ingest_docs_to_db(
@@ -176,6 +199,15 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
                 "skipped_existing": 0,
                 "positions_by_file": [],
             }
+
+        final_processed = int(ingest_stats.get("processed", 0) or 0)
+        if docs and ingest_progress.needs_final(final_processed):
+            _emit_ingest_progress(
+                final_processed,
+                int(ingest_stats.get("inserted_new", 0) or 0),
+                int(ingest_stats.get("skipped_existing", 0) or 0),
+            )
+            ingest_progress.last_processed = final_processed
 
         print_ingest_file_stats(ingest_stats)
         _emit_stage(context, "cleanup", "Cleaning up processed inbox files")
@@ -202,10 +234,18 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
 
         _emit_stage(context, "skills", "Materializing skills and rescoring jobs")
         skill_rows = get_jobs_for_active_rescore(context.db_path)
+
+        def _on_skills_progress(checked: int, total: int, updated: int) -> None:
+            if context.sync_log is not None:
+                context.sync_log.progress(
+                    "skills", checked=checked, total=total, updated=updated
+                )
+
         skills_updated = context.populate_missing_dashboard_skills(
             skill_rows,
             llm=llm_for_sync,
-            progress_label="Background sync: skills",
+            progress_label="",
+            on_progress=_on_skills_progress if context.sync_log is not None else None,
         )
         print(f"Background sync: missing skills populated ({skills_updated} jobs updated)")
 
@@ -213,24 +253,36 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
             context.queue_dashboard_rebuild(reason=f"skills materialized={skills_updated}")
 
         _emit_stage(context, "descriptions", "Generating missing descriptions")
+
+        def _on_desc_progress(checked: int, total: int, updated: int) -> None:
+            if context.sync_log is not None:
+                context.sync_log.progress(
+                    "descriptions", checked=checked, total=total, updated=updated
+                )
+
         desc_updated, desc_skipped = _generate_missing_descriptions_for_ingest(
             context.db_path,
             llm=llm_for_sync,
             runtime_profile=context.runtime_profile,
             allow_empty=False,
-            progress=True,
-            progress_label="Background sync: descriptions",
+            progress=False,
+            on_progress=_on_desc_progress if context.sync_log is not None else None,
         )
         if desc_updated > 0:
             context.queue_dashboard_rebuild(reason=f"descriptions updated {desc_updated}")
 
         _emit_stage(context, "patterns", "Learning skill patterns")
+
+        def _on_patterns_progress(checked: int, total: int) -> None:
+            if context.sync_log is not None:
+                context.sync_log.progress("patterns", checked=checked, total=total)
+
         skill_learning = _learn_skill_patterns_from_positions(
             context.db_path,
             runtime_profile=context.runtime_profile,
             llm=llm_for_sync,
-            progress=True,
-            progress_label="Background sync: skill patterns",
+            progress=False,
+            on_progress=_on_patterns_progress if context.sync_log is not None else None,
         )
         if skill_learning.get("new_skill_patterns", 0) > 0:
             context.queue_dashboard_rebuild(
@@ -317,6 +369,7 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
             save_profile(context.runtime_profile, context.profile_path)
             context.reload_runtime_profile()
 
+        _emit_stage(context, "bad_cloud", "Initializing bad cloud")
         ensure_db(context.db_path)
         cloud_stats = ensure_bad_cloud_initialized(
             context.runtime_profile,
@@ -435,19 +488,24 @@ class InboxSyncRunner:
     def _run_sync(self) -> None:
         terminal_status = "failed"
         terminal_message = "Sync failed"
+        sync_log = SyncRunLog.open(self._base_context.sync_log_path)
+        run_ended = False
 
         def on_stage(stage_id: str, message: str) -> None:
             with self._lock:
                 self._stage_id = stage_id
                 self._stage_message = message
 
-        context = replace(self._base_context, on_stage=on_stage)
+        context = replace(self._base_context, on_stage=on_stage, sync_log=sync_log)
+        sync_log.run_start(source="gui_sync")
 
         try:
             result = run_inbox_sync(context)
             if result.status == "done":
                 on_stage("rebuild", "Waiting for dashboard rebuild")
+                sync_log.stage_start("rebuild", "Waiting for dashboard rebuild")
                 rebuild_ready = self._rebuild_queue.wait_until_idle(timeout=600)
+                sync_log.stage_end("rebuild")
                 if rebuild_ready:
                     terminal_status = "complete"
                     terminal_message = _SYNC_COMPLETE_MESSAGE
@@ -456,16 +514,22 @@ class InboxSyncRunner:
                     terminal_message = _SYNC_REBUILD_TIMEOUT_MESSAGE
             elif result.status == "skipped":
                 on_stage("rebuild", "Waiting for dashboard rebuild")
+                sync_log.stage_start("rebuild", "Waiting for dashboard rebuild")
                 self._rebuild_queue.wait_until_idle(timeout=600)
+                sync_log.stage_end("rebuild")
                 terminal_status = "skipped"
                 terminal_message = _SYNC_SKIPPED_MESSAGE
             else:
                 terminal_status = "failed"
                 terminal_message = result.error or "Sync failed"
+            sync_log.run_end(status=terminal_status, message=terminal_message)
+            run_ended = True
         except Exception as exc:
             terminal_status = "failed"
             terminal_message = str(exc)
         finally:
+            if not run_ended:
+                sync_log.run_end(status=terminal_status, message=terminal_message)
             with self._lock:
                 self._running = False
                 self._terminal_status = terminal_status

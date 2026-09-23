@@ -406,5 +406,5 @@ In `profile.json`:
 - Re-extracting skills (manual description paste, `refresh-descriptions`, or clearing cached skills) can change `relevance_score` when more or fewer skills match your profile.
 - Processed inbox files are removed automatically after successful ingestion when using background sync or `process-inbox`.
 - Inbox ingestion accepts `.eml` files only. Save emails as `.eml` (e.g. drag from Mail.app, or **File → Save As** in Thunderbird) rather than "Save as HTML".
+- Background sync (`serve-gui` / **Sync inbox**) and `process-inbox` append stage timing and progress to `{report_dir}/sync.log` (default `./outbox/sync.log`) and mirror the same events on the terminal as lines starting with `sync ` (same key=value fields, without `ts=`). Because the GUI serves `report_dir` as static files, that path is also browser-reachable as `/sync.log` on the GUI host/port (operational text, not secrets). Dashboard behavior is unchanged.
 - Unrecognized or junk job URLs from ingest also remain until the 90-day age-out — there is no separate junk-host wipe alongside the removed allow-list prune.
-
