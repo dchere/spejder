@@ -364,7 +364,7 @@ Main fields in the `jobs` table include:
 - `created_at`
 - `updated_at`
 
-Jobs older than 90 days by `created_at` are auto-pruned on DB open (`ensure_db`), except interview and stopped applied rows (`applied=1` with `on_interview=1` or `interview_stopped=1`). Plain applied jobs still age out. Unchecking **On interview** or **Stopped** on an old retained job removes that exemption — the next `ensure_db` prunes it like any other plain applied row.
+Jobs older than 90 days by `created_at` are auto-pruned on DB open (`ensure_db`), except interview and stopped applied rows (`applied=1` with `on_interview=1` or `interview_stopped=1`). Plain applied jobs still age out. Unchecking **On interview** or **Stopped** on an old retained job removes that exemption — the next `ensure_db` prunes it like any other plain applied row. Non-LinkedIn/Jobindex/Danfoss ATS links (e.g. Teamtailor, SAP career portals) are kept until that age-out — they are not host-pruned.
 
 During GUI background sync and `process-inbox`, unflagged skill patterns with parseable `created_at` older than 90 days (same rule as job retention) and Job share below 0.1% are deleted from SQLite (and matching `known_skill_patterns` / keyword list entries may be pruned). Flagged skills (`user_skills`, `missing_skills_suggestions`, `unwanted_skills`) and `blocked_skills` keys are kept (blocked path owns the latter). This retention path does not add names to `blocked_skills`.
 
@@ -406,4 +406,5 @@ In `profile.json`:
 - Re-extracting skills (manual description paste, `refresh-descriptions`, or clearing cached skills) can change `relevance_score` when more or fewer skills match your profile.
 - Processed inbox files are removed automatically after successful ingestion when using background sync or `process-inbox`.
 - Inbox ingestion accepts `.eml` files only. Save emails as `.eml` (e.g. drag from Mail.app, or **File → Save As** in Thunderbird) rather than "Save as HTML".
+- Unrecognized or junk job URLs from ingest also remain until the 90-day age-out — there is no separate junk-host wipe alongside the removed allow-list prune.
 

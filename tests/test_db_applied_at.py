@@ -204,6 +204,40 @@ class AppliedAtDbTest(unittest.TestCase):
         ensure_db(self.db_path)
         self.assertFalse(_job_exists(self.db_path, job_id))
 
+    def test_ensure_db_keeps_recent_non_allowlist_ats_and_ages_out_old(self):
+        recent_link = "https://dsb.jobs.hr.cloud.sap/sap/bc/erecruiting/jobs/100"
+        upsert_job(
+            self.db_path,
+            {
+                "source": "DSB's Job Portal",
+                "company": "DSB",
+                "title": "Recent SAP Role",
+                "position_link": recent_link,
+                "raw_text": "raw",
+            },
+        )
+        old_job_id = _insert_old_job(
+            self.db_path,
+            "https://dsb.jobs.hr.cloud.sap/sap/bc/erecruiting/jobs/200",
+        )
+
+        ensure_db(self.db_path)
+
+        conn = _connect(self.db_path)
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT source FROM jobs WHERE position_link=? LIMIT 1",
+                (recent_link,),
+            )
+            row = cur.fetchone()
+            self.assertIsNotNone(row)
+            # Unrecognized ATS hosts fall through to bare hostname in source backfill.
+            self.assertEqual(row[0], "dsb.jobs.hr.cloud.sap")
+        finally:
+            conn.close()
+        self.assertFalse(_job_exists(self.db_path, old_job_id))
+
     def test_ensure_db_backfills_applied_at(self):
         known_updated_at = "2023-07-15T10:00:00+00:00"
         recent_created_at = datetime.now(timezone.utc).isoformat()

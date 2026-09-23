@@ -1,4 +1,4 @@
-"""Title sanitize, link canonicalize/dedupe, source backfill, Emerson migrate, prune."""
+"""Title sanitize, link canonicalize/dedupe, source backfill, Emerson migrate, retention prune."""
 from datetime import datetime, timezone
 
 from spejder.db.utils import sanitize_job_title, _normalize_position_link, _provider_from_link
@@ -8,29 +8,6 @@ JOB_RETENTION_DAYS = 90
 
 
 def apply_maintenance(cur) -> None:
-    cur.execute(
-        """
-        DELETE FROM jobs
-        WHERE NOT (
-            lower(position_link) LIKE '%linkedin.com/%jobs/view/%'
-            OR (
-                lower(position_link) LIKE '%jobindex.dk%'
-                AND (
-                    lower(position_link) LIKE '%jobid=%'
-                    OR lower(position_link) LIKE '%/jobannonce/h%'
-                    OR lower(position_link) LIKE '%/jobannonce/r%'
-                )
-            )
-            OR (
-                lower(position_link) LIKE '%jobs.danfoss.com%'
-                AND lower(position_link) LIKE '%/job/%'
-            )
-            OR lower(trim(source)) = ?
-        )
-        """,
-        (ITDAY_PORTAL_SOURCE.strip().lower(),),
-    )
-
     cur.execute(
         """
         DELETE FROM jobs

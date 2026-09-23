@@ -408,7 +408,7 @@ class ItdayPortalEnsureDbPruneTest(unittest.TestCase):
     def tearDown(self):
         self._tmpdir.cleanup()
 
-    def test_ensure_db_keeps_portal_source_urls_and_prunes_other(self):
+    def test_ensure_db_keeps_portal_and_other_ats_urls(self):
         portal_links = (
             "https://bankdata.teamtailor.com/jobs/1",
             "https://www.itday.dk/praktik/foo",
@@ -424,14 +424,14 @@ class ItdayPortalEnsureDbPruneTest(unittest.TestCase):
                     "raw_text": "raw",
                 },
             )
-        dropped_link = "https://other.teamtailor.com/jobs/99"
+        other_ats_link = "https://other.teamtailor.com/jobs/99"
         upsert_job(
             self.db_path,
             {
                 "source": "Teamtailor",
                 "company": "Other",
-                "title": "Should be pruned",
-                "position_link": dropped_link,
+                "title": "Other ATS Role",
+                "position_link": other_ats_link,
                 "raw_text": "raw",
             },
         )
@@ -442,7 +442,9 @@ class ItdayPortalEnsureDbPruneTest(unittest.TestCase):
             row = self._fetch_job(link)
             self.assertIsNotNone(row, msg=link)
             self.assertEqual(row["source"], ITDAY_PORTAL_SOURCE)
-        self.assertIsNone(self._fetch_job(dropped_link))
+        other_row = self._fetch_job(other_ats_link)
+        self.assertIsNotNone(other_row)
+        self.assertEqual(other_row["source"], "Teamtailor")
 
     def _fetch_job(self, link: str) -> Optional[dict]:
         conn = _connect(self.db_path)

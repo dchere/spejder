@@ -65,7 +65,7 @@ Extracted from `jobs.py`. The rest of the application (including business logic 
 **Connection (`connection.py`):**
 - Keeps `_connect`, `get_job_link`, `ensure_db` (one connection and one commit, as before)
 - `schema.py` — CREATE/ALTER/`jobs_new`/skill tables/`applied_at` backfill (`apply_schema(cur)`)
-- `maintenance.py` — title sanitize, link canonicalize/dedupe, source backfill, Emerson migrate, 90-day + allowed-link prune (`apply_maintenance(cur)`; `JOB_RETENTION_DAYS = 90`)
+- `maintenance.py` — title sanitize, link canonicalize/dedupe, source backfill, Emerson migrate, LinkedIn noise-title prune + 90-day age retention (`apply_maintenance(cur)`; `JOB_RETENTION_DAYS = 90`)
 
 **Dependencies:**
 - `sqlite3` (stdlib). db does **not** import `spejder.config`.
@@ -140,5 +140,6 @@ Extracted from `jobs.py`. The rest of the application (including business logic 
 - Exempt: `applied=1 AND (on_interview=1 OR interview_stopped=1)` — interview/stopped pipeline jobs are kept
 - Plain `applied=1` rows (not on interview/stopped) still age out by `created_at`
 - Demotion edge case: unchecking **On interview** or **Stopped** on an old retained job removes the exemption; the next `ensure_db` prunes it like any other plain applied row
-- Also deletes rows whose `position_link` is outside the allowed ingest sources (LinkedIn job view URLs, Jobindex annonces, Danfoss `/job/` URLs), except rows with `source='IT-DAY Job Portal'` from the IT-DAY portal sync (`lower(trim(source))` matches `ITDAY_PORTAL_SOURCE` from `parsers/itday_portal.py`)
-- Source backfill from `_provider_from_link` must **not** rewrite `IT-DAY Job Portal`, because prune for these ATS/praktik URLs is source-based
+- Also deletes LinkedIn noise-title rows (`Jobs similar to…`, `New jobs match your preferences…`, `Job alert…`) — no host/source allow-list prune; non-LinkedIn/Jobindex/Danfoss ATS links are kept until age-out (intentional: Teamtailor/SAP/etc. survive; unrecognized/junk URLs also stick until the 90-day prune — growth/triage noise is accepted without a separate junk-host heuristic)
+- Source backfill from `_provider_from_link` must **not** rewrite `IT-DAY Job Portal`, so portal sync rows keep that label instead of a link-derived provider (e.g. Teamtailor)
+- Unrecognized ATS hosts (no named provider rule) fall through to the bare hostname — e.g. `"DSB's Job Portal"` → `"dsb.jobs.hr.cloud.sap"`; survival past prune does not preserve the original friendly label
