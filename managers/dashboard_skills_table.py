@@ -2,6 +2,7 @@
 
 import html as html_lib
 import json
+from typing import Optional
 
 from spejder.extractors.skill_extractor.ui import SKILLS_EMPTY_ADDED_AT_SORT
 
@@ -23,6 +24,71 @@ _DELETE_SKILL_ICON_SVG = (
     '<path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>'
     "</svg>"
 )
+
+
+def _format_threshold_label(threshold: Optional[float]) -> str:
+    if threshold is None:
+        return "not set (uses sync calibration / cold-start)"
+    if threshold == float("inf"):
+        return "∞ (empty cloud)"
+    return f"{threshold:.3f}"
+
+
+def _render_skills_cloud_status_html(cloud_status: Optional[dict]) -> str:
+    """Render bad-cloud size / threshold / forgive controls for the Skills tab."""
+    status = cloud_status or {}
+    ngram_count = int(status.get("ngram_count", 0) or 0)
+    total_weight = int(status.get("total_weight", 0) or 0)
+    max_weight = int(status.get("max_weight", 0) or 0)
+    weight_cap = status.get("weight_cap")
+    if weight_cap is None:
+        cap_label = "uncapped"
+    else:
+        cap_label = str(int(weight_cap))
+    threshold_label = html_lib.escape(_format_threshold_label(status.get("threshold")))
+    blocked = [
+        str(name)
+        for name in (status.get("blocked_skills") or [])
+        if str(name).strip()
+    ]
+    blocked_count = len(blocked)
+
+    summary = (
+        f'<div class="skills-cloud-status" id="skills-cloud-status">'
+        f'<p class="skills-cloud-summary" title="Bad-cloud ngrams reject similar noisy extractions. '
+        f'Weights are capped per ngram; Forgive decrements weights for a blocked name.">'
+        f"Bad cloud: <strong>{ngram_count}</strong> ngrams"
+        f" · total weight <strong>{total_weight}</strong>"
+        f" · heaviest <strong>{max_weight}</strong>"
+        f" · cap <strong>{html_lib.escape(cap_label)}</strong>"
+        f" · threshold <strong>{threshold_label}</strong>"
+        f" · blocked list <strong>{blocked_count}</strong>"
+        f"</p>"
+    )
+    if not blocked:
+        return summary + "</div>"
+
+    rows: list[str] = []
+    for name in blocked:
+        skill_key_js = html_lib.escape(json.dumps(name), quote=True)
+        rows.append(
+            "<li class=\"skills-blocked-item\" "
+            f'data-skill-key="{html_lib.escape(name, quote=True)}">'
+            f"<span>{html_lib.escape(name)}</span>"
+            f'<button type="button" class="forgive-skill-btn" '
+            f'onclick="forgiveSkill({skill_key_js}, this)" '
+            f'title="Forgive: remove from blocked list and decrement cloud weights">'
+            f"Forgive</button></li>"
+        )
+    return (
+        summary
+        + '<div class="skills-blocked-list-wrap">'
+        + f'<p class="skills-blocked-heading">Still on blocked list ({blocked_count})'
+        + " — Forgive softens cloud weights for shared tokens:</p>"
+        + '<ul class="skills-blocked-list" id="skills-blocked-list">'
+        + "".join(rows)
+        + "</ul></div></div>"
+    )
 
 
 def _render_skills_table_html(skills_items: list[dict]) -> str:

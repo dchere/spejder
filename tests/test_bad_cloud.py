@@ -272,6 +272,73 @@ class CalibrateThresholdTest(unittest.TestCase):
         on_skills_blocked(profile, self.db_path, ["we are looking"])
         self.assertEqual(profile.skill_bigram_toxicity_threshold, 0.42)
 
+    def test_on_skills_blocked_recalibrates_when_flag_enabled(self):
+        upsert_skill_pattern(self.db_path, "python", r"\bpython\b", source="seed")
+        conn = _connect(self.db_path)
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE skill_patterns SET created_at=? WHERE name_key=?",
+                ("2020-01-01T00:00:00+00:00", "python"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        profile = AppConfig(
+            blocked_skills=["we are looking"],
+            skill_bigram_toxicity_threshold=0.42,
+            skill_recalibrate_on_block=True,
+        )
+        result = on_skills_blocked(profile, self.db_path, ["we are looking"])
+        self.assertTrue(result["threshold_changed"])
+        self.assertNotEqual(profile.skill_bigram_toxicity_threshold, 0.42)
+
+
+class WeightCapAndForgiveTest(unittest.TestCase):
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self._tmpdir.name, "jobs.db")
+        ensure_db(self.db_path)
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def test_weight_cap_limits_repeated_ingest(self):
+        from spejder.db import get_bad_ngram_weights
+
+        for _ in range(10):
+            ingest_blocked_skills(["sales crm"], self.db_path, max_weight=3)
+        weights = get_bad_ngram_weights(self.db_path, [("sales crm", 2)])
+        self.assertEqual(weights[("sales crm", 2)], 3)
+
+    def test_forgive_decrements_weights_and_unblocks(self):
+        from spejder.db import get_bad_ngram_weights
+        from spejder.extractors.skill_extractor.bad_cloud import on_skills_forgiven
+
+        profile = AppConfig(blocked_skills=["sales crm", "python"])
+        ingest_blocked_skills(["sales crm", "sales crm"], self.db_path, max_weight=5)
+        before = get_bad_ngram_weights(self.db_path, [("sales crm", 2)])[("sales crm", 2)]
+        result = on_skills_forgiven(profile, self.db_path, ["sales crm"])
+        after = get_bad_ngram_weights(self.db_path, [("sales crm", 2)]).get(("sales crm", 2), 0)
+        self.assertEqual(result["removed_from_blocked"], 1)
+        self.assertEqual(profile.blocked_skills, ["python"])
+        self.assertEqual(after, before - 1)
+
+    def test_bad_cloud_status_reports_size_and_threshold(self):
+        from spejder.extractors.skill_extractor.bad_cloud import bad_cloud_status
+
+        ingest_blocked_skill("we are looking", self.db_path, max_weight=3)
+        profile = AppConfig(
+            blocked_skills=["we are looking"],
+            skill_bigram_toxicity_threshold=0.25,
+            skill_bad_ngram_weight_cap=3,
+        )
+        status = bad_cloud_status(self.db_path, profile)
+        self.assertGreater(status["ngram_count"], 0)
+        self.assertEqual(status["threshold"], 0.25)
+        self.assertEqual(status["weight_cap"], 3)
+        self.assertEqual(status["blocked_skills"], ["we are looking"])
+
 
 class OnSkillsBlockedTest(unittest.TestCase):
     def setUp(self):

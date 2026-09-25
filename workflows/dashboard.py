@@ -252,6 +252,7 @@ class DashboardRebuildQueue:
                         hidden_items=refreshed_hidden_records,
                         viewed_today_items=refreshed_viewed_today_records,
                         runtime_profile=self.runtime_profile,
+                        db_path=self.db_path,
                     )
                 if should_log_rebuild and not reason.startswith("new record"):
                     print(f"Dashboard rebuild: done ({reason})")

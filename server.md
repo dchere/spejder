@@ -18,7 +18,7 @@ Provides an interactive dashboard (web GUI) to review extracted jobs and view th
 | `routers/jobs.py` | `/api/feedback`, `/applied`, `/interview`, `/interview/stopped`, `/interview/feedback`, `/viewed`, `/hidden` |
 | `routers/jobs_applied_extras.py` | `/api/applied/raw-text`, `/api/applied/cover-letter/request`, `/api/applied/cover-letter` |
 | `routers/skills.py` | `/api/skill/user\|learn\|unwanted` (profile exclusive-list toggles + `rescore_active_jobs` when the list changed) |
-| `routers/skills_block_delete.py` | `/api/skill/block\|delete\|block-batch\|delete-batch` plus `_normalize_skill_batch`, `_run_skill_block`, `_run_skill_delete`, `_delete_skills_from_db`, `_merge_db_deleted` |
+| `routers/skills_block_delete.py` | `/api/skill/block\|delete\|forgive\|block-batch\|delete-batch\|forgive-batch` plus `_normalize_skill_batch`, `_run_skill_block`, `_run_skill_delete`, `_run_skill_forgive`, `_delete_skills_from_db`, `_merge_db_deleted` |
 | `routers/ops.py` | `/api/report/rebuild`, `/api/report/status`, `/api/inbox/sync`, `/api/inbox/sync/status`, `GET /company.html` |
 | `routers/portrait.py` | `/api/portrait`, `/portrait/save`, `/portrait/generate` |
 | `routers/profile.py` | `/api/profile`, `/api/profile/save` |
@@ -40,8 +40,10 @@ Pydantic request models live at module level on the router that uses them.
 - `POST /api/skill/unwanted` — `{ skill, unwanted }`; persist **Not for me**; when enabling, drops from `user_skills` and `missing_skills_suggestions`; then `rescore_active_jobs` and dashboard rebuild (mirrors `/api/skill/user`)
 - `POST /api/skill/block` — delegates to shared block runner (`_run_skill_block` with one skill); profile block + `delete_skill_from_db`, `rescore_jobs_if_active` on `affected_job_ids`, dashboard rebuild; response includes `block_info` and `db_deleted`
 - `POST /api/skill/delete` — delegates to shared delete runner (`_run_skill_delete` with one skill); profile cleanup + DB delete + rescore + rebuild
+- `POST /api/skill/forgive` — `{ skill }`; decrements bad-cloud ngrams for the skill, removes it from `blocked_skills`, dashboard rebuild (does not restore deleted DB rows)
 - `POST /api/skill/block-batch` — `{ skills: string[] }`; same `_run_skill_block` path as single block
 - `POST /api/skill/delete-batch` — same request shape; same `_run_skill_delete` path as single delete
+- `POST /api/skill/forgive-batch` — same request shape; same `_run_skill_forgive` path as single forgive
 - `POST /api/applied/raw-text` — `{ job_id, text }`; requires `applied=1` and non-empty `text`; appends `[MANUAL_APPLIED_DESCRIPTION]` block to `raw_text`, clears `job_skills`, rematerializes skills, then rescoring via `materialize_job_skills(..., rescore=True, first_materialize=True)` so keyword-only score updates even when LLM returns no skills. Returns 400 when text empty or job not applied; 500 if save succeeded but the job row cannot be loaded for enrichment (skills cache already cleared in that case).
 - `POST /api/report/rebuild` — queues dashboard rebuild (`reason="manual rebuild"`); no DB mutation; used by the report page **Regenerate report** button
 - `GET /api/report/status` — `{ ok, idle, last_modified }`; `idle` reflects whether the dashboard rebuild queue is idle (`get_report_rebuild_idle`); `last_modified` is the HTTP-date of `report.html` on disk (empty when missing). Used by tab-switch stale reload logic in `dashboard.html`.

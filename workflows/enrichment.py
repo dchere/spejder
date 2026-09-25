@@ -264,6 +264,7 @@ def refresh_descriptions(profile: str = None, db: str = None, model: str = "", s
             hidden_items=hidden_records,
             viewed_today_items=viewed_today_records,
             runtime_profile=runtime_profile,
+            db_path=db_path,
         )
         print(f"Report written: {dashboard_path}")
 

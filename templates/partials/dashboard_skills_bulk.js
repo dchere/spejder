@@ -116,6 +116,33 @@
                 }
             }
 
+            async function forgiveSkill(skillKey, btnEl) {
+                if (!confirm(`Forgive skill '${skillKey}'? Removes it from the blocked list and decrements bad-cloud weights for its ngrams.`)) return;
+                if (btnEl) btnEl.disabled = true;
+                try {
+                    const response = await fetch(apiUrl('/api/skill/forgive'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ skill: skillKey }),
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || 'Request failed');
+                    }
+                    const item = btnEl ? btnEl.closest('.skills-blocked-item') : null;
+                    if (item) item.remove();
+                    const list = document.getElementById('skills-blocked-list');
+                    if (list && list.children.length === 0) {
+                        const wrap = list.closest('.skills-blocked-list-wrap');
+                        if (wrap) wrap.remove();
+                    }
+                    refreshCounts();
+                } catch (err) {
+                    alert(`Failed to forgive skill: ${err.message}`);
+                    if (btnEl) btnEl.disabled = false;
+                }
+            }
+
             async function deleteSkill(skillKey, btnEl) {
                 if (!confirm(`Delete skill '${skillKey}' from profile and DB?`)) return;
                 btnEl.disabled = true;

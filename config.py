@@ -9,6 +9,7 @@ from spejder.db.utils import _normalize_skill_name_key
 
 DEFAULT_PROFILE_FILE = "default_profile.json"
 SKILL_BIGRAM_THRESHOLD_MARGIN_DEFAULT = 0.5
+SKILL_BAD_NGRAM_WEIGHT_CAP_DEFAULT = 3
 
 _LEGACY_ANTIPATTERN_KEYS = (
     "skill_extraction_antipatterns",
@@ -85,6 +86,8 @@ class AppConfig(BaseModel):
     blocked_skills: list[str] = Field(default_factory=list)
     skill_bigram_toxicity_threshold: Optional[float] = None
     skill_bigram_threshold_margin: float = SKILL_BIGRAM_THRESHOLD_MARGIN_DEFAULT
+    skill_bad_ngram_weight_cap: int = SKILL_BAD_NGRAM_WEIGHT_CAP_DEFAULT
+    skill_recalibrate_on_block: bool = False
     bad_cloud_seeded: bool = False
 
     missing_skills_suggestions: list[str] = Field(default_factory=list)

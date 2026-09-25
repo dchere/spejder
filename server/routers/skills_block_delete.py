@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from spejder.db import delete_skill_from_db, ensure_db
 from spejder.db.utils import _normalize_skill_name_key
 from spejder.extractors.skill_extractor import _normalize_skill_name
-from spejder.extractors.skill_extractor.bad_cloud import on_skills_blocked
+from spejder.extractors.skill_extractor.bad_cloud import on_skills_blocked, on_skills_forgiven
 from spejder.jobs import rescore_jobs_if_active
 from spejder.managers.profile_manager import (
     _block_skill_in_profile,
@@ -23,6 +23,10 @@ class SkillBlockRequest(BaseModel):
 
 
 class SkillDeleteRequest(BaseModel):
+    skill: str
+
+
+class SkillForgiveRequest(BaseModel):
     skill: str
 
 
@@ -187,5 +191,48 @@ def api_skill_delete_batch(
         skills,
         f"skill delete batch ({len(skills)})",
         "skill delete batch",
+    )
+    return {"ok": True, **result}
+
+
+def _run_skill_forgive(runtime: ServerRuntime, skills: list[str], rebuild_reason: str) -> dict:
+    ensure_db(runtime.db_path)
+    forgive_info = on_skills_forgiven(runtime.runtime_profile, runtime.db_path, skills)
+    runtime.persist_runtime_profile()
+    runtime.reload_runtime_profile()
+    runtime.queue_dashboard_rebuild(reason=rebuild_reason)
+    return {
+        "skills": forgive_info.get("skills", skills),
+        "count": len(forgive_info.get("skills", skills)),
+        "forgive_info": forgive_info,
+    }
+
+
+@router.post("/api/skill/forgive")
+def api_skill_forgive(req: SkillForgiveRequest, runtime: ServerRuntime = Depends(get_runtime)):
+    skill = _normalize_skill_name(req.skill)
+    if not skill:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "skill is required"})
+
+    result = _run_skill_forgive(runtime, [skill], f"skill forgiven {skill}")
+    return {
+        "ok": True,
+        "skill": skill,
+        "forgive_info": result["forgive_info"],
+    }
+
+
+@router.post("/api/skill/forgive-batch")
+def api_skill_forgive_batch(
+    req: SkillBatchRequest, runtime: ServerRuntime = Depends(get_runtime)
+):
+    skills = _normalize_skill_batch(req.skills)
+    if not skills:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "skills is required"})
+
+    result = _run_skill_forgive(
+        runtime,
+        skills,
+        f"skill forgive batch ({len(skills)})",
     )
     return {"ok": True, **result}

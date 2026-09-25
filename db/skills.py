@@ -1,7 +1,9 @@
 """Skills DB facade."""
 from .skills_bad_ngrams import (
     count_bad_ngrams,
+    decrement_bad_ngram_counts,
     get_bad_ngram_weights,
+    summarize_bad_ngrams,
     upsert_bad_ngram_counts,
     upsert_bad_ngrams,
 )

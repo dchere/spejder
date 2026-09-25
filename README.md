@@ -229,7 +229,7 @@ Main dashboard API endpoints (JSON `POST` unless noted):
 - Triage: `/api/feedback`, `/api/viewed`, `/api/applied`, `/api/hidden`
 - Interview: `/api/interview`, `/api/interview/stopped`, `/api/interview/feedback`
 - Applied enrichment: `/api/applied/raw-text`, `/api/applied/cover-letter/request`, `/api/applied/cover-letter`
-- Skills tab: `/api/skill/user`, `/api/skill/learn`, `/api/skill/block`, `/api/skill/delete`, `/api/skill/block-batch`, `/api/skill/delete-batch`
+- Skills tab: `/api/skill/user`, `/api/skill/learn`, `/api/skill/block`, `/api/skill/delete`, `/api/skill/forgive`, `/api/skill/block-batch`, `/api/skill/delete-batch`, `/api/skill/forgive-batch`
 - Portrait panel: `GET /api/portrait`, `POST /api/portrait/generate`, `POST /api/portrait/save`
 - Profile panel: `GET /api/profile`, `POST /api/profile/save`
 - Pages: `GET /report.html`, `GET /company.html?company=…`
@@ -382,9 +382,11 @@ In `profile.json`:
 
 - `user_skills`: your editable skill list used for scoring.
 - `unwanted_skills`: Skills tab **Not for me**; subtracted in scoring via `skill_unwanted_penalty`. Missing key in old `profile.json` = empty. Mutually exclusive with `user_skills` / `missing_skills_suggestions` (unwanted wins on load/save). Not `blocked_skills`.
-- `blocked_skills`: skills hidden from the Skills tab and filtered out from extracted skill results; blocking also deletes matching rows from SQLite `skill_patterns` and `job_skills`, ingests bigrams into `bad_ngram_weights`, and may prune redundant blocked entries once the cloud learns them.
-- `skill_bigram_toxicity_threshold`: last sync-computed toxicity cutoff (auto-updated on GUI background sync and `process-inbox`; used as a cache between syncs).
+- `blocked_skills`: skills hidden from the Skills tab and filtered out from extracted skill results; blocking also deletes matching rows from SQLite `skill_patterns` and `job_skills`, ingests bigrams into `bad_ngram_weights` (per-ngram weight cap), and may prune redundant blocked entries once the cloud learns them. **Forgive** on the Skills tab (or `/api/skill/forgive`) decrements those ngrams and removes the name from the blocked list.
+- `skill_bigram_toxicity_threshold`: last sync-computed toxicity cutoff (auto-updated on GUI background sync and `process-inbox`; used as a cache between syncs; also updated on block when `skill_recalibrate_on_block` is enabled).
 - `skill_bigram_threshold_margin`: calibration margin between mature good and blocked skill score distributions (default `0.5`; the operator-tunable coefficient).
+- `skill_bad_ngram_weight_cap`: max weight per bad-cloud ngram (default `3`; `0` disables the cap). Softens ghost toxicity from heavy compound-phrase blocking.
+- `skill_recalibrate_on_block`: when true, block/batch-block recalibrates the toxicity threshold immediately (default false).
 - `bad_cloud_seeded`: set automatically after one-time seeding of `bad_ngram_weights` from existing `blocked_skills` during GUI sync or `process-inbox`.
 - `missing_skills_suggestions`: generated from applied jobs.
 - `skill_new_confidence_threshold`: minimum LLM confidence for accepting a novel skill candidate (default `0.9`).
