@@ -10,7 +10,7 @@ from spejder.workflows.dashboard import build_dashboard_record
 class BuildDashboardRecordTest(unittest.TestCase):
     @patch("spejder.workflows.dashboard_records._format_skills")
     @patch("spejder.workflows.dashboard_records._fallback_description_text")
-    @patch("spejder.workflows.dashboard_records.get_job_skills")
+    @patch("spejder.workflows.dashboard_records.get_job_skills_filtered")
     @patch("spejder.workflows.dashboard_records._summary_for_display")
     @patch("spejder.workflows.dashboard_records._build_title_fields")
     def test_builds_record_from_minimal_row(
@@ -50,10 +50,11 @@ class BuildDashboardRecordTest(unittest.TestCase):
         self.assertEqual(result["category"], "relevant")
         self.assertEqual(result["viewed"], 0)
         self.assertEqual(result["applied"], 0)
+        mock_get_job_skills.assert_called_once()
 
     @patch("spejder.workflows.dashboard_records._format_skills")
     @patch("spejder.workflows.dashboard_records._fallback_description_text")
-    @patch("spejder.workflows.dashboard_records.get_job_skills")
+    @patch("spejder.workflows.dashboard_records.get_job_skills_filtered")
     @patch("spejder.workflows.dashboard_records._summary_for_display")
     @patch("spejder.workflows.dashboard_records._build_title_fields")
     def test_translate_title_false_uses_raw_title_fields(

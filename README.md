@@ -402,7 +402,7 @@ In `profile.json`:
 ## Notes
 
 - `serve-gui` and the in-browser dashboard expect the API server to be running; if you open `report.html` directly as a file, feedback actions will try `http://127.0.0.1:8765`.
-- Skill tags on a job card come from cached extraction. Cached skills are re-filtered through the bad-cloud toxicity gate on read, so cloud upgrades apply without full re-extraction. If tags still look incomplete after an upgrade, paste a full description on an applied card or run `refresh-descriptions` with a model to re-extract skills for matching jobs.
+- Skill tags on a job card come from cached extraction. Cached skills are re-filtered through the same whitelist → blocked → bad-cloud gate on read (`get_job_skills_filtered`), and dropped names may be rewritten out of `job_skills` so the DB stays aligned. If tags still look incomplete after an upgrade, paste a full description on an applied card or run `refresh-descriptions` with a model to re-extract skills for matching jobs.
 - Re-extracting skills (manual description paste, `refresh-descriptions`, or clearing cached skills) can change `relevance_score` when more or fewer skills match your profile.
 - Processed inbox files are removed automatically after successful ingestion when using background sync or `process-inbox`.
 - Inbox ingestion accepts `.eml` files only. Save emails as `.eml` (e.g. drag from Mail.app, or **File → Save As** in Thunderbird) rather than "Save as HTML".

@@ -1,11 +1,10 @@
 from spejder.config import AppConfig
 from spejder.db import (
     get_hidden_jobs,
-    get_job_skills,
     get_viewed_today_jobs,
     local_day_start_utc_iso,
 )
-from spejder.extractors.skill_extractor import _format_skills
+from spejder.extractors.skill_extractor import _format_skills, get_job_skills_filtered
 from spejder.workflows.job_enrichment import (
     _build_title_fields,
     _fallback_description_text,
@@ -28,7 +27,9 @@ def build_dashboard_record(
         row.get("summary", ""),
         raw_text,
     )
-    cached_skills = get_job_skills(db_path, int(row.get("id", 0) or 0))
+    cached_skills = get_job_skills_filtered(
+        db_path, int(row.get("id", 0) or 0), runtime_profile
+    )
     title_fields = (
         _build_title_fields(
             db_path,

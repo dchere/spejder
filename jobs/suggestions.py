@@ -2,9 +2,12 @@
 from collections import Counter
 
 from spejder.config import AppConfig
-from spejder.db import get_job_skills, get_jobs_for_skill_suggestions
+from spejder.db import get_jobs_for_skill_suggestions
 from spejder.db.utils import _normalize_skill_name_key
-from spejder.extractors.skill_extractor import _blocked_skill_keys
+from spejder.extractors.skill_extractor import (
+    _blocked_skill_keys,
+    get_job_skills_filtered,
+)
 
 
 def _suggest_keywords_from_labeled_jobs(
@@ -97,7 +100,7 @@ def _suggest_missing_skills_from_applied_jobs(
     freq: Counter = Counter()
     display_by_key: dict[str, str] = {}
     for (job_id,) in rows:
-        skills = get_job_skills(db_path, int(job_id or 0))
+        skills = get_job_skills_filtered(db_path, int(job_id or 0), profile)
         for skill in skills:
             key = _normalize_skill_name_key(skill)
             if not key or key in user_skills or key in blocked_skills or key in unwanted_skills:

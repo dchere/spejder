@@ -7,6 +7,10 @@ from .extraction_prompt import (
     _build_job_skill_extraction_prompt as _build_job_skill_extraction_prompt,
 )
 from .filtering import _blocked_skill_keys as _blocked_skill_keys
+from .job_skills_read import (
+    get_job_skills_filtered as get_job_skills_filtered,
+    get_job_skills_filtered_for_jobs as get_job_skills_filtered_for_jobs,
+)
 from .learning import (
     _learn_skill_patterns_from_positions as _learn_skill_patterns_from_positions,
 )
@@ -21,6 +25,8 @@ from .utils import _format_skills as _format_skills
 __all__ = [
     "cleanup_skills",
     "sync_user_skills",
+    "get_job_skills_filtered",
+    "get_job_skills_filtered_for_jobs",
     "_normalize_skill_name",
     "_format_skills",
     "_get_or_extract_job_skills",

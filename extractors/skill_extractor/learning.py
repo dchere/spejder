@@ -6,13 +6,13 @@ from typing import Callable, Optional
 from spejder.config import AppConfig
 from spejder.db import (
     get_all_applied_jobs,
-    get_job_skills,
     get_jobs_by_category,
     upsert_skill_pattern,
 )
 from spejder.llm import LocalLLM
 
 from .filtering import _blocked_skill_keys
+from .job_skills_read import get_job_skills_filtered
 from .normalization import _normalize_skill_name
 from .patterns import _get_skill_patterns
 from .utils import _skill_to_regex
@@ -78,7 +78,11 @@ def _learn_skill_patterns_from_positions(
     learn_total = min(len(rows), max_positions)
     for row, weight in rows[:max_positions]:
         job_id = int(row.get("id", 0) or 0)
-        cached = get_job_skills(db_path, job_id) if job_id else []
+        cached = (
+            get_job_skills_filtered(db_path, job_id, runtime_profile)
+            if job_id
+            else []
+        )
         if cached:
             skills = _skills_for_learning(cached)
         else:
