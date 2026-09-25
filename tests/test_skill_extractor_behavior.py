@@ -26,6 +26,33 @@ class SkillCleanupReasonTest(unittest.TestCase):
     def test_profile_source_protected(self):
         self.assertEqual(_skill_cleanup_reason("junk skill", "profile", set()), "")
 
+    def test_malformed_punctuation(self):
+        self.assertEqual(_skill_cleanup_reason("sql?", "learned", set()), "malformed text")
+
+    def test_pronoun_sentence_fragment(self):
+        self.assertEqual(
+            _skill_cleanup_reason("our team culture", "learned", set()),
+            "sentence fragment",
+        )
+
+    def test_too_many_words(self):
+        self.assertEqual(
+            _skill_cleanup_reason("one two three four five", "learned", set()),
+            "too many words",
+        )
+
+    def test_protected_key_skips_structural_checks(self):
+        self.assertEqual(
+            _skill_cleanup_reason("our team culture", "learned", {"our team culture"}),
+            "",
+        )
+
+    def test_no_curated_phrase_or_stopword_lists(self):
+        """Retired empty TODO sets must not invent reasons for ordinary tokens."""
+        # Would have been "contains stopword" / "generic phrase" if lists were populated.
+        self.assertEqual(_skill_cleanup_reason("experience", "learned", set()), "")
+        self.assertEqual(_skill_cleanup_reason("soft skills", "learned", set()), "")
+
 
 class PassesPhraseQualityTest(unittest.TestCase):
     def test_rejects_pronoun_led_fragment(self):

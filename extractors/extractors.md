@@ -6,9 +6,9 @@ This module is responsible for parsing and extracting specialized entities (such
 ## Components
 - `skill_extractor/`: Package for extracting and normalizing professional/technical skills from text.
   - `normalization.py` — canonical extraction cleanup (`_normalize_skill_name`: phrase-strip, punctuation strip, length gates). Lookup/toggle/score keys use `db.utils._normalize_skill_name_key`; the extractor may call that helper last after its own gates.
-  - `constants.py` — shared regexes and cleanup heuristic sets
+  - `constants.py` — cue regex and structural CLI cleanup pattern (`SKILL_CLEANUP_GENERIC_SINGLE`); curated phrase/stopword/prefix sets were retired (P2) — noise learning is block → bad cloud, not static lists
   - `utils.py` — text parsing, JSON helpers, regex generation
-  - `filtering.py` — blocked/protected keys, phrase quality, cleanup reasons
+  - `filtering.py` — blocked/protected keys, phrase quality, structural cleanup reasons for CLI `cleanup-skills`
   - `patterns.py` — skill pattern registry and profile-to-DB migration
   - `extraction_prompt.py` — LLM prompt construction
   - `extraction_fallback.py` — regex/phrase fallback
@@ -17,7 +17,7 @@ This module is responsible for parsing and extracting specialized entities (such
   - `job_skills_read.py` — shared filtered read path (`get_job_skills_filtered` / `get_job_skills_filtered_for_jobs`): whitelist → blocked → bad-cloud; optional cache rewrite when names are dropped. Used by rescore, dashboard cards, suggestions, learning, portrait context, and `_get_or_extract_job_skills` cache hits. Raw `db.get_job_skills` remains for existence checks / admin cleanup only.
   - `learning.py` — batch pattern learning from applied/relevant jobs (`get_jobs_by_category(..., exclude_hidden=False)` so parked relevant Hidden jobs still contribute); optional `on_progress(checked, total)` at the shared every-10 tick rate (console `progress_label` prints only when `progress=True`)
   - `bad_cloud.py` — bigram/unigram toxicity scoring, cloud ingest, threshold calibration, blocked-list pruning
-  - `user_sync.py` / `cleanup.py` — CLI commands for CV sync and DB cleanup; CV merge into `user_skills` skips names already in `unwanted_skills` before save (dump → overlay → `model_validate`; sanitizer still drops leftover overlap). CLI `cleanup-skills` **blocks** noisy skills (`blocked_skills` + bad cloud); automatic retention cleanup in sync/`process-inbox` is separate (delete-only, no block/cloud — see `workflows/skill_hygiene.py`)
+  - `user_sync.py` / `cleanup.py` — CLI commands for CV sync and DB cleanup; CV merge into `user_skills` skips names already in `unwanted_skills` before save (dump → overlay → `model_validate`; sanitizer still drops leftover overlap). CLI `cleanup-skills` **blocks** skills that fail **structural** reason checks (`_skill_cleanup_reason`: empty / malformed / pronoun fragment / >4 tokens / repeated single letter) then feeds `blocked_skills` + bad cloud. It does **not** use curated antipattern lists — those empty TODOs were removed so operators are not misled into expecting broad auto-noise discovery. Ongoing noise control is manual/API block → cloud + shared hygiene stale low-share delete (see `workflows/skill_hygiene.py`).
   - `ui.py` — skills tab data for the dashboard (`position_pct` from `db.skills_rank.position_pct` = share of jobs with extracted skills, identical formula used by stale-skill retention; `occurrences` = pattern-learning counter shown as **Learned**; `added_at` copied from DB `created_at`, empty for profile-only rows; `SKILLS_EMPTY_ADDED_AT_SORT` (`"0000"`) sentinel for profile-only sort keys — no real ISO date starts with `0000`; default server-side order uses stable double-sort: name A→Z first, then `added_at` DESC with profile-only rows last; sentinel forwarded to `dashboard.html` via `dashboard_manager` Jinja context for client-side sort; item flags: `has_skill`, `want_to_learn`, `not_for_me` from `user_skills` / `missing_skills_suggestions` / `unwanted_skills`)
 
 ## Blocked skills and bad cloud filtering
