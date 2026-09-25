@@ -47,6 +47,7 @@ def create_app(
         get_inbox_sync_status=get_inbox_sync_status,
         get_title_translation_llm=get_title_translation_llm,
         portrait_generate_lock=threading.Lock(),
+        cv_skills_sync_lock=threading.Lock(),
     )
 
     app.add_middleware(

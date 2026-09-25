@@ -23,6 +23,7 @@ class ServerRuntime:
     get_inbox_sync_status: Optional[Callable]
     get_title_translation_llm: Any
     portrait_generate_lock: Lock
+    cv_skills_sync_lock: Lock
 
 
 def get_runtime(request: Request) -> ServerRuntime:

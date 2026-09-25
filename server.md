@@ -17,7 +17,7 @@ Provides an interactive dashboard (web GUI) to review extracted jobs and view th
 | `app.py` | `create_app` (CORS, `include_router` ×7, static mount last) and `start_server` |
 | `routers/jobs.py` | `/api/feedback`, `/applied`, `/interview`, `/interview/stopped`, `/interview/feedback`, `/viewed`, `/hidden` |
 | `routers/jobs_applied_extras.py` | `/api/applied/raw-text`, `/api/applied/cover-letter/request`, `/api/applied/cover-letter` |
-| `routers/skills.py` | `/api/skill/user\|learn\|unwanted` (profile exclusive-list toggles + `rescore_active_jobs` when the list changed) |
+| `routers/skills.py` | `/api/skill/user\|learn\|unwanted\|sync-from-cv` (profile exclusive-list toggles + CV→`user_skills` sync + `rescore_active_jobs` when the list changed) |
 | `routers/skills_block_delete.py` | `/api/skill/block\|delete\|forgive\|block-batch\|delete-batch\|forgive-batch` plus `_normalize_skill_batch`, `_run_skill_block`, `_run_skill_delete`, `_run_skill_forgive`, `_delete_skills_from_db`, `_merge_db_deleted` |
 | `routers/ops.py` | `/api/report/rebuild`, `/api/report/status`, `/api/inbox/sync`, `/api/inbox/sync/status`, `GET /company.html` |
 | `routers/portrait.py` | `/api/portrait`, `/portrait/save`, `/portrait/generate` |
@@ -38,6 +38,7 @@ Pydantic request models live at module level on the router that uses them.
 - `POST /api/skill/user` — after profile persist, drops the skill from `unwanted_skills` when enabling **I have**; runs `rescore_active_jobs` then dashboard rebuild
 - `POST /api/skill/learn` — toggling **Want to learn**; when enabling, drops the skill from `unwanted_skills` and runs `rescore_active_jobs` **only if** that drop happened; always rebuilds when the profile changed
 - `POST /api/skill/unwanted` — `{ skill, unwanted }`; persist **Not for me**; when enabling, drops from `user_skills` and `missing_skills_suggestions`; then `rescore_active_jobs` and dashboard rebuild (mirrors `/api/skill/user`)
+- `POST /api/skill/sync-from-cv` — merge CV skills into `user_skills` via `user_sync.sync_user_skills` (`default_cv_path`); requires `default_model`; 503 without model; 409 when sync already running; 400 when CV empty / no skills extracted; then `reload_runtime_profile`, `rescore_active_jobs`, dashboard rebuild; response `{ ok, extracted, total_user_skills, top_extracted, rescored }`
 - `POST /api/skill/block` — delegates to shared block runner (`_run_skill_block` with one skill); profile block + `delete_skill_from_db`, `rescore_jobs_if_active` on `affected_job_ids`, dashboard rebuild; response includes `block_info` and `db_deleted`
 - `POST /api/skill/delete` — delegates to shared delete runner (`_run_skill_delete` with one skill); profile cleanup + DB delete + rescore + rebuild
 - `POST /api/skill/forgive` — `{ skill }`; decrements bad-cloud ngrams for the skill, removes it from `blocked_skills`, dashboard rebuild (does not restore deleted DB rows)

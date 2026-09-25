@@ -132,6 +132,11 @@ class FilterExtractedSkillsTest(unittest.TestCase):
         known_keys = _whitelist_skill_keys(profile, self.db_path)
         self.assertIn("cobol", known_keys)
 
+    def test_missing_skills_suggestions_are_whitelisted(self):
+        profile = AppConfig(missing_skills_suggestions=["Rust"])
+        known_keys = _whitelist_skill_keys(profile, self.db_path)
+        self.assertIn("rust", known_keys)
+
     def test_known_skill_passes_without_cloud_check(self):
         profile = AppConfig(blocked_skills=["blocked phrase"])
         ingest_blocked_skill("we are looking", self.db_path)

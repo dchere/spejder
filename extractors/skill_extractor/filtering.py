@@ -37,14 +37,11 @@ def _whitelist_skill_keys(profile: Optional[AppConfig], db_path: str) -> set[str
             continue
         keys.add(key)
     if profile:
-        for item in profile.user_skills or []:
-            name = _normalize_skill_name(str(item))
-            if name:
-                keys.add(name.lower())
-        for item in profile.unwanted_skills or []:
-            name = _normalize_skill_name(str(item))
-            if name:
-                keys.add(name.lower())
+        for field in ("user_skills", "missing_skills_suggestions", "unwanted_skills"):
+            for item in getattr(profile, field, []) or []:
+                name = _normalize_skill_name(str(item))
+                if name:
+                    keys.add(name.lower())
         for item in profile.known_skill_patterns or []:
             name, _ = _profile_skill_pattern_fields(item)
             normalized = _normalize_skill_name(name)

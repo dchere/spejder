@@ -80,7 +80,12 @@ def sync_user_skills(
     replace: bool = False,
     quiet_model: bool = False,
     llm: Optional[LocalLLM] = None,
-):
+) -> dict:
+    """Extract skills from CV and merge into profile ``user_skills``.
+
+    Returns a result dict with ``ok`` and either counts or ``error``.
+    Raises ``ValueError`` when no model/LLM is available (CLI wraps as SystemExit).
+    """
     profile_path = profile or DEFAULT_PROFILE_PATH
     runtime_profile = load_runtime_profile(profile_path)
     db_path = db or runtime_profile.default_db or "./jobs.db"
@@ -94,8 +99,9 @@ def sync_user_skills(
 
     cv_text = load_cv_text(cv_path, max_chars=int(max_chars))
     if not cv_text.strip():
-        print(f"CV not found or empty: {cv_path}")
-        return
+        message = f"CV not found or empty: {cv_path}"
+        print(message)
+        return {"ok": False, "error": message, "extracted": 0, "total_user_skills": 0}
 
     print(f"Sync user skills: CV text loaded (chars={len(cv_text)})")
 
@@ -111,7 +117,7 @@ def sync_user_skills(
             else None
         )
     if not llm:
-        raise SystemExit("Model init: model is required for sync-user-skills")
+        raise ValueError("model is required for sync-user-skills")
     print("Sync user skills: extracting with model")
     extracted = _extract_user_skills_from_cv(
         cv_text,
@@ -122,8 +128,9 @@ def sync_user_skills(
     )
 
     if not extracted:
-        print("No skills extracted from CV.")
-        return
+        message = "No skills extracted from CV."
+        print(message)
+        return {"ok": False, "error": message, "extracted": 0, "total_user_skills": 0}
 
     print(f"Sync user skills: extracted {len(extracted)} skills, updating profile")
 
@@ -170,3 +177,9 @@ def sync_user_skills(
         f"total_user_skills={len(merged)}, profile={profile_path}"
     )
     print("Top extracted:", ", ".join(extracted[:20]))
+    return {
+        "ok": True,
+        "extracted": len(extracted),
+        "total_user_skills": len(merged),
+        "top_extracted": extracted[:20],
+    }
