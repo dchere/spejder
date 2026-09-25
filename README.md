@@ -1,6 +1,6 @@
 # spejder
 
-`spejder` is a local CLI tool for parsing job emails (`.eml`), storing extracted positions in SQLite, scoring relevance with a profile, extracting skills, and generating a browser dashboard for triage.
+Local CLI for parsing job emails (`.eml`), storing positions in SQLite, scoring relevance from a profile, extracting skills, and triaging in a browser dashboard.
 
 ## Table of contents
 
@@ -9,35 +9,31 @@
 - [Install](#install)
 - [Running the CLI](#running-the-cli)
 - [Quick start](#quick-start)
-- [Dashboard behavior](#dashboard-behavior)
+- [Dashboard](#dashboard)
 - [CLI commands](#cli-commands)
-- [Data stored in `jobs.db`](#data-stored-in-jobsdb)
-- [Profile fields related to skills](#profile-fields-related-to-skills)
+- [Data and profile](#data-and-profile)
 - [Notes](#notes)
 
 ## Features
 
-- Parse job emails (`.eml`) and ingest positions into SQLite with URL-based deduplication.
-- Score jobs as relevant or not relevant from your profile (keywords and extracted skills).
-- Generate summaries and descriptions with an optional local GGUF model (`llama-cpp-python`).
-- Extract skills per job and show them as tags on dashboard cards.
-- Interactive dashboard for triage: relevant / not relevant / applied / interview / stopped panels, plus a Skills tab.
-- Learn profile keywords and missing-skill suggestions from jobs you label or apply to.
-- Sync skills from a CV; block or delete noisy auto-extracted skills.
-- Per-company job view from dashboard cards.
-- Background inbox sync while `serve-gui` is running (ingest, dedupe, scoring, descriptions), including an on-demand **Sync inbox** button on the report dashboard.
-- LinkedIn Easy Apply detection with a relevance bonus when detected in job text.
+- Parse `.eml` job emails into SQLite with URL-based deduplication (optional [IT-DAY portal](https://www.itday.dk/job-portal) sync).
+- Score relevance from profile keywords and skills; optional local GGUF model for summaries/descriptions (`llama-cpp-python`).
+- Interactive dashboard: Relevant / Not relevant / Applied / Interview / Stopped / Hidden / Edited today, plus Skills, Portrait, and Profile panels.
+- Skills: extract per job, Sync from CV, Block (teach bad cloud) / Delete / Forgive, I have / Want to learn / Not for me; card tags re-filtered on read (whitelist → blocked → bad cloud).
+- Learn keywords and missing-skill suggestions from jobs you label or apply to.
+- Background inbox sync while `serve-gui` runs (also **Sync inbox** on the dashboard).
+- LinkedIn Easy Apply detection with a relevance bonus when present in job text.
 
 ## Project layout
 
-Commands resolve relative paths (`--profile`, `--db`, `--inbox`, `--report-dir`, and similar) against a **project directory** — the folder you run the CLI from (or `SPEJDER_WORKSPACE` if set). That directory should contain your runtime data:
+Relative paths (`--profile`, `--db`, `--inbox`, `--report-dir`, …) resolve against the **project directory** — the folder you run the CLI from, or `SPEJDER_WORKSPACE` if set:
 
 ```text
 my-project/
   profile.json
   jobs.db
-  inbox/          # drop .eml job emails here
-  outbox/         # report.html and other generated output
+  inbox/          # drop .eml files here
+  outbox/         # report.html and generated output
   spejder/        # this repository (see layouts below)
 ```
 
@@ -55,7 +51,6 @@ my-project/
 ## Install
 
 - Python 3.10+
-- Linux/macOS examples below (adapt activation for Windows if needed)
 - See [LICENSE](LICENSE) (MIT)
 
 ```bash
@@ -66,158 +61,60 @@ pip install -r spejder/requirements.txt    # layout A
 # pip install -r requirements.txt          # layout B
 ```
 
-Local model features also need `llama-cpp-python` and a GGUF model path passed via `--model` on relevant commands.
+Local model features need `llama-cpp-python` and a GGUF path via `--model` (or `default_model` in profile).
 
 ## Running the CLI
-
-From your **project directory** (layout A or B above):
 
 ```bash
 python3 -m spejder.cli ...    # layout A
 # python3 -m cli ...          # layout B
 ```
 
-Relative paths resolve against the project directory (current working directory by default). To use a different directory:
-
 ```bash
-export SPEJDER_WORKSPACE=/path/to/my-project
+export SPEJDER_WORKSPACE=/path/to/my-project   # optional override
 ```
 
-Examples below use `python3 -m spejder.cli` (layout A). Substitute `python3 -m cli` when using layout B.
+Examples below use layout A (`python3 -m spejder.cli`).
 
 ## Quick start
 
-1. Create runtime folders (if they do not exist yet).
-
 ```bash
 mkdir -p inbox outbox
-```
-
-2. Create a profile file.
-
-```bash
 python3 -m spejder.cli init-profile --path ./profile.json
-```
-
-3. Drop job emails into `./inbox`, then process them into `./jobs.db` and build `./outbox/report.html`.
-
-```bash
+# drop .eml files into ./inbox
 python3 -m spejder.cli process-inbox --profile ./profile.json
-```
-
-4. Serve the dashboard and feedback API.
-
-```bash
 python3 -m spejder.cli serve-gui --profile ./profile.json
 ```
 
 Open `http://127.0.0.1:8765/report.html`.
 
-## Dashboard behavior
+## Dashboard
 
-- `Relevant` and `Not relevant` tabs show only unviewed jobs.
-- Marking a job as `Viewed` removes it from those tabs and places it on **Edited today** (main and company dashboards) without switching tabs; unchecking Viewed returns it to Relevant or Not relevant by category.
-- **Edited today** lists viewed, non-applied, non-hidden jobs whose `updated_at` falls on the local calendar day (newest first). Applied / Interview / Stopped jobs are excluded. Any write that bumps `updated_at` can surface an already-viewed job here for the local day.
-- Marking a job as `Applied` removes it from the current triage tab (Relevant or Not relevant), marks it as relevant and viewed, and places it in the Applied pipeline (Applied / Interview / Stopped panel) — the dashboard does **not** auto-navigate to Applied.
-- Applied jobs can be moved to `Interview` (on interview) or `Stopped` (process ended); the two flags are mutually exclusive. Cards live in one applied-stage panel at a time.
-- Applied, Interview, and Stopped cards show **Applied: YYYY-MM-DD** in the bottom-right corner when an apply date is recorded.
-- Once a cover letter is saved on Applied / Interview / Stopped, expand **Show letter** under the Cover letter control to read it (read-only).
-- Stopped cards support free-text `Company feedback` saved via the dashboard.
-- Marking a job as `Hidden` parks it on the **Hidden** panel (main and company dashboards) without changing relevance category or scores; it leaves Relevant / Not relevant / Edited today / Applied / Interview / Stopped and clears applied/interview/cover-letter pipeline state — the dashboard does **not** auto-navigate to Hidden (same as Applied). Unhide returns it to Relevant or Not relevant based on its category, still without switching tabs. Apply or Viewed clears Hidden.
-- Unmarking `Applied`, unmarking `Viewed`, or marking `Not relevant` clears interview/stopped state, company feedback, and the recorded apply date (`applied_at`).
-- Feedback writes are saved immediately; `report.html` regeneration is queued and runs in the background.
-- Switching main dashboard tabs auto-refreshes the page when a background rebuild is running or `report.html` has changed on disk (requires `serve-gui`); otherwise tabs switch instantly.
-- Toolbar icon buttons (right side of the tab bar): **Portrait** (user silhouette), **Regenerate report** (refresh icon), **Profile** (gear icon, immediately left of Sync), and **Sync inbox** (inbox icon). Regenerate and Sync inbox show a status line in the toolbar when running or complete; Portrait and Profile show status inside their panels.
-- **Regenerate report** queues a dashboard rebuild from the current DB and reloads the page when the new `report.html` is ready (requires `serve-gui`).
-- **Profile** (requires `serve-gui`; main dashboard only) opens an editor for `profile.json` / `AppConfig` fields (keywords, paths, LLM, server, language, skills, career-alert artifacts, job portals). **Save profile** sends only fields you changed, validates, writes the file, and live-reloads the running profile used by Sync and scoring (so concurrent Sync/Skills updates to other fields are not overwritten). Auto-written fields (`skill_bigram_toxicity_threshold`, `bad_cloud_seeded`) are visible but read-only. Changing **server host/port** (and startup-bound paths such as inbox/db/report dir) persists immediately but needs a serve-gui restart to take effect for the listening socket / those paths. Keyword, score-threshold, and skill-weight edits apply to **new** scoring right away; existing jobs keep stored scores until you run **Sync inbox**, **Regenerate report**, or a CLI rescore. Unsaved edits prompt before leaving the panel or reloading the page.
-- **Sync inbox** (requires `serve-gui`) processes new inbox files on demand and, when **Sync IT-DAY job portal** is enabled in Profile (default on), checks the [IT-DAY job portal](https://www.itday.dk/job-portal) for new listings: ingest, dedupe, skills, descriptions, and related background steps. The button stays disabled while sync runs and until dashboard rebuild is idle; the status line shows stage progress. Reload the page manually when sync completes to see new positions — the page does not auto-reload.
-- When `serve-gui` starts, it rebuilds the dashboard snapshot from the current DB (blocking), starts the HTTP server, then triggers the same inbox sync pipeline as **Sync inbox** (optional IT-DAY portal check when enabled, ingest, dedupe, skills, descriptions, and related background steps). Reload the page manually when sync completes to see new positions.
-- If the requested port is busy, the server automatically tries the next ports up to 20 times.
-- Clicking a company name opens a filtered company page for that employer's jobs.
-- Applied jobs have a "Paste full description" form that feeds the full text to the LLM, regenerating the summary, description, and skill tags.
-- **Skills** tab columns (**Action** sits between **Skill** and **Added**; sortable columns default to **Added** newest first):
-  - **Sync from CV** — extracts skills from `default_cv_path` with the local model and merges them into **I have** (same as CLI `sync-user-skills`; skips names already marked **Not for me**). Requires `default_model`. Reloads the page when done.
-  - **Action** — icon Block / Delete (hover for the words). **Block** = hide from extraction and teach the bad cloud. **Delete** = remove from profile and DB without teaching.
-  - **Added** — date the skill was first stored in SQLite `skill_patterns` (`YYYY-MM-DD`). Profile-only skills (your lists / seed patterns without a DB row) show **—**; hover for the tooltip.
-  - **Job share** — share of jobs with extracted skills that list this skill. Hover a cell for exact counts.
-  - **Learned** — pattern-learning score from applied/relevant jobs (not the same as job share; see [Profile fields](#profile-fields-related-to-skills)).
-  - **I have** / **Want to learn** / **Not for me** — toggles for your profile skill list, want-to-learn suggestions, and skills to penalize in scoring. **I have** and **Want to learn** can both be on. **Not for me** is exclusive with both (checking it clears the other two; checking either of those clears **Not for me**). **Not for me** = score penalty (`skill_unwanted_penalty`); the skill stays visible and extractable. **Block** = hide + teach; **Delete** = remove without teaching.
+Requires `serve-gui`. Deep UI wiring lives in [`workflows/dashboard.md`](workflows/dashboard.md); API shapes in [`server.md`](server.md).
+
+**Tabs:** Relevant and Not relevant show unviewed jobs only. Viewed jobs move to **Edited today** (local calendar day). **Applied** / **Interview** / **Stopped** are the apply pipeline (mutually exclusive Interview/Stopped). **Hidden** parks a card without changing category/scores. Applied and Hidden do not auto-switch tabs.
+
+**Toolbar** (right of the tab bar): Portrait, Regenerate report, Profile (gear), Sync inbox. Sync runs the same pipeline as startup background sync (inbox ingest, optional IT-DAY portal, dedupe, skills, descriptions). Reload manually when sync finishes.
+
+**Skills tab** (top → bottom): action bar with Block/Delete selected and right-aligned **Sync from CV**; skills table; **bad cloud** status (ngrams, threshold, remaining blocked list with **Forgive**). Columns: Skill → Action (Block / Delete) → Added → Source → Job share → Learned → I have / Want to learn / Not for me (default sort: Added newest first). **Block** hides and teaches the bad cloud; **Delete** removes without teaching; **Forgive** unblocks and decrements cloud weights; **Not for me** is a score penalty (`skill_unwanted_penalty`), not Block.
+
+**Other:** company name → company page; paste full description on Applied cards to re-generate summary/skills; saved cover letters expand under **Show letter**; busy port tries the next ports (up to 20).
 
 ## CLI commands
 
-### `report-links`
-
-Show the most frequent links found in parsed files.
-
-```bash
-python3 -m spejder.cli report-links ./inbox
-```
-
-### `summarize-file`
-
-Summarize a single file with a local model.
-
-```bash
-python3 -m spejder.cli summarize-file --path ./inbox/example.eml --model ./models/model.gguf
-```
-
-Add `--verbose-model` only if you want llama.cpp initialization/debug logs printed to the terminal.
-
-Options: `--max-tokens`.
-
-### `summarize-folder`
-
-Summarize files in a folder, optionally writing JSONL output.
-
-```bash
-python3 -m spejder.cli summarize-folder \
-  --folder ./inbox \
-  --model ./models/model.gguf \
-  --out ./outbox/summaries.jsonl
-```
-
-Add `--verbose-model` only if you want llama.cpp initialization/debug logs printed to the terminal.
-
-Options: `--max-tokens`, `--limit`, `--out`.
-
 ### `process-inbox`
 
-Parse inbox files, ingest to DB, score relevance, generate missing descriptions, learn skill patterns, update profile learning signals, and write dashboard output.
+Parse inbox, ingest, score, descriptions, skill learning/hygiene, optional IT-DAY portal, write dashboard.
 
 ```bash
-python3 -m spejder.cli process-inbox \
-  --profile ./profile.json \
-  --model ./models/model.gguf \
-  --max-input-chars 24000
+python3 -m spejder.cli process-inbox --profile ./profile.json --model ./models/model.gguf
 ```
 
 Options: `--inbox`, `--db`, `--profile`, `--model`, `--report-dir`, `--limit`, `--max-tokens`, `--max-input-chars`, `--prune-irrelevant`, `--verbose`.
 
-Notes:
-
-- Relevant jobs get a `summary` during ingest.
-- Also checks the IT-DAY job portal when **Sync IT-DAY job portal** is enabled in Profile (default on), including when the inbox is empty if the portal inserted new rows.
-- Missing descriptions are generated only for jobs that are still unviewed.
-- Position skills are extracted and shown in report cards.
-- Skill patterns are loaded from DB and may be auto-extended from applied/relevant jobs.
-- `profile.json` gets updated with learned include/exclude keywords and `missing_skills_suggestions`.
-- Optional career-alert format learning: set `career_alert_synth_enabled` to `true` to synthesize overlay artifacts when a file yields zero positions. CTA digests (e.g. iCIMS “Apply here”) use a deterministic heuristic first; other unknown layouts can use `default_model` (local GGUF). Artifacts are persisted under `career_alert_artifacts_dir` only after interpreter re-validation. Jobindex and LinkedIn stay built-in Python parsers.
-
-### Career-alert artifacts
-
-List shipped/overlay recipes and toggle the profile disable list (no LLM required):
-
-```bash
-python3 -m spejder.cli list-career-alert-artifacts --profile ./profile.json
-python3 -m spejder.cli disable-career-alert-artifact --id jobs2web_danfoss --profile ./profile.json
-python3 -m spejder.cli enable-career-alert-artifact --id jobs2web_danfoss --profile ./profile.json
-```
-
-Overlay directory defaults to `./career_alert_artifacts`. Disable is profile-based (`career_alert_artifacts_disabled`); files are not deleted.
-
 ### `serve-gui`
 
-Serve `report.html` and the feedback API.
+Serve `report.html` and the feedback API (rebuilds dashboard on start, then background sync).
 
 ```bash
 python3 -m spejder.cli serve-gui --profile ./profile.json
@@ -225,102 +122,45 @@ python3 -m spejder.cli serve-gui --profile ./profile.json
 
 Options: `--report-dir`, `--db`, `--profile`, `--host`, `--port`, `--no-open`, `--verbose`.
 
-Main dashboard API endpoints (JSON `POST` unless noted):
-
-- Triage: `/api/feedback`, `/api/viewed`, `/api/applied`, `/api/hidden`
-- Interview: `/api/interview`, `/api/interview/stopped`, `/api/interview/feedback`
-- Applied enrichment: `/api/applied/raw-text`, `/api/applied/cover-letter/request`, `/api/applied/cover-letter`
-- Skills tab: `/api/skill/user`, `/api/skill/learn`, `/api/skill/unwanted`, `/api/skill/sync-from-cv`, `/api/skill/block`, `/api/skill/delete`, `/api/skill/forgive`, `/api/skill/block-batch`, `/api/skill/delete-batch`, `/api/skill/forgive-batch`
-- Portrait panel: `GET /api/portrait`, `POST /api/portrait/generate`, `POST /api/portrait/save`
-- Profile panel: `GET /api/profile`, `POST /api/profile/save`
-- Pages: `GET /report.html`, `GET /company.html?company=…`
-
-The dashboard includes a **Portrait** panel (open via the **Portrait** toolbar icon, not a mode tab) for a committed professional summary stored in `./portrait.txt` (configurable via `default_portrait_path`). Click **Regenerate portrait** to synthesize a draft from your CV (`./CV`), profile skills, applied jobs, cover letters, and stopped-interview feedback. Review the git-style diff, edit the textarea if needed, then **Save portrait** to commit. Regeneration preserves prior wording where still accurate (minimal-change prompt). Requires `default_model` in profile. Unsaved portrait edits prompt before leaving the panel or reloading the page.
-
-The dashboard includes a **Profile** panel (gear icon, immediately left of **Sync inbox**; main dashboard only) to edit `AppConfig` fields. Click **Save profile** to validate and persist only changed fields; the running serve-gui process reloads the profile in memory. Host/port and startup-bound paths still need a restart after save. Score/keyword changes do not rescore existing DB rows until Sync, Regenerate report, or CLI rescore. Unsaved profile edits prompt before leaving the panel or reloading the page.
-
-The dashboard uses these endpoints while you triage; you normally do not call them manually. Request body shapes are documented in [`server.md`](server.md).
-
-### `refresh-descriptions`
-
-Refresh descriptions for selected jobs without re-ingesting inbox files.
-
-```bash
-python3 -m spejder.cli refresh-descriptions \
-  --profile ./profile.json \
-  --model ./models/model.gguf \
-  --category relevant \
-  --limit 20 \
-  --report-dir ./outbox
-```
-
-Options: `--profile`, `--db`, `--model`, `--source`, `--category`, `--link` (repeatable), `--job-id` (repeatable), `--limit`, `--overwrite`, `--allow-empty`, `--quiet-model`, `--report-dir`.
-
-Notes:
-
-- Without `--overwrite`, only jobs with empty descriptions are selected.
-- If `--report-dir` is provided, the dashboard is regenerated after the refresh.
-- The job `summary` is prepended to the raw source text before generating the description.
-
 ### `sync-user-skills`
 
-Extract user skills from a CV file/folder and write them into `profile.json` as `user_skills`.
+Extract skills from a CV into `user_skills` (same path as Skills tab **Sync from CV**).
 
 ```bash
-python3 -m spejder.cli sync-user-skills \
-  --profile ./profile.json \
-  --cv ./CV \
-  --model ./models/model.gguf
+python3 -m spejder.cli sync-user-skills --profile ./profile.json --cv ./CV --model ./models/model.gguf
 ```
 
 Options: `--profile`, `--db`, `--model`, `--cv`, `--limit`, `--max-chars`, `--replace`, `--quiet-model`.
 
-Notes:
-
-- If `--replace` is omitted, extracted skills are merged into existing `user_skills`.
-- Works with either a single CV text file or a folder of CV-related text files.
-- The Skills tab **Sync from CV** button calls the same merge path via `POST /api/skill/sync-from-cv` (`default_cv_path` / `default_model`).
-
 ### `cleanup-skills`
 
-Block and delete skill entries that fail structural noise checks (empty, malformed punctuation, pronoun sentence fragments, more than four tokens, or repeated single-letter tokens).
+Block structurally noisy skills (empty, malformed, pronoun fragments, >4 tokens, repeated single letters). Protects seed/user skills. Adds to `blocked_skills` / bad cloud. Separate from automatic retention (unflagged DB skills older than 90 days with Job share &lt; 0.1% are deleted without teaching).
 
 ```bash
-python3 -m spejder.cli cleanup-skills \
-  --profile ./profile.json \
-  --db ./jobs.db
+python3 -m spejder.cli cleanup-skills --profile ./profile.json --db ./jobs.db
 ```
 
 Options: `--profile`, `--db`, `--limit`, `--dry-run`.
 
-Notes:
-
-- The command protects profile seed skills and explicit user skills.
-- Removed skills are added to `blocked_skills` so they stay hidden, feed the bad cloud, and are not reintroduced into the dashboard.
-- There is no curated phrase/stopword/prefix list — intentional noise teaching is block (Skills tab / API) → bad cloud; retention delete is separate (below).
-- Separate from automatic retention: GUI sync and `process-inbox` also delete unflagged DB skills older than 90 days (same rule as job retention) with Job share below 0.1%. That path does **not** add to `blocked_skills` or update the bad cloud.
-
 ### `dedupe-jobs`
 
-Run company+title position deduplication on demand (e.g. after manual DB edits).
+Company+title dedupe across all sources (also runs during GUI sync after ingest).
 
 ```bash
-python3 -m spejder.cli dedupe-jobs \
-  --profile ./profile.json \
-  --db ./jobs.db
+python3 -m spejder.cli dedupe-jobs --profile ./profile.json --db ./jobs.db
 ```
 
-Options: `--profile`, `--db`.
+### `refresh-descriptions`
 
-Notes:
+Regenerate descriptions (and skill tags) without re-ingesting.
 
-- Merges rows with the same normalized company and title across **all sources**; keeps the oldest row (`created_at`, then lowest `id`). Company keys use the parent name after `part of …` when present. Title keys strip gender markers like `(m/f/d)`, expand common abbreviations (`SW`→`Software`, `Sr.`→`Senior`), and drop a trailing `, City` when the city is in the Danish allowlist or matches the row's `place`.
-- Dissimilar duplicate `raw_text` snippets are appended under `[DEDUPE_SNIPPET]`; similar text (&gt;= 85%) is not duplicated.
-- `serve-gui` background sync also runs this pass after ingest and before relevance scoring; use this command for a standalone full-table pass.
+```bash
+python3 -m spejder.cli refresh-descriptions --profile ./profile.json --model ./models/model.gguf --category relevant --limit 20
+```
+
+Options: `--profile`, `--db`, `--model`, `--source`, `--category`, `--link`, `--job-id`, `--limit`, `--overwrite`, `--allow-empty`, `--quiet-model`, `--report-dir`.
 
 ### `init-profile`
-
-Write the default profile JSON file.
 
 ```bash
 python3 -m spejder.cli init-profile --path ./profile.json
@@ -328,88 +168,36 @@ python3 -m spejder.cli init-profile --path ./profile.json
 
 Options: `--force`.
 
-### `render-html`
-
-Render a simple HTML page from a JSONL input.
+### Career-alert artifacts
 
 ```bash
-python3 -m spejder.cli render-html \
-  --input ./outbox/relevant_positions.jsonl \
-  --out ./outbox/relevant_positions.html
+python3 -m spejder.cli list-career-alert-artifacts --profile ./profile.json
+python3 -m spejder.cli disable-career-alert-artifact --id jobs2web_danfoss --profile ./profile.json
+python3 -m spejder.cli enable-career-alert-artifact --id jobs2web_danfoss --profile ./profile.json
 ```
 
-Options: `--title`.
+Overlay dir defaults to `./career_alert_artifacts`. Disable is profile-based (`career_alert_artifacts_disabled`). Opt-in synthesis: `career_alert_synth_enabled` in profile.
 
-## Data stored in `jobs.db`
+### Other
 
-Main fields in the `jobs` table include:
+- `report-links ./inbox` — frequent links in parsed files
+- `summarize-file` / `summarize-folder` — local-model summaries (`--model`, optional `--verbose-model`)
+- `render-html` — JSONL → simple HTML page
 
-- `source`
-- `company`
-- `title`
-- `place`
-- `work_type`
-- `position_link` (unique)
-- `raw_text`
-- `description`
-- `relevance_score`
-- `relevant`
-- `category`
-- `relevance_reason`
-- `summary`
-- `viewed`
-- `applied`
-- `hidden` — parked on the Hidden tab without changing category/scores
-- `applied_at` — ISO timestamp when the job was first marked applied (shown on applied-stage cards as `Applied: YYYY-MM-DD`)
-- `on_interview`
-- `interview_stopped`
-- `company_feedback`
-- `created_at`
-- `updated_at`
+## Data and profile
 
-Jobs older than 90 days by `created_at` are auto-pruned on DB open (`ensure_db`), except interview and stopped applied rows (`applied=1` with `on_interview=1` or `interview_stopped=1`). Plain applied jobs still age out. Unchecking **On interview** or **Stopped** on an old retained job removes that exemption — the next `ensure_db` prunes it like any other plain applied row. Non-LinkedIn/Jobindex/Danfoss ATS links (e.g. Teamtailor, SAP career portals) are kept until that age-out — they are not host-pruned.
+| Store | Role | Detail |
+|-------|------|--------|
+| `jobs.db` | Jobs, `skill_patterns`, `bad_ngram_weights`, job↔skill cache | [`db.md`](db.md) |
+| `profile.json` | Keywords, paths, LLM, scoring, skill lists, portals | [`config.md`](config.md) |
+| Skill filter / bad cloud | Whitelist → blocked → toxicity; forgive; hygiene stages | [`extractors/extractors.md`](extractors/extractors.md) |
 
-During GUI background sync and `process-inbox`, unflagged skill patterns with parseable `created_at` older than 90 days (same rule as job retention) and Job share below 0.1% are deleted from SQLite (and matching `known_skill_patterns` / keyword list entries may be pruned). Flagged skills (`user_skills`, `missing_skills_suggestions`, `unwanted_skills`) and `blocked_skills` keys are kept (blocked path owns the latter). This retention path does not add names to `blocked_skills`.
-
-Additional table:
-
-- `skill_patterns`: known skill names + regex patterns, source, popularity stats (`occurrences`, `weight`), and enable flag.
-- `bad_ngram_weights`: accumulated bigram/unigram weights from manually blocked skills (`ngram`, `gram_size`, `weight`, `updated_at`).
-
-## Profile fields related to skills
-
-Default profile values are stored in `spejder/default_profile.json`. Runtime loads this file, then merges `profile.json` over it, and applies schema-style normalization in code (type coercion and fallback defaults).
-
-In `profile.json`:
-
-- `user_skills`: your editable skill list used for scoring.
-- `unwanted_skills`: Skills tab **Not for me**; subtracted in scoring via `skill_unwanted_penalty`. Missing key in old `profile.json` = empty. Mutually exclusive with `user_skills` / `missing_skills_suggestions` (unwanted wins on load/save). Not `blocked_skills`.
-- `blocked_skills`: skills hidden from the Skills tab and filtered out from extracted skill results; blocking also deletes matching rows from SQLite `skill_patterns` and `job_skills`, ingests bigrams into `bad_ngram_weights` (per-ngram weight cap), and may prune redundant blocked entries once the cloud learns them. **Forgive** on the Skills tab (or `/api/skill/forgive`) decrements those ngrams and removes the name from the blocked list.
-- `skill_bigram_toxicity_threshold`: last sync-computed toxicity cutoff (auto-updated on GUI background sync and `process-inbox`; used as a cache between syncs; also updated on block when `skill_recalibrate_on_block` is enabled).
-- `skill_bigram_threshold_margin`: calibration margin between mature good and blocked skill score distributions (default `0.5`; the operator-tunable coefficient).
-- `skill_bad_ngram_weight_cap`: max weight per bad-cloud ngram (default `3`; `0` disables the cap). Softens ghost toxicity from heavy compound-phrase blocking.
-- `skill_recalibrate_on_block`: when true, block/batch-block recalibrates the toxicity threshold immediately (default false).
-- `bad_cloud_seeded`: set automatically after one-time seeding of `bad_ngram_weights` from existing `blocked_skills` during GUI sync or `process-inbox`.
-- `missing_skills_suggestions`: generated from applied jobs.
-- `skill_new_confidence_threshold`: minimum LLM confidence for accepting a novel skill candidate (default `0.9`).
-- `skill_match_weight`: bonus per matched required skill.
-- `skill_missing_penalty`: penalty per missing required skill.
-- `skill_unwanted_penalty`: penalty per extracted skill marked **Not for me** (default `1.2`; `0` disables). Does not stack with `skill_missing_penalty` for the same skill.
-- `easy_apply_bonus`: extra score added for LinkedIn jobs when `Easy Apply` is detected in existing text.
-- `applied_company_bonus`: extra score for jobs at companies you already have in Applied or Interview (not Stopped); default `0.75`; set to `0` to disable.
-- `missing_skills_max_items`: max missing-skill suggestions written to profile.
-- `report_max_relevant_positions`: max number of positions shown in `Relevant`, default `7`.
-- `report_max_not_relevant_positions`: max number of positions shown in `Not relevant`, default `42`.
-- `skill_learning_max_positions`, `skill_learning_min_occurrences`, `skill_learning_max_new_patterns`: controls for learning new DB skill patterns (Skills tab **Learned** column shows `skill_patterns.occurrences`).
-- `max_input_chars`: maximum characters of job text passed to the LLM as input. Default `24000`. Raise this when pasting full position descriptions to get better summaries.
-- `n_ctx`: LLM context window size passed to `llama-cpp-python` at load time. Default `8192`. Should be at least as large as `max_input_chars / 4 + max_tokens` to avoid the "not optimal" warning from llama.cpp.
+Defaults live in `default_profile.json`; runtime merges `profile.json` over them. Skill lists: `user_skills`, `missing_skills_suggestions`, `unwanted_skills` (**Not for me**), `blocked_skills` (hide + teach). Auto-written: `skill_bigram_toxicity_threshold`, `bad_cloud_seeded`. Jobs older than 90 days are pruned on DB open except interview/stopped applied rows.
 
 ## Notes
 
-- `serve-gui` and the in-browser dashboard expect the API server to be running; if you open `report.html` directly as a file, feedback actions will try `http://127.0.0.1:8765`.
-- Skill tags on a job card come from cached extraction. Cached skills are re-filtered through the same whitelist → blocked → bad-cloud gate on read (`get_job_skills_filtered`), and dropped names may be rewritten out of `job_skills` so the DB stays aligned. If tags still look incomplete after an upgrade, paste a full description on an applied card or run `refresh-descriptions` with a model to re-extract skills for matching jobs.
-- Re-extracting skills (manual description paste, `refresh-descriptions`, or clearing cached skills) can change `relevance_score` when more or fewer skills match your profile.
-- Processed inbox files are removed automatically after successful ingestion when using background sync or `process-inbox`.
-- Inbox ingestion accepts `.eml` files only. Save emails as `.eml` (e.g. drag from Mail.app, or **File → Save As** in Thunderbird) rather than "Save as HTML".
-- Background sync (`serve-gui` / **Sync inbox**) and `process-inbox` append stage timing and progress to `{report_dir}/sync.log` (default `./outbox/sync.log`) and mirror the same events on the terminal as lines starting with `sync ` (same key=value fields, without `ts=`). Because the GUI serves `report_dir` as static files, that path is also browser-reachable as `/sync.log` on the GUI host/port (operational text, not secrets). Dashboard behavior is unchanged.
-- Unrecognized or junk job URLs from ingest also remain until the 90-day age-out — there is no separate junk-host wipe alongside the removed allow-list prune.
+- Open `report.html` only via `serve-gui`; `file://` feedback falls back to `http://127.0.0.1:8765`.
+- Inbox accepts `.eml` only. Processed files are removed after successful ingest (`process-inbox` / Sync).
+- Sync progress: `{report_dir}/sync.log` (also `/sync.log` while serving) and terminal lines starting with `sync `.
+- Card skill tags use `get_job_skills_filtered` (may rewrite dropped names out of `job_skills`). Re-extract via paste-description or `refresh-descriptions` if tags look wrong after an upgrade.
+- Module memory for agents/maintainers: see companion `*.md` files next to each package (not duplicated here).
