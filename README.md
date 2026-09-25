@@ -136,11 +136,12 @@ Open `http://127.0.0.1:8765/report.html`.
 - Clicking a company name opens a filtered company page for that employer's jobs.
 - Applied jobs have a "Paste full description" form that feeds the full text to the LLM, regenerating the summary, description, and skill tags.
 - **Skills** tab columns (**Action** sits between **Skill** and **Added**; sortable columns default to **Added** newest first):
-  - **Action** — icon Block / Delete (hover for the words). Block hides a skill from extraction; Delete removes it from profile and DB.
+  - **Sync from CV** — extracts skills from `default_cv_path` with the local model and merges them into **I have** (same as CLI `sync-user-skills`; skips names already marked **Not for me**). Requires `default_model`. Reloads the page when done.
+  - **Action** — icon Block / Delete (hover for the words). **Block** = hide from extraction and teach the bad cloud. **Delete** = remove from profile and DB without teaching.
   - **Added** — date the skill was first stored in SQLite `skill_patterns` (`YYYY-MM-DD`). Profile-only skills (your lists / seed patterns without a DB row) show **—**; hover for the tooltip.
   - **Job share** — share of jobs with extracted skills that list this skill. Hover a cell for exact counts.
   - **Learned** — pattern-learning score from applied/relevant jobs (not the same as job share; see [Profile fields](#profile-fields-related-to-skills)).
-  - **I have** / **Want to learn** / **Not for me** — toggles for your profile skill list, want-to-learn suggestions, and skills to penalize in scoring. **I have** and **Want to learn** can both be on. **Not for me** is exclusive with both (checking it clears the other two; checking either of those clears **Not for me**). This is not **Block**: Block hides a skill from extraction; **Not for me** stays visible and extractable so the score penalty can apply.
+  - **I have** / **Want to learn** / **Not for me** — toggles for your profile skill list, want-to-learn suggestions, and skills to penalize in scoring. **I have** and **Want to learn** can both be on. **Not for me** is exclusive with both (checking it clears the other two; checking either of those clears **Not for me**). **Not for me** = score penalty (`skill_unwanted_penalty`); the skill stays visible and extractable. **Block** = hide + teach; **Delete** = remove without teaching.
 
 ## CLI commands
 
@@ -229,7 +230,7 @@ Main dashboard API endpoints (JSON `POST` unless noted):
 - Triage: `/api/feedback`, `/api/viewed`, `/api/applied`, `/api/hidden`
 - Interview: `/api/interview`, `/api/interview/stopped`, `/api/interview/feedback`
 - Applied enrichment: `/api/applied/raw-text`, `/api/applied/cover-letter/request`, `/api/applied/cover-letter`
-- Skills tab: `/api/skill/user`, `/api/skill/learn`, `/api/skill/block`, `/api/skill/delete`, `/api/skill/forgive`, `/api/skill/block-batch`, `/api/skill/delete-batch`, `/api/skill/forgive-batch`
+- Skills tab: `/api/skill/user`, `/api/skill/learn`, `/api/skill/unwanted`, `/api/skill/sync-from-cv`, `/api/skill/block`, `/api/skill/delete`, `/api/skill/forgive`, `/api/skill/block-batch`, `/api/skill/delete-batch`, `/api/skill/forgive-batch`
 - Portrait panel: `GET /api/portrait`, `POST /api/portrait/generate`, `POST /api/portrait/save`
 - Profile panel: `GET /api/profile`, `POST /api/profile/save`
 - Pages: `GET /report.html`, `GET /company.html?company=…`
@@ -278,6 +279,7 @@ Notes:
 
 - If `--replace` is omitted, extracted skills are merged into existing `user_skills`.
 - Works with either a single CV text file or a folder of CV-related text files.
+- The Skills tab **Sync from CV** button calls the same merge path via `POST /api/skill/sync-from-cv` (`default_cv_path` / `default_model`).
 
 ### `cleanup-skills`
 

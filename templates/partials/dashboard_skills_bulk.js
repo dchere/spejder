@@ -48,9 +48,9 @@
                     ? keys.join(', ')
                     : `${keys.slice(0, 5).join(', ')} and ${keys.length - 5} more`;
                 if (action === 'block') {
-                    return `Block ${keys.length} skill(s) (${preview}) and hide them from all positions and the skills tab?`;
+                    return `Block ${keys.length} skill(s) (${preview})? Hides them and teaches the bad cloud (unlike Delete).`;
                 }
-                return `Delete ${keys.length} skill(s) (${preview}) from profile and DB?`;
+                return `Delete ${keys.length} skill(s) (${preview}) from profile and DB without teaching the system?`;
             }
 
             function removeSkillRows(skillKeys) {
@@ -144,7 +144,7 @@
             }
 
             async function deleteSkill(skillKey, btnEl) {
-                if (!confirm(`Delete skill '${skillKey}' from profile and DB?`)) return;
+                if (!confirm(`Delete skill '${skillKey}' from profile and DB without teaching the system?`)) return;
                 btnEl.disabled = true;
                 try {
                     const response = await fetch(apiUrl('/api/skill/delete'), {
@@ -167,7 +167,7 @@
             }
 
             async function blockSkill(skillKey, btnEl) {
-                if (!confirm(`Block skill '${skillKey}' and hide it from all positions and the skills tab?`)) return;
+                if (!confirm(`Block skill '${skillKey}'? Hides it and teaches the bad cloud (unlike Delete).`)) return;
                 btnEl.disabled = true;
                 try {
                     const response = await fetch(apiUrl('/api/skill/block'), {
@@ -186,5 +186,31 @@
                 } catch (err) {
                     alert(`Failed to block skill: ${err.message}`);
                     btnEl.disabled = false;
+                }
+            }
+
+            async function syncSkillsFromCv(btnEl) {
+                const statusEl = document.getElementById('skills-sync-status');
+                if (btnEl) btnEl.disabled = true;
+                if (statusEl) statusEl.textContent = 'Syncing from CV…';
+                try {
+                    const response = await fetch(apiUrl('/api/skill/sync-from-cv'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || 'Request failed');
+                    }
+                    const extracted = Number(data.extracted || 0);
+                    const total = Number(data.total_user_skills || 0);
+                    if (statusEl) {
+                        statusEl.textContent = `Synced ${extracted} from CV · ${total} I have total. Reloading…`;
+                    }
+                    window.location.reload();
+                } catch (err) {
+                    if (statusEl) statusEl.textContent = '';
+                    alert(`Failed to sync skills from CV: ${err.message}`);
+                    if (btnEl) btnEl.disabled = false;
                 }
             }

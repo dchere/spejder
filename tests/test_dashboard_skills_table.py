@@ -114,12 +114,19 @@ class DashboardSkillsTableTest(unittest.TestCase):
         self.assertIn('id="skills-select-all"', ths[0])
         self.assertIn('class="skills-action"', ths[2])
         self.assertIn(
-            'title="Block hides the skill; Delete removes it from profile and DB."',
+            'title="Block = hide + teach the system (bad cloud). Delete = remove from profile and DB without teaching."',
             ths[2],
         )
 
         self.assertIn(">Block selected</button>", self.html)
         self.assertIn(">Delete selected</button>", self.html)
+        self.assertIn('id="btn-sync-from-cv"', self.html)
+        self.assertIn("Sync from CV", self.html)
+        self.assertIn("skills-legend", self.html)
+        self.assertIn("Not for me</strong> = score penalty", self.html)
+        self.assertIn("Block</strong> = hide + teach the system", self.html)
+        self.assertIn("Delete</strong> = remove without teaching", self.html)
+        self.assertIn("syncSkillsFromCv", self.html)
         self.assertNotIn(">Block</button>", self.table_html)
         self.assertNotIn(">Delete</button>", self.table_html)
 
@@ -143,16 +150,22 @@ class DashboardSkillsTableTest(unittest.TestCase):
                 tds[2],
                 flags=re.DOTALL,
             ).group(0)
-            self.assertIn('title="Block"', block_btn)
+            self.assertIn('title="Block: hide from extraction and teach the bad cloud"', block_btn)
             self.assertIn('aria-label="Block"', block_btn)
             self.assertIn("<circle", block_btn)
-            self.assertIn('title="Delete"', delete_btn)
+            self.assertIn(
+                'title="Delete: remove from profile and DB without teaching the system"',
+                delete_btn,
+            )
             self.assertIn('aria-label="Delete"', delete_btn)
             self.assertIn("M3 6h18", delete_btn)
             self.assertNotIn("<circle", delete_btn)
             self.assertNotIn("M3 6h18", block_btn)
             row_names.append(tds[1].strip().lower())
         self.assertEqual(row_names, ["zebra", "alpha", "rust"])
+
+        not_for_me_th = ths[-1]
+        self.assertIn("Not for me = score penalty", not_for_me_th)
 
     def test_skills_table_added_at_attributes_and_display(self):
         alpha_row = re.search(

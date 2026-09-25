@@ -85,17 +85,20 @@ def cmd_refresh_descriptions(args):
     refresh_descriptions(profile=args.profile, db=args.db, model=args.model, source=args.source, category=args.category, link=args.link, job_id=args.job_id, limit=args.limit, overwrite=args.overwrite, allow_empty=args.allow_empty, quiet_model=args.quiet_model, report_dir=args.report_dir)
 
 def cmd_sync_user_skills(args):
-    sync_user_skills(
-        profile=args.profile,
-        db=args.db,
-        model=args.model,
-        cv=args.cv,
-        limit=args.limit,
-        max_chars=args.max_chars,
-        replace=args.replace,
-        quiet_model=args.quiet_model,
-        llm=getattr(args, "_llm", None),
-    )
+    try:
+        sync_user_skills(
+            profile=args.profile,
+            db=args.db,
+            model=args.model,
+            cv=args.cv,
+            limit=args.limit,
+            max_chars=args.max_chars,
+            replace=args.replace,
+            quiet_model=args.quiet_model,
+            llm=getattr(args, "_llm", None),
+        )
+    except ValueError as exc:
+        raise SystemExit(f"Model init: {exc}") from exc
 
 def cmd_cleanup_skills(args):
     cleanup_skills(profile=args.profile, db=args.db, limit=args.limit, dry_run=args.dry_run)
