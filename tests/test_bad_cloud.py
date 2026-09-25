@@ -5,7 +5,14 @@ import tempfile
 import unittest
 
 from spejder.config import AppConfig
-from spejder.db import count_bad_ngrams, ensure_db, replace_job_skills, upsert_job, upsert_skill_pattern
+from spejder.db import (
+    count_bad_ngrams,
+    ensure_db,
+    get_job_skills,
+    replace_job_skills,
+    upsert_job,
+    upsert_skill_pattern,
+)
 from spejder.db.connection import _connect
 from spejder.extractors.skill_extractor.bad_cloud import (
     _mature_good_skill_names,
@@ -327,7 +334,10 @@ class CachedJobSkillsFilterTest(unittest.TestCase):
         )
         self.assertFalse(changed)
         self.assertEqual(skills_text, "python")
-
+        self.assertEqual(
+            [s.lower() for s in get_job_skills(self.db_path, self.job_id)],
+            ["python"],
+        )
 
 if __name__ == "__main__":
     unittest.main()

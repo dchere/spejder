@@ -11,7 +11,8 @@ from typing import Optional
 
 from spejder.config import AppConfig
 from spejder.core import resolve_user_path
-from spejder.db import get_all_applied_jobs, get_job_skills_for_jobs
+from spejder.db import get_all_applied_jobs
+from spejder.extractors.skill_extractor import get_job_skills_filtered_for_jobs
 from spejder.llm import LocalLLM
 from spejder.parsers.cv_parser import load_cv_text
 
@@ -129,7 +130,7 @@ def collect_portrait_context(db_path: str, profile: AppConfig, cv_path: Optional
         sections.append("SKILLS NOT FOR ME:\n" + "\n".join(f"- {s}" for s in unwanted_skills))
     if applied_jobs:
         job_ids = [int(row.get("id", 0) or 0) for row in applied_jobs]
-        skills_by_job = get_job_skills_for_jobs(db_path, job_ids)
+        skills_by_job = get_job_skills_filtered_for_jobs(db_path, job_ids, profile)
         job_blocks = [
             _format_job_block(
                 row,

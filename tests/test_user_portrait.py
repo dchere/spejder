@@ -144,7 +144,7 @@ class UserPortraitWorkflowTest(unittest.TestCase):
         job_id = _insert_applied_job(self.db_path, "https://example.com/skilled")
         replace_job_skills(self.db_path, job_id, ["python", "docker"])
         context = collect_portrait_context(self.db_path, self.profile, cv_path=self.cv_path)
-        self.assertIn("skills: docker, python", context)
+        self.assertRegex(context, r"skills: (?:docker, python|python, docker)")
 
     def test_get_job_skills_for_jobs_batch(self):
         job_a = _insert_applied_job(self.db_path, "https://example.com/a")

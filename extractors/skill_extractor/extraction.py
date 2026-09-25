@@ -9,8 +9,8 @@ from spejder.llm import LocalLLM
 from .extraction_fallback import _extract_skills_fallback, _filter_fallback_skills
 from .extraction_llm import _extract_job_skills_llm_path
 from .extraction_prompt import _build_job_skill_extraction_prompt
-from .filtering import _filter_extracted_skills, _whitelist_skill_keys
-from .normalization import _normalize_skill_name
+from .filtering import _whitelist_skill_keys
+from .job_skills_read import get_job_skills_filtered
 from .patterns import _get_skill_patterns
 from .utils import _format_skills
 
@@ -72,10 +72,9 @@ def _get_or_extract_job_skills(
 ) -> tuple[str, bool]:
     """Return skill tags for a job, reading from the job_skills cache or extracting + caching."""
     if job_id:
-        cached = get_job_skills(db_path, job_id)
-        if cached:
-            known_keys = _whitelist_skill_keys(profile, db_path)
-            filtered = _filter_extracted_skills(cached, profile, db_path, known_keys)
+        # Preserve "cache hit" semantics even when the filter drops every name.
+        if get_job_skills(db_path, job_id):
+            filtered = get_job_skills_filtered(db_path, job_id, profile)
             return _format_skills(filtered), False
     skills_text = _extract_job_skills(
         db_path,

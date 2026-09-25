@@ -7,7 +7,7 @@ Build, regenerate, and persist a user professional portrait from CV text, profil
 - `portrait_file_path(profile)` / `cv_file_path(profile)` — resolved paths via `resolve_user_path`
 - `load_portrait(path)` / `save_portrait(path, text)` — read committed text; atomic write
 - `embed_portrait_for_textarea(text)` — neutralize `</textarea` breakout for static HTML embed; preserves `&`, `<`, etc.
-- `collect_portrait_context(db_path, profile, cv_path=None)` — plain-text input block for LLM (budget: `max_input_chars`); job skills loaded in one batch via `get_job_skills_for_jobs`; at most 50 most recently updated applied jobs; skill sections are `SKILLS I HAVE`, `SKILLS TO LEARN`, and `SKILLS NOT FOR ME` (`unwanted_skills`)
+- `collect_portrait_context(db_path, profile, cv_path=None)` — plain-text input block for LLM (budget: `max_input_chars`); job skills loaded in one batch via `get_job_skills_filtered_for_jobs` (same whitelist → blocked → bad-cloud gate as extract); at most 50 most recently updated applied jobs; skill sections are `SKILLS I HAVE`, `SKILLS TO LEARN`, and `SKILLS NOT FOR ME` (`unwanted_skills`)
 - `portrait_has_context(db_path, profile, cv_path=None)` — true when CV, `user_skills`, `missing_skills_suggestions`, `unwanted_skills`, or applied jobs exist
 - `build_portrait_prompt(current_portrait, context)` — minimal-change regeneration prompt
 - `generate_portrait_draft(llm, db_path, profile, current_portrait="", cv_path=None)` — LLM call (`portrait_max_tokens`)

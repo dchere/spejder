@@ -47,13 +47,13 @@ class ScoreRelevanceCachedSkillsTest(unittest.TestCase):
 
 
 class SuggestMissingSkillsFromCacheTest(unittest.TestCase):
-    @patch("spejder.jobs.suggestions.get_job_skills")
+    @patch("spejder.jobs.suggestions.get_job_skills_filtered")
     @patch("spejder.jobs.suggestions.get_jobs_for_skill_suggestions")
     def test_aggregates_persisted_job_skills(self, mock_rows, mock_get_skills):
         from spejder.jobs.suggestions import _suggest_missing_skills_from_applied_jobs
 
         mock_rows.return_value = [(1,), (2,)]
-        mock_get_skills.side_effect = lambda _db, job_id: (
+        mock_get_skills.side_effect = lambda _db, job_id, _profile: (
             ["kubernetes"] if job_id == 1 else ["terraform"]
         )
         profile = MagicMock(spec=AppConfig)
@@ -154,7 +154,7 @@ class ScoreRelevanceUnwantedSkillsTest(unittest.TestCase):
 
 
 class SuggestMissingSkillsSkipUnwantedTest(unittest.TestCase):
-    @patch("spejder.jobs.suggestions.get_job_skills")
+    @patch("spejder.jobs.suggestions.get_job_skills_filtered")
     @patch("spejder.jobs.suggestions.get_jobs_for_skill_suggestions")
     def test_skips_unwanted_skills(self, mock_rows, mock_get_skills):
         from spejder.jobs.suggestions import _suggest_missing_skills_from_applied_jobs

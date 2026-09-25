@@ -5,11 +5,11 @@ from spejder.config import AppConfig
 from spejder.db import (
     get_applied_pipeline_company_keys,
     get_job_for_rescoring,
-    get_job_skills,
     get_jobs_for_active_rescore,
     get_jobs_for_scoring,
     update_jobs_relevance,
 )
+from spejder.extractors.skill_extractor import get_job_skills_filtered
 from spejder.jobs.scoring import score_relevance, _load_skill_patterns
 
 def job_in_active_rescore_scope(row: dict) -> bool:
@@ -42,7 +42,7 @@ def _rescore_row(
     if _is_manual_feedback_reason(str(row.get("relevance_reason", ""))):
         return False
 
-    cached_skills = get_job_skills(db_path, rid)
+    cached_skills = get_job_skills_filtered(db_path, rid, profile)
     composed = f"{row.get('title') or ''}\n{row.get('company') or ''}\n{row.get('raw_text') or ''}"
     score, reason, relevant, category = score_relevance(
         composed,
@@ -142,7 +142,7 @@ def apply_relevance(
         if manual_reason == "manual_feedback=not relevant":
             continue
 
-        cached_skills = get_job_skills(db_path, rid) if rid else []
+        cached_skills = get_job_skills_filtered(db_path, rid, profile) if rid else []
         composed = f"{title or ''}\n{company or ''}\n{raw_text or ''}"
         score, reason, relevant, category = score_relevance(
             composed,
@@ -180,7 +180,7 @@ def rescore_job_by_id(db_path: str, profile: AppConfig, job_id: int) -> bool:
     applied = job_dict["applied"]
 
     skill_patterns = _load_skill_patterns(db_path, profile)
-    cached_skills = get_job_skills(db_path, rid) if rid else []
+    cached_skills = get_job_skills_filtered(db_path, rid, profile) if rid else []
     applied_company_keys = get_applied_pipeline_company_keys(db_path)
 
     composed = f"{title or ''}\n{company or ''}\n{raw_text or ''}"
