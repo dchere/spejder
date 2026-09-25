@@ -7,10 +7,42 @@ import unittest
 from unittest.mock import patch
 
 from spejder.workflows.inbox_workflow import process_inbox
+from spejder.workflows.skill_hygiene import SkillHygieneResult
 from spejder.workflows.sync_log import SyncRunLog
 
 # Capture before any test patches replace SyncRunLog.open on the shared class.
 _REAL_SYNC_RUN_LOG_OPEN = SyncRunLog.open.__func__
+
+_HYGIENE_EMPTY = SkillHygieneResult(
+    blocked_cleanup={
+        "skills_processed": 0,
+        "skill_rows_deleted": 0,
+        "job_skill_links_deleted": 0,
+        "affected_job_ids": [],
+    },
+    blocked_rescored=0,
+    stale_cleanup={
+        "skills_deleted": 0,
+        "skill_rows_deleted": 0,
+        "job_skill_links_deleted": 0,
+        "affected_job_ids": [],
+        "profile_removed": 0,
+        "deleted_skill_names": [],
+    },
+    stale_rescored=0,
+    cloud_stats={"seeded": False, "pruned": []},
+    new_threshold=0.1,
+    previous_threshold=None,
+    threshold_changed=False,
+)
+
+
+def _fake_hygiene(db_path, profile, *, on_stage=None):
+    if on_stage is not None:
+        on_stage("blocked_skills", "Cleaning blocked skills from database")
+        on_stage("stale_skills", "Cleaning stale low-share skills")
+        on_stage("bad_cloud", "Initializing bad cloud")
+    return _HYGIENE_EMPTY
 
 
 def _open_sync_log_quiet(path: str, *, echo_stdout: bool = True, **kwargs):
@@ -93,17 +125,9 @@ class ProcessInboxSyncLogTest(unittest.TestCase):
             "missing_skills_count": 0,
         },
     )
-    @patch("spejder.workflows.inbox_workflow.rescore_jobs_if_active", return_value=0)
     @patch(
-        "spejder.workflows.inbox_workflow.run_stale_skill_cleanup",
-        return_value={
-            "skills_deleted": 0,
-            "skill_rows_deleted": 0,
-            "job_skill_links_deleted": 0,
-            "affected_job_ids": [],
-            "profile_removed": 0,
-            "deleted_skill_names": [],
-        },
+        "spejder.workflows.inbox_workflow.run_skill_hygiene_stages",
+        side_effect=_fake_hygiene,
     )
     @patch(
         "spejder.workflows.inbox_workflow._learn_skill_patterns_from_positions",
@@ -159,8 +183,7 @@ class ProcessInboxSyncLogTest(unittest.TestCase):
         _materialize,
         _relevant,
         _learn,
-        _stale,
-        _rescore,
+        _hygiene,
         _signals,
         _summarize,
         _report,
@@ -184,7 +207,9 @@ class ProcessInboxSyncLogTest(unittest.TestCase):
             "descriptions",
             "skills",
             "patterns",
+            "blocked_skills",
             "stale_skills",
+            "bad_cloud",
         ):
             self.assertIn(f"event=stage_start stage={stage}", text)
         self.assertIn("event=pipeline_end", text)
@@ -209,17 +234,9 @@ class ProcessInboxSyncLogTest(unittest.TestCase):
             "missing_skills_count": 0,
         },
     )
-    @patch("spejder.workflows.inbox_workflow.rescore_jobs_if_active", return_value=0)
     @patch(
-        "spejder.workflows.inbox_workflow.run_stale_skill_cleanup",
-        return_value={
-            "skills_deleted": 0,
-            "skill_rows_deleted": 0,
-            "job_skill_links_deleted": 0,
-            "affected_job_ids": [],
-            "profile_removed": 0,
-            "deleted_skill_names": [],
-        },
+        "spejder.workflows.inbox_workflow.run_skill_hygiene_stages",
+        side_effect=_fake_hygiene,
     )
     @patch(
         "spejder.workflows.inbox_workflow._learn_skill_patterns_from_positions",
@@ -280,8 +297,7 @@ class ProcessInboxSyncLogTest(unittest.TestCase):
         _materialize,
         _relevant,
         _learn,
-        _stale,
-        _rescore,
+        _hygiene,
         _signals,
         _summarize,
         _report,
@@ -319,17 +335,9 @@ class ProcessInboxSyncLogTest(unittest.TestCase):
             "missing_skills_count": 0,
         },
     )
-    @patch("spejder.workflows.inbox_workflow.rescore_jobs_if_active", return_value=0)
     @patch(
-        "spejder.workflows.inbox_workflow.run_stale_skill_cleanup",
-        return_value={
-            "skills_deleted": 0,
-            "skill_rows_deleted": 0,
-            "job_skill_links_deleted": 0,
-            "affected_job_ids": [],
-            "profile_removed": 0,
-            "deleted_skill_names": [],
-        },
+        "spejder.workflows.inbox_workflow.run_skill_hygiene_stages",
+        side_effect=_fake_hygiene,
     )
     @patch(
         "spejder.workflows.inbox_workflow._learn_skill_patterns_from_positions",
@@ -382,8 +390,7 @@ class ProcessInboxSyncLogTest(unittest.TestCase):
         _materialize,
         _relevant,
         _learn,
-        _stale,
-        _rescore,
+        _hygiene,
         _signals,
         _summarize,
         _report,

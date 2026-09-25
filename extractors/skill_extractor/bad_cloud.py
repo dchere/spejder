@@ -287,7 +287,8 @@ def seed_bad_cloud_from_blocked_skills(db_path: str, blocked_skills: list[str]) 
 def ensure_bad_cloud_initialized(profile: AppConfig, db_path: str) -> dict:
     """One-time seed from blocked_skills and prune redundant blocked entries.
 
-    Threshold calibration is owned by GUI sync via recalibrate_and_store_threshold.
+    Threshold calibration is owned by shared skill hygiene
+    (``run_skill_hygiene_stages``) via recalibrate_and_store_threshold.
     """
     ensure_db(db_path)
     stats = {"seeded": False, "ngram_keys_upserted": 0, "pruned": []}

@@ -22,7 +22,7 @@ from spejder.db.connection import _connect
 from spejder.db.skills_cleanup import SKILL_STALE_JOB_SHARE_PCT_THRESHOLD
 from spejder.tests.skill_test_utils import stamp_skill_patterns_created_at
 from spejder.workflows.inbox_workflow import process_inbox
-from spejder.workflows.skill_hygiene import run_stale_skill_cleanup
+from spejder.workflows.skill_hygiene import SkillHygieneResult, run_stale_skill_cleanup
 
 
 def _insert_job(db_path: str, link: str, title: str = "Engineer") -> int:
@@ -297,17 +297,30 @@ class ProcessInboxStaleCleanupOrderTest(unittest.TestCase):
             "missing_skills_count": 0,
         },
     )
-    @patch("spejder.workflows.inbox_workflow.rescore_jobs_if_active", return_value=0)
     @patch(
-        "spejder.workflows.inbox_workflow.run_stale_skill_cleanup",
-        return_value={
-            "skills_deleted": 0,
-            "skill_rows_deleted": 0,
-            "job_skill_links_deleted": 0,
-            "affected_job_ids": [],
-            "profile_removed": 0,
-            "deleted_skill_names": [],
-        },
+        "spejder.workflows.inbox_workflow.run_skill_hygiene_stages",
+        return_value=SkillHygieneResult(
+            blocked_cleanup={
+                "skills_processed": 0,
+                "skill_rows_deleted": 0,
+                "job_skill_links_deleted": 0,
+                "affected_job_ids": [],
+            },
+            blocked_rescored=0,
+            stale_cleanup={
+                "skills_deleted": 0,
+                "skill_rows_deleted": 0,
+                "job_skill_links_deleted": 0,
+                "affected_job_ids": [],
+                "profile_removed": 0,
+                "deleted_skill_names": [],
+            },
+            stale_rescored=0,
+            cloud_stats={"seeded": False, "pruned": []},
+            new_threshold=0.1,
+            previous_threshold=None,
+            threshold_changed=False,
+        ),
     )
     @patch(
         "spejder.workflows.inbox_workflow._learn_skill_patterns_from_positions",
@@ -358,8 +371,7 @@ class ProcessInboxStaleCleanupOrderTest(unittest.TestCase):
         _materialize,
         _relevant,
         mock_learn,
-        mock_stale,
-        _rescore,
+        mock_hygiene,
         mock_signals,
         _summarize,
         _report,
@@ -374,16 +386,30 @@ class ProcessInboxStaleCleanupOrderTest(unittest.TestCase):
                 "total_known_skill_patterns": 0,
             },
         )[1]
-        mock_stale.side_effect = lambda *a, **k: (
-            order.append("stale"),
-            {
-                "skills_deleted": 0,
-                "skill_rows_deleted": 0,
-                "job_skill_links_deleted": 0,
-                "affected_job_ids": [],
-                "profile_removed": 0,
-                "deleted_skill_names": [],
-            },
+        mock_hygiene.side_effect = lambda *a, **k: (
+            order.append("hygiene"),
+            SkillHygieneResult(
+                blocked_cleanup={
+                    "skills_processed": 0,
+                    "skill_rows_deleted": 0,
+                    "job_skill_links_deleted": 0,
+                    "affected_job_ids": [],
+                },
+                blocked_rescored=0,
+                stale_cleanup={
+                    "skills_deleted": 0,
+                    "skill_rows_deleted": 0,
+                    "job_skill_links_deleted": 0,
+                    "affected_job_ids": [],
+                    "profile_removed": 0,
+                    "deleted_skill_names": [],
+                },
+                stale_rescored=0,
+                cloud_stats={"seeded": False, "pruned": []},
+                new_threshold=0.1,
+                previous_threshold=None,
+                threshold_changed=False,
+            ),
         )[1]
         mock_signals.side_effect = lambda *a, **k: (
             order.append("signals"),
@@ -402,10 +428,10 @@ class ProcessInboxStaleCleanupOrderTest(unittest.TestCase):
             model="/fake/model.gguf",
         )
 
-        self.assertEqual(order, ["learn", "stale", "signals"])
-        mock_stale.assert_called_once()
-        self.assertEqual(mock_stale.call_args.args[0], self.db_path)
-        self.assertIsInstance(mock_stale.call_args.args[1], AppConfig)
+        self.assertEqual(order, ["learn", "hygiene", "signals"])
+        mock_hygiene.assert_called_once()
+        self.assertEqual(mock_hygiene.call_args.args[0], self.db_path)
+        self.assertIsInstance(mock_hygiene.call_args.args[1], AppConfig)
 
 
 if __name__ == "__main__":

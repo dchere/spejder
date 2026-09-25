@@ -6,17 +6,12 @@ from typing import TYPE_CHECKING, Callable, Optional, Protocol
 from spejder.config import AppConfig
 from spejder.core import save_profile
 from spejder.db import (
-    cleanup_blocked_skills_from_db,
     ensure_db,
     get_jobs_for_active_rescore,
     get_jobs_for_description_refresh,
 )
 from spejder.extractors.skill_extractor import _learn_skill_patterns_from_positions
-from spejder.extractors.skill_extractor.bad_cloud import (
-    ensure_bad_cloud_initialized,
-    recalibrate_and_store_threshold,
-)
-from spejder.jobs import ingest_docs_to_db, rescore_jobs_if_active
+from spejder.jobs import ingest_docs_to_db
 from spejder.llm import LocalLLM
 from spejder.parsers import email_parser
 from spejder.workflows.dashboard import DashboardRebuildQueue
@@ -30,7 +25,7 @@ from spejder.workflows.job_enrichment import (
     make_translate_job_entry_for_storage,
 )
 from spejder.workflows.portal_sync import sync_itday_portal
-from spejder.workflows.skill_hygiene import run_stale_skill_cleanup
+from spejder.workflows.skill_hygiene import run_skill_hygiene_stages
 from spejder.workflows.sync_log import IngestProgressTracker, SyncRunLog, SyncRunLogLike
 
 if TYPE_CHECKING:
@@ -295,11 +290,13 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
             f"total={skill_learning.get('total_known_skill_patterns', 0)})"
         )
 
-        _emit_stage(context, "blocked_skills", "Cleaning blocked skills from database")
-        blocked_cleanup = cleanup_blocked_skills_from_db(
+        hygiene = run_skill_hygiene_stages(
             context.db_path,
-            list(context.runtime_profile.blocked_skills or []),
+            context.runtime_profile,
+            on_stage=lambda stage_id, message: _emit_stage(context, stage_id, message),
         )
+        blocked_cleanup = hygiene.blocked_cleanup
+        blocked_rescored = hygiene.blocked_rescored
         print(
             "Background sync: blocked-skills cleanup "
             f"(processed={blocked_cleanup.get('skills_processed', 0)}, "
@@ -307,20 +304,9 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
             f"patterns_deleted={blocked_cleanup.get('skill_rows_deleted', 0)}, "
             f"affected_jobs={len(blocked_cleanup.get('affected_job_ids', []))})"
         )
-
-        blocked_rescored = rescore_jobs_if_active(
-            context.db_path,
-            context.runtime_profile,
-            list(blocked_cleanup.get("affected_job_ids", [])),
-        )
         if blocked_rescored:
             print(f"Background sync: rescored blocked-skill jobs ({blocked_rescored})")
-
-        if (
-            blocked_rescored
-            or int(blocked_cleanup.get("job_skill_links_deleted", 0) or 0) > 0
-            or int(blocked_cleanup.get("skill_rows_deleted", 0) or 0) > 0
-        ):
+        if hygiene.blocked_needs_rebuild():
             context.queue_dashboard_rebuild(
                 reason=(
                     f"blocked-skills cleanup "
@@ -330,11 +316,8 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
                 )
             )
 
-        _emit_stage(context, "stale_skills", "Cleaning stale low-share skills")
-        stale_cleanup = run_stale_skill_cleanup(
-            context.db_path,
-            context.runtime_profile,
-        )
+        stale_cleanup = hygiene.stale_cleanup
+        stale_rescored = hygiene.stale_rescored
         print(
             "Background sync: stale-skills cleanup "
             f"(deleted={stale_cleanup.get('skills_deleted', 0)}, "
@@ -342,20 +325,9 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
             f"patterns_deleted={stale_cleanup.get('skill_rows_deleted', 0)}, "
             f"affected_jobs={len(stale_cleanup.get('affected_job_ids', []))})"
         )
-
-        stale_rescored = rescore_jobs_if_active(
-            context.db_path,
-            context.runtime_profile,
-            list(stale_cleanup.get("affected_job_ids", [])),
-        )
         if stale_rescored:
             print(f"Background sync: rescored stale-skill jobs ({stale_rescored})")
-
-        if (
-            stale_rescored
-            or int(stale_cleanup.get("job_skill_links_deleted", 0) or 0) > 0
-            or int(stale_cleanup.get("skill_rows_deleted", 0) or 0) > 0
-        ):
+        if hygiene.stale_needs_rebuild():
             context.queue_dashboard_rebuild(
                 reason=(
                     f"stale-skills cleanup "
@@ -365,31 +337,12 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
                 )
             )
 
-        if int(stale_cleanup.get("profile_removed", 0) or 0) > 0:
-            save_profile(context.runtime_profile, context.profile_path)
-            context.reload_runtime_profile()
-
-        _emit_stage(context, "bad_cloud", "Initializing bad cloud")
-        ensure_db(context.db_path)
-        cloud_stats = ensure_bad_cloud_initialized(
-            context.runtime_profile,
-            context.db_path,
-        )
-        previous_threshold = getattr(
-            context.runtime_profile, "skill_bigram_toxicity_threshold", None
-        )
-        new_threshold = recalibrate_and_store_threshold(
-            context.runtime_profile,
-            context.db_path,
-        )
-        threshold_changed = (
-            previous_threshold != context.runtime_profile.skill_bigram_toxicity_threshold
-        )
+        cloud_stats = hygiene.cloud_stats
         print(
             "Background sync: bad-cloud threshold recalibrated "
-            f"(threshold={new_threshold}, changed={threshold_changed})"
+            f"(threshold={hygiene.new_threshold}, changed={hygiene.threshold_changed})"
         )
-        if cloud_stats.get("seeded") or cloud_stats.get("pruned") or threshold_changed:
+        if hygiene.profile_dirty:
             save_profile(context.runtime_profile, context.profile_path)
             context.reload_runtime_profile()
             if cloud_stats.get("seeded") or cloud_stats.get("pruned"):
@@ -401,7 +354,7 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
                 )
             if cloud_stats.get("pruned"):
                 context.queue_dashboard_rebuild(reason="bad cloud prune")
-            elif threshold_changed:
+            elif hygiene.threshold_changed:
                 context.queue_dashboard_rebuild(reason="bad cloud threshold recalibrated")
 
         print(

@@ -3,32 +3,48 @@
 import os
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from spejder.config import AppConfig
 from spejder.workflows.gui_sync import GuiSyncContext, run_inbox_sync
-
-_STALE_CLEANUP_EMPTY = {
-    "skills_deleted": 0,
-    "skill_rows_deleted": 0,
-    "job_skill_links_deleted": 0,
-    "affected_job_ids": [],
-    "profile_removed": 0,
-    "deleted_skill_names": [],
-}
-
-_BLOCKED_CLEANUP_EMPTY = {
-    "skills_processed": 0,
-    "skill_rows_deleted": 0,
-    "job_skill_links_deleted": 0,
-    "affected_job_ids": [],
-}
+from spejder.workflows.skill_hygiene import SkillHygieneResult
 
 _LEARN_EMPTY = {
     "considered_positions": 0,
     "new_skill_patterns": 0,
     "total_known_skill_patterns": 0,
 }
+
+_HYGIENE_EMPTY = SkillHygieneResult(
+    blocked_cleanup={
+        "skills_processed": 0,
+        "skill_rows_deleted": 0,
+        "job_skill_links_deleted": 0,
+        "affected_job_ids": [],
+    },
+    blocked_rescored=0,
+    stale_cleanup={
+        "skills_deleted": 0,
+        "skill_rows_deleted": 0,
+        "job_skill_links_deleted": 0,
+        "affected_job_ids": [],
+        "profile_removed": 0,
+        "deleted_skill_names": [],
+    },
+    stale_rescored=0,
+    cloud_stats={"seeded": False, "pruned": []},
+    new_threshold=0.1,
+    previous_threshold=None,
+    threshold_changed=False,
+)
+
+
+def _fake_hygiene(db_path, profile, *, on_stage=None):
+    if on_stage is not None:
+        on_stage("blocked_skills", "Cleaning blocked skills from database")
+        on_stage("stale_skills", "Cleaning stale low-share skills")
+        on_stage("bad_cloud", "Initializing bad cloud")
+    return _HYGIENE_EMPTY
 
 
 class RunInboxSyncRebuildTest(unittest.TestCase):
@@ -55,24 +71,12 @@ class RunInboxSyncRebuildTest(unittest.TestCase):
         return_value={"found": 0, "inserted_new": 0, "skipped_existing": 0, "processed": 0},
     )
     @patch(
-        "spejder.workflows.gui_sync.recalibrate_and_store_threshold",
-        return_value=0.1,
-    )
-    @patch(
-        "spejder.workflows.gui_sync.ensure_bad_cloud_initialized",
-        return_value={"seeded": False, "pruned": []},
+        "spejder.workflows.gui_sync.run_skill_hygiene_stages",
+        side_effect=_fake_hygiene,
     )
     @patch(
         "spejder.workflows.gui_sync._learn_skill_patterns_from_positions",
         return_value=_LEARN_EMPTY,
-    )
-    @patch(
-        "spejder.workflows.gui_sync.run_stale_skill_cleanup",
-        return_value=_STALE_CLEANUP_EMPTY,
-    )
-    @patch(
-        "spejder.workflows.gui_sync.cleanup_blocked_skills_from_db",
-        return_value=_BLOCKED_CLEANUP_EMPTY,
     )
     @patch("spejder.workflows.gui_sync._generate_missing_descriptions_for_ingest", return_value=(0, 0))
     @patch("spejder.workflows.gui_sync.run_cross_source_dedupe", return_value={})
@@ -86,19 +90,15 @@ class RunInboxSyncRebuildTest(unittest.TestCase):
         _delete_files,
         _dedupe,
         _gen_desc,
-        _blocked_cleanup,
-        mock_stale_cleanup,
         _learn,
-        _bad_cloud,
-        _recalibrate,
+        mock_hygiene,
         _portal,
     ):
         result = run_inbox_sync(self.context)
         self.assertEqual(result.status, "done")
-        mock_stale_cleanup.assert_called_once_with(
-            self.context.db_path,
-            self.context.runtime_profile,
-        )
+        mock_hygiene.assert_called_once()
+        self.assertEqual(mock_hygiene.call_args.args[0], self.context.db_path)
+        self.assertIs(mock_hygiene.call_args.args[1], self.context.runtime_profile)
         self.assertFalse(
             any("skills materialized" in reason for reason in self.rebuild_reasons),
             msg=f"unexpected rebuild reasons: {self.rebuild_reasons}",
@@ -109,12 +109,8 @@ class RunInboxSyncRebuildTest(unittest.TestCase):
         return_value={"found": 0, "inserted_new": 0, "skipped_existing": 0, "processed": 0},
     )
     @patch(
-        "spejder.workflows.gui_sync.recalibrate_and_store_threshold",
-        return_value=0.1,
-    )
-    @patch(
-        "spejder.workflows.gui_sync.ensure_bad_cloud_initialized",
-        return_value={"seeded": False, "pruned": []},
+        "spejder.workflows.gui_sync.run_skill_hygiene_stages",
+        side_effect=_fake_hygiene,
     )
     @patch(
         "spejder.workflows.gui_sync._learn_skill_patterns_from_positions",
@@ -123,14 +119,6 @@ class RunInboxSyncRebuildTest(unittest.TestCase):
             "new_skill_patterns": 0,
             "total_known_skill_patterns": 1,
         },
-    )
-    @patch(
-        "spejder.workflows.gui_sync.run_stale_skill_cleanup",
-        return_value=_STALE_CLEANUP_EMPTY,
-    )
-    @patch(
-        "spejder.workflows.gui_sync.cleanup_blocked_skills_from_db",
-        return_value=_BLOCKED_CLEANUP_EMPTY,
     )
     @patch("spejder.workflows.gui_sync._generate_missing_descriptions_for_ingest", return_value=(0, 0))
     @patch("spejder.workflows.gui_sync.run_cross_source_dedupe", return_value={})
@@ -144,11 +132,8 @@ class RunInboxSyncRebuildTest(unittest.TestCase):
         _delete_files,
         _dedupe,
         _gen_desc,
-        _blocked_cleanup,
-        mock_stale_cleanup,
         _learn,
-        _bad_cloud,
-        _recalibrate,
+        mock_hygiene,
         _portal,
     ):
         context = GuiSyncContext(
@@ -164,7 +149,11 @@ class RunInboxSyncRebuildTest(unittest.TestCase):
         )
         result = run_inbox_sync(context)
         self.assertEqual(result.status, "done")
-        mock_stale_cleanup.assert_called_once_with(context.db_path, context.runtime_profile)
+        mock_hygiene.assert_called_once_with(
+            context.db_path,
+            context.runtime_profile,
+            on_stage=ANY,
+        )
         self.assertIn("skills materialized=3", self.rebuild_reasons)
 
 

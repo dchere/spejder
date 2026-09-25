@@ -4,7 +4,7 @@ from spejder.extractors.skill_extractor import (
     _ensure_skill_pattern_seed_migration,
     _learn_skill_patterns_from_positions,
 )
-from spejder.jobs import ingest_docs_to_db, rescore_jobs_if_active, update_profile_from_db_signals
+from spejder.jobs import ingest_docs_to_db, update_profile_from_db_signals
 from spejder.llm import LocalLLM
 from spejder.parsers import email_parser
 from spejder.workflows.ingest_utils import (
@@ -22,7 +22,7 @@ from spejder.workflows.job_enrichment import (
 )
 from spejder.workflows.portal_sync import sync_itday_portal
 from spejder.workflows.deduplication import run_cross_source_dedupe
-from spejder.workflows.skill_hygiene import run_stale_skill_cleanup
+from spejder.workflows.skill_hygiene import run_skill_hygiene_stages
 from spejder.workflows.sync_log import (
     IngestProgressTracker,
     SyncRunLog,
@@ -202,8 +202,25 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
             f"total_patterns={skill_learning.get('total_known_skill_patterns', 0)}"
         )
 
-        sync_log.stage_start("stale_skills", "Cleaning stale low-share skills")
-        stale_cleanup = run_stale_skill_cleanup(db_path, profile)
+        hygiene = run_skill_hygiene_stages(
+            db_path,
+            profile,
+            on_stage=sync_log.stage_start,
+        )
+        blocked_cleanup = hygiene.blocked_cleanup
+        print(
+            "process-inbox: blocked-skills cleanup "
+            f"(processed={blocked_cleanup.get('skills_processed', 0)}, "
+            f"links_deleted={blocked_cleanup.get('job_skill_links_deleted', 0)}, "
+            f"patterns_deleted={blocked_cleanup.get('skill_rows_deleted', 0)}, "
+            f"affected_jobs={len(blocked_cleanup.get('affected_job_ids', []))})"
+        )
+        if hygiene.blocked_rescored:
+            print(
+                f"process-inbox: rescored blocked-skill jobs ({hygiene.blocked_rescored})"
+            )
+
+        stale_cleanup = hygiene.stale_cleanup
         print(
             "process-inbox: stale-skills cleanup "
             f"(deleted={stale_cleanup.get('skills_deleted', 0)}, "
@@ -211,14 +228,22 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
             f"patterns_deleted={stale_cleanup.get('skill_rows_deleted', 0)}, "
             f"affected_jobs={len(stale_cleanup.get('affected_job_ids', []))})"
         )
-        stale_rescored = rescore_jobs_if_active(
-            db_path,
-            profile,
-            list(stale_cleanup.get("affected_job_ids", [])),
+        if hygiene.stale_rescored:
+            print(f"process-inbox: rescored stale-skill jobs ({hygiene.stale_rescored})")
+
+        print(
+            "process-inbox: bad-cloud threshold recalibrated "
+            f"(threshold={hygiene.new_threshold}, changed={hygiene.threshold_changed})"
         )
-        if stale_rescored:
-            print(f"process-inbox: rescored stale-skill jobs ({stale_rescored})")
-        if int(stale_cleanup.get("profile_removed", 0) or 0) > 0:
+        cloud_stats = hygiene.cloud_stats
+        if cloud_stats.get("seeded") or cloud_stats.get("pruned"):
+            print(
+                "process-inbox: bad cloud initialized "
+                f"(seeded={cloud_stats.get('seeded')}, "
+                f"ngram_keys={cloud_stats.get('ngram_keys_upserted', 0)}, "
+                f"pruned={len(cloud_stats.get('pruned', []))})"
+            )
+        if hygiene.profile_dirty:
             save_profile(profile, profile_path)
 
         learning_info = update_profile_from_db_signals(db_path, profile_path)
