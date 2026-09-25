@@ -7,13 +7,7 @@ from spejder.config import AppConfig
 from spejder.db import count_bad_ngrams
 
 from .bad_cloud import resolve_toxicity_threshold, toxicity_scores_by_key
-from .constants import (
-    SKILL_CLEANUP_GENERIC_PHRASES,
-    SKILL_CLEANUP_GENERIC_SINGLE,
-    SKILL_CLEANUP_PREFIXES,
-    SKILL_CLEANUP_STOPWORDS,
-    SKILL_CUE_PATTERN,
-)
+from .constants import SKILL_CLEANUP_GENERIC_SINGLE, SKILL_CUE_PATTERN
 from .normalization import _normalize_skill_name
 from .utils import _profile_skill_pattern_fields, _skill_to_regex
 
@@ -140,27 +134,21 @@ def _skill_cleanup_reason(name: str, source: str, protected_keys: set[str]) -> s
     if key in protected_keys or source_key.startswith("profile"):
         return ""
 
-    reason = ""
+    # Structural heuristics only — no curated phrase/stopword/prefix lists.
+    # Intentional noise control is block → bad cloud + stale low-share hygiene.
     tokens = re.findall(r"[a-z0-9+#./-]+", key)
 
-    if key in SKILL_CLEANUP_GENERIC_PHRASES:
-        reason = "generic phrase"
-    elif any(char in key for char in "?[]{}"):
-        reason = "malformed text"
-    elif re.search(r"\b(?:we|our|you|your|they|them|their)\b", key):
-        reason = "sentence fragment"
-    elif not tokens:
-        reason = "empty"
-    elif len(tokens) > 4:
-        reason = "too many words"
-    elif any(token in SKILL_CLEANUP_STOPWORDS for token in tokens):
-        reason = "contains stopword"
-    elif tokens[0] in SKILL_CLEANUP_PREFIXES:
-        reason = "sentence fragment"
-    elif len(tokens) == 1 and SKILL_CLEANUP_GENERIC_SINGLE.match(tokens[0]):
-        reason = "generic term"
-
-    return reason
+    if any(char in key for char in "?[]{}"):
+        return "malformed text"
+    if re.search(r"\b(?:we|our|you|your|they|them|their)\b", key):
+        return "sentence fragment"
+    if not tokens:
+        return "empty"
+    if len(tokens) > 4:
+        return "too many words"
+    if len(tokens) == 1 and SKILL_CLEANUP_GENERIC_SINGLE.match(tokens[0]):
+        return "generic term"
+    return ""
 
 
 def _is_candidate_strong(

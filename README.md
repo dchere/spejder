@@ -281,7 +281,7 @@ Notes:
 
 ### `cleanup-skills`
 
-Block and delete skill entries that look like sentence fragments, role titles, or generic noise rather than real skills.
+Block and delete skill entries that fail structural noise checks (empty, malformed punctuation, pronoun sentence fragments, more than four tokens, or repeated single-letter tokens).
 
 ```bash
 python3 -m spejder.cli cleanup-skills \
@@ -294,7 +294,8 @@ Options: `--profile`, `--db`, `--limit`, `--dry-run`.
 Notes:
 
 - The command protects profile seed skills and explicit user skills.
-- Removed skills are added to `blocked_skills` so they stay hidden and are not reintroduced into the dashboard.
+- Removed skills are added to `blocked_skills` so they stay hidden, feed the bad cloud, and are not reintroduced into the dashboard.
+- There is no curated phrase/stopword/prefix list — intentional noise teaching is block (Skills tab / API) → bad cloud; retention delete is separate (below).
 - Separate from automatic retention: GUI sync and `process-inbox` also delete unflagged DB skills older than 90 days (same rule as job retention) with Job share below 0.1%. That path does **not** add to `blocked_skills` or update the bad cloud.
 
 ### `dedupe-jobs`

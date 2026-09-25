@@ -8,9 +8,5 @@ SKILL_CUE_PATTERN = re.compile(
     r"who you are|we are looking for|you bring)"
 )
 
+# Repeated single-letter tokens (e.g. "aa") — structural CLI cleanup only.
 SKILL_CLEANUP_GENERIC_SINGLE = re.compile(r"^([a-z])\1*$")
-
-# TODO: populate from profile or curated lists when cleanup heuristics are expanded.
-SKILL_CLEANUP_GENERIC_PHRASES: set[str] = set()
-SKILL_CLEANUP_STOPWORDS: set[str] = set()
-SKILL_CLEANUP_PREFIXES: tuple[str, ...] = ()
