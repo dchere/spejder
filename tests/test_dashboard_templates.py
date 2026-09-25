@@ -193,10 +193,10 @@ class DashboardTemplatesTest(unittest.TestCase):
         self.assertIn('id="btn-delete-selected"', html)
         self.assertIn('id="btn-sync-from-cv"', html)
         self.assertIn("skills-bulk-bar-end", html)
+        self.assertNotIn("skills-legend", html)
         panel = html[html.index('id="panel-skills"') : html.index('id="panel-edited-today"')]
         self.assertLess(panel.index('id="btn-block-selected"'), panel.index('id="btn-sync-from-cv"'))
-        self.assertLess(panel.index('id="btn-sync-from-cv"'), panel.index('class="skills-legend"'))
-        self.assertLess(panel.index('class="skills-legend"'), panel.index('class="skills-table"'))
+        self.assertLess(panel.index('id="btn-sync-from-cv"'), panel.index('class="skills-table"'))
         self.assertLess(panel.index('class="skills-table"'), panel.index('id="skills-cloud-status"'))
 
     def test_dashboard_html_keeps_sync_when_skills_empty(self):
@@ -206,7 +206,7 @@ class DashboardTemplatesTest(unittest.TestCase):
         html = template.render(**context)
 
         self.assertIn('id="btn-sync-from-cv"', html)
-        self.assertIn("skills-legend", html)
+        self.assertNotIn("skills-legend", html)
         self.assertNotIn('id="btn-block-selected"', html)
         self.assertNotIn('id="btn-delete-selected"', html)
 

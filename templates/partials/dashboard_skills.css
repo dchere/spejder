@@ -17,8 +17,7 @@
             .skills-sync-btn { border: 1px solid #0a58ca; color: #0a58ca; background: #fff; border-radius: 6px; padding: 6px 10px; cursor: pointer; font-size: 13px; }
             .skills-sync-btn:disabled { opacity: 0.55; cursor: not-allowed; }
             .skills-sync-status { font-size: 12px; color: #555; }
-            .skills-legend { margin: 0 0 10px; font-size: 12px; color: #555; line-height: 1.4; text-align: right; }
-            .skills-bulk-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+            .skills-bulk-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
             .skills-bulk-bar-end { margin-left: auto; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
             .skills-bulk-bar button:disabled { opacity: 0.55; cursor: not-allowed; }
             #skills-selected-label { font-size: 13px; color: #555; min-width: 6rem; }
