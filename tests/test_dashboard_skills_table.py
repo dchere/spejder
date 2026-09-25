@@ -122,13 +122,27 @@ class DashboardSkillsTableTest(unittest.TestCase):
         self.assertIn(">Delete selected</button>", self.html)
         self.assertIn('id="btn-sync-from-cv"', self.html)
         self.assertIn("Sync from CV", self.html)
-        self.assertIn("skills-legend", self.html)
-        self.assertIn("Not for me</strong> = score penalty", self.html)
-        self.assertIn("Block</strong> = hide + teach the system", self.html)
-        self.assertIn("Delete</strong> = remove without teaching", self.html)
         self.assertIn("syncSkillsFromCv", self.html)
+        self.assertIn("skills-bulk-bar-end", self.html)
+        self.assertNotIn("skills-legend", self.html)
+        self.assertNotIn("skills-toolbar", self.html)
         self.assertNotIn(">Block</button>", self.table_html)
         self.assertNotIn(">Delete</button>", self.table_html)
+
+        panel = re.search(
+            r'<section id="panel-skills"[^>]*>.*?</section>',
+            self.html,
+            flags=re.DOTALL,
+        ).group(0)
+        bulk_idx = panel.index('class="skills-bulk-bar"')
+        sync_idx = panel.index('id="btn-sync-from-cv"')
+        table_idx = panel.index('class="skills-table"')
+        cloud_idx = panel.index('id="skills-cloud-status"')
+        self.assertLess(bulk_idx, sync_idx)
+        self.assertLess(sync_idx, table_idx)
+        self.assertLess(table_idx, cloud_idx)
+        self.assertGreater(sync_idx, panel.index(">Block selected</button>"))
+        self.assertGreater(sync_idx, panel.index(">Delete selected</button>"))
 
         row_htmls = _extract_skill_rows(self.table_html)
         row_names = []

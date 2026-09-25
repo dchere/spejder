@@ -75,24 +75,19 @@
         <section id="panel-stopped" class="grid hidden">{{ stopped_cards }}</section>
         <section id="panel-hidden" class="grid hidden">{{ hidden_cards }}</section>
         <section id="panel-skills" class="skills-wrap hidden">
-            {{ skills_cloud_status_html }}
-            <div class="skills-toolbar">
-                <button type="button" id="btn-sync-from-cv" class="skills-sync-btn" onclick="syncSkillsFromCv(this)" title="Extract skills from your CV (default_cv_path) and merge into I have">Sync from CV</button>
-                <span id="skills-sync-status" class="skills-sync-status" aria-live="polite"></span>
-            </div>
-            <p class="skills-legend" title="Negative-skill actions differ: penalty vs hide+teach vs remove-only.">
-                <strong>Not for me</strong> = score penalty ·
-                <strong>Block</strong> = hide + teach the system ·
-                <strong>Delete</strong> = remove without teaching
-            </p>
-            {% if len_skills_items > 0 %}
             <div class="skills-bulk-bar">
+                {% if len_skills_items > 0 %}
                 <span id="skills-selected-label">0 selected</span>
                 <button type="button" id="btn-block-selected" class="block-skill-btn" disabled onclick="blockSelectedSkills(this)" title="Block = hide + teach the system">Block selected</button>
                 <button type="button" id="btn-delete-selected" class="delete-skill-btn" disabled onclick="deleteSelectedSkills(this)" title="Delete = remove without teaching">Delete selected</button>
+                {% endif %}
+                <div class="skills-bulk-bar-end">
+                    <button type="button" id="btn-sync-from-cv" class="skills-sync-btn" onclick="syncSkillsFromCv(this)" title="Extract skills from your CV (default_cv_path) and merge into I have">Sync from CV</button>
+                    <span id="skills-sync-status" class="skills-sync-status" aria-live="polite"></span>
+                </div>
             </div>
-            {% endif %}
             {{ skills_table_html }}
+            {{ skills_cloud_status_html }}
         </section>
         <section id="panel-edited-today" class="grid hidden">{{ viewed_today_cards }}</section>
         <section id="panel-portrait" class="portrait-wrap hidden">
