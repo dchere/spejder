@@ -78,6 +78,7 @@ def _minimal_dashboard_context():
         "stopped_cards": "",
         "hidden_cards": "",
         "skills_table_html": '<p class="empty">No skills found.</p>',
+        "skills_cloud_status_html": "",
         "skills_empty_added_at_sort": SKILLS_EMPTY_ADDED_AT_SORT,
         "portrait_text": "",
         "has_portrait": False,

@@ -75,6 +75,7 @@
         <section id="panel-stopped" class="grid hidden">{{ stopped_cards }}</section>
         <section id="panel-hidden" class="grid hidden">{{ hidden_cards }}</section>
         <section id="panel-skills" class="skills-wrap hidden">
+            {{ skills_cloud_status_html }}
             {% if len_skills_items > 0 %}
             <div class="skills-bulk-bar">
                 <span id="skills-selected-label">0 selected</span>
@@ -331,6 +332,7 @@
             window.openCompanyPage = openCompanyPage;
             window.blockSkill = blockSkill;
             window.deleteSkill = deleteSkill;
+            window.forgiveSkill = forgiveSkill;
             window.updateSkillsBulkBar = updateSkillsBulkBar;
             window.toggleSelectAllSkills = toggleSelectAllSkills;
             window.blockSelectedSkills = blockSelectedSkills;

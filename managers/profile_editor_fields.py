@@ -151,6 +151,14 @@ PROFILE_FIELD_META: dict[str, dict[str, Any]] = {
         "skills", "Bigram toxicity threshold margin", "number",
         help="Operator-tunable margin for sync threshold calibration.",
     ),
+    "skill_bad_ngram_weight_cap": _field(
+        "skills", "Bad-cloud ngram weight cap", "number",
+        help="Max weight per bad-cloud ngram (default 3). Set 0 to disable the cap.",
+    ),
+    "skill_recalibrate_on_block": _field(
+        "skills", "Recalibrate threshold on block", "checkbox",
+        help="When enabled, block/batch-block immediately recalibrates skill_bigram_toxicity_threshold (default: wait for sync).",
+    ),
     "user_skills": _field(
         "skills", "User skills", "list_str", help="One skill name per line.",
     ),
@@ -159,7 +167,8 @@ PROFILE_FIELD_META: dict[str, dict[str, Any]] = {
         help="One skill name per line. Mutually exclusive with I have / Want to learn.",
     ),
     "blocked_skills": _field(
-        "skills", "Blocked skills", "list_str", help="One skill name per line.",
+        "skills", "Blocked skills", "list_str",
+        help="One skill name per line. Prefer Skills-tab Forgive to undo (decrements cloud weights).",
     ),
     "missing_skills_suggestions": _field("skills", "Missing skills suggestions", "list_str"),
     "known_skill_patterns": _field(

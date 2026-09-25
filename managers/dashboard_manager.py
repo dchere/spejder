@@ -11,7 +11,10 @@ from spejder.config import AppConfig
 from spejder.extractors.skill_extractor.ui import SKILLS_EMPTY_ADDED_AT_SORT
 
 from .dashboard_cards import _build_job_cards, _render_html_from_items
-from .dashboard_skills_table import _render_skills_table_html
+from .dashboard_skills_table import (
+    _render_skills_cloud_status_html,
+    _render_skills_table_html,
+)
 from .dashboard_sorting import _sort_applied_positions, _sort_positions_unviewed_then_score
 from .dashboard_templates import jinja_env
 
@@ -135,6 +138,7 @@ def _render_company_dashboard_html(
         stopped_cards=stopped_cards,
         hidden_cards=hidden_cards,
         skills_table_html=locals().get("skills_table_html", ""),
+        skills_cloud_status_html="",
         len_skills_items=0
     )
 
@@ -156,6 +160,7 @@ def _render_html_dashboard(
     hidden_items: Optional[list[dict]] = None,
     viewed_today_items: Optional[list[dict]] = None,
     runtime_profile: Optional[AppConfig] = None,
+    db_path: Optional[str] = None,
 ):
     os.makedirs(os.path.dirname(os.path.abspath(out_html)), exist_ok=True)
     relevant_items = _sort_positions_unviewed_then_score(relevant_items)
@@ -187,6 +192,13 @@ def _render_html_dashboard(
     hidden_cards = _build_job_cards(hidden_items, card_panel="hidden")
     skills_items = skills_items or []
     skills_table_html = _render_skills_table_html(skills_items)
+    skills_cloud_status_html = ""
+    if runtime_profile is not None and db_path:
+        from spejder.extractors.skill_extractor.bad_cloud import bad_cloud_status
+
+        skills_cloud_status_html = _render_skills_cloud_status_html(
+            bad_cloud_status(db_path, runtime_profile)
+        )
 
     from spejder.workflows.user_portrait import (
         embed_portrait_for_textarea,
@@ -220,6 +232,7 @@ def _render_html_dashboard(
         interview_cards=interview_cards,
         stopped_cards=stopped_cards,
         hidden_cards=hidden_cards,
+        skills_cloud_status_html=skills_cloud_status_html,
         skills_table_html=skills_table_html,
         skills_empty_added_at_sort=SKILLS_EMPTY_ADDED_AT_SORT,
         portrait_text=textarea_portrait_text,

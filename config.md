@@ -21,8 +21,10 @@ Replaces the old dictionary-based profile system (`FALLBACK_DEFAULT_PROFILE`). A
 
 **Skill extraction profile fields:**
 - `skill_new_confidence_threshold` — minimum LLM confidence for novel skill candidates (default `0.9`); quality/evidence checks in `filtering._is_candidate_strong` still apply
-- `skill_bigram_toxicity_threshold` — last sync-computed toxicity cutoff (auto-written cache for extraction between syncs; not a hand-edit knob). GUI sync and `process-inbox` overwrite it via `recalibrate_and_store_threshold` in shared `run_skill_hygiene_stages`.
+- `skill_bigram_toxicity_threshold` — last sync-computed toxicity cutoff (auto-written cache for extraction between syncs; not a hand-edit knob). GUI sync and `process-inbox` overwrite it via `recalibrate_and_store_threshold` in shared `run_skill_hygiene_stages`. Also written immediately on block when `skill_recalibrate_on_block` is true.
 - `skill_bigram_threshold_margin` — operator-tunable margin for the p95 good / p50 bad formula (default `0.5`)
+- `skill_bad_ngram_weight_cap` — max weight per bad-cloud ngram on ingest (default `3`; `<= 0` = uncapped). Softens ghost toxicity from heavy compound-phrase blocking.
+- `skill_recalibrate_on_block` — when true, block/batch-block calls `recalibrate_and_store_threshold` immediately (default false; sync hygiene remains the normal writer)
 - `bad_cloud_seeded` — one-time migration flag; when false, shared skill hygiene seeds `bad_ngram_weights` from existing `blocked_skills`
 - No per-job skill count cap; extraction returns all skills that pass filters
 - `skill_new_max_per_job` — **removed**; ignored if still present in an old `profile.json` (dropped on next profile save)

@@ -252,6 +252,7 @@ def write_inbox_dashboard_report(
         hidden_items=hidden_records,
         viewed_today_items=viewed_today_records,
         runtime_profile=profile,
+        db_path=db_path,
     )
     print(f"Report written: {dashboard_path}")
     return dashboard_path

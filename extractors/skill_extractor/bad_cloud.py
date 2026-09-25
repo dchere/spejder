@@ -4,12 +4,14 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from spejder.config import AppConfig
+from spejder.config import AppConfig, SKILL_BAD_NGRAM_WEIGHT_CAP_DEFAULT
 from spejder.db import (
     count_bad_ngrams,
+    decrement_bad_ngram_counts,
     ensure_db,
     get_bad_ngram_weights,
     get_skill_patterns,
+    summarize_bad_ngrams,
     upsert_bad_ngram_counts,
 )
 
@@ -18,6 +20,7 @@ from .normalization import _normalize_skill_name
 THRESHOLD_FLOOR = 0.1
 DEFAULT_THRESHOLD_MARGIN = 0.5
 MATURE_GOOD_SKILL_MIN_AGE_DAYS = 1
+DEFAULT_NGRAM_WEIGHT_CAP = SKILL_BAD_NGRAM_WEIGHT_CAP_DEFAULT
 
 
 def _tokenize_for_cloud(skill: str) -> list[str]:
@@ -101,18 +104,40 @@ def toxicity_score(skill: str, db_path: str) -> float:
     return scores.get(normalized.lower(), 0.0)
 
 
-def ingest_blocked_skill(skill: str, db_path: str) -> int:
-    return ingest_blocked_skills([skill], db_path)
+def ingest_blocked_skill(
+    skill: str,
+    db_path: str,
+    max_weight: Optional[int] = None,
+) -> int:
+    return ingest_blocked_skills([skill], db_path, max_weight=max_weight)
 
 
-def ingest_blocked_skills(skills: list[str], db_path: str) -> int:
+def ingest_blocked_skills(
+    skills: list[str],
+    db_path: str,
+    max_weight: Optional[int] = None,
+) -> int:
     counts: dict[tuple[str, int], int] = {}
     for skill in skills or []:
         for ngram in _ngrams_for_skill(str(skill)):
             counts[ngram] = counts.get(ngram, 0) + 1
     if not counts:
         return 0
-    return upsert_bad_ngram_counts(db_path, counts)
+    return upsert_bad_ngram_counts(db_path, counts, max_weight=max_weight)
+
+
+def _weight_cap(profile: Optional[AppConfig]) -> Optional[int]:
+    """Return per-ngram cap, or None when uncapped (cap <= 0)."""
+    if profile is None:
+        return DEFAULT_NGRAM_WEIGHT_CAP
+    raw = getattr(profile, "skill_bad_ngram_weight_cap", DEFAULT_NGRAM_WEIGHT_CAP)
+    try:
+        cap = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_NGRAM_WEIGHT_CAP
+    if cap <= 0:
+        return None
+    return cap
 
 
 def _threshold_margin(profile: AppConfig) -> float:
@@ -280,8 +305,12 @@ def prune_blocked_skills_by_cloud(
     return pruned
 
 
-def seed_bad_cloud_from_blocked_skills(db_path: str, blocked_skills: list[str]) -> int:
-    return ingest_blocked_skills(blocked_skills, db_path)
+def seed_bad_cloud_from_blocked_skills(
+    db_path: str,
+    blocked_skills: list[str],
+    max_weight: Optional[int] = None,
+) -> int:
+    return ingest_blocked_skills(blocked_skills, db_path, max_weight=max_weight)
 
 
 def ensure_bad_cloud_initialized(profile: AppConfig, db_path: str) -> dict:
@@ -302,7 +331,11 @@ def ensure_bad_cloud_initialized(profile: AppConfig, db_path: str) -> dict:
         if _normalize_skill_name(str(item))
     }
     if blocked:
-        stats["ngram_keys_upserted"] = seed_bad_cloud_from_blocked_skills(db_path, blocked)
+        stats["ngram_keys_upserted"] = seed_bad_cloud_from_blocked_skills(
+            db_path,
+            blocked,
+            max_weight=_weight_cap(profile),
+        )
     profile.bad_cloud_seeded = True
     stats["seeded"] = True
 
@@ -314,6 +347,87 @@ def ensure_bad_cloud_initialized(profile: AppConfig, db_path: str) -> dict:
     return stats
 
 
+def bad_cloud_status(db_path: str, profile: Optional[AppConfig]) -> dict:
+    """Operator-facing cloud summary for the Skills tab."""
+    ensure_db(db_path)
+    summary = summarize_bad_ngrams(db_path)
+    threshold = None
+    blocked: list[str] = []
+    if profile is not None:
+        explicit = getattr(profile, "skill_bigram_toxicity_threshold", None)
+        if explicit is not None:
+            try:
+                threshold = float(explicit)
+            except (TypeError, ValueError):
+                threshold = None
+        seen: set[str] = set()
+        for item in profile.blocked_skills or []:
+            normalized = _normalize_skill_name(str(item))
+            key = normalized.lower()
+            if not normalized or key in seen:
+                continue
+            seen.add(key)
+            blocked.append(normalized)
+    return {
+        "ngram_count": int(summary.get("ngram_count", 0) or 0),
+        "total_weight": int(summary.get("total_weight", 0) or 0),
+        "max_weight": int(summary.get("max_weight", 0) or 0),
+        "weight_cap": _weight_cap(profile),
+        "threshold": threshold,
+        "blocked_count": len(blocked),
+        "blocked_skills": blocked,
+    }
+
+
+def on_skills_forgiven(
+    profile: AppConfig,
+    db_path: str,
+    skills: list[str],
+) -> dict:
+    """Decrement cloud weights for skills and drop them from blocked_skills.
+
+    Softens ghost toxicity after mistaken or overly broad blocks. Does not
+    restore deleted skill_patterns / job_skills rows.
+    """
+    ensure_db(db_path)
+    counts: dict[tuple[str, int], int] = {}
+    forgiven: list[str] = []
+    seen: set[str] = set()
+    for skill in skills or []:
+        normalized = _normalize_skill_name(str(skill))
+        key = normalized.lower()
+        if not normalized or key in seen:
+            continue
+        seen.add(key)
+        forgiven.append(normalized)
+        for ngram in _ngrams_for_skill(normalized):
+            counts[ngram] = counts.get(ngram, 0) + 1
+
+    decremented = decrement_bad_ngram_counts(db_path, counts) if counts else 0
+
+    kept: list[str] = []
+    kept_keys: set[str] = set()
+    removed_from_blocked = 0
+    for item in profile.blocked_skills or []:
+        normalized = _normalize_skill_name(str(item))
+        key = normalized.lower()
+        if not normalized or key in kept_keys:
+            continue
+        if key in seen:
+            removed_from_blocked += 1
+            continue
+        kept_keys.add(key)
+        kept.append(normalized)
+    profile.blocked_skills = kept
+
+    return {
+        "skills": forgiven,
+        "ngram_keys_decremented": decremented,
+        "removed_from_blocked": removed_from_blocked,
+        "blocked_remaining": len(profile.blocked_skills or []),
+    }
+
+
 def on_skills_blocked(
     profile: AppConfig,
     db_path: str,
@@ -321,10 +435,15 @@ def on_skills_blocked(
 ) -> dict:
     """Ingest blocked skills into the cloud and prune covered blocked entries.
 
-    Does not recalibrate the threshold — GUI sync owns that write path.
+    Recalibrates the threshold only when ``skill_recalibrate_on_block`` is true
+    (optional lag-shortening path; sync hygiene remains the default writer).
     """
     ensure_db(db_path)
-    ingested = ingest_blocked_skills(skills, db_path)
+    ingested = ingest_blocked_skills(
+        skills,
+        db_path,
+        max_weight=_weight_cap(profile),
+    )
 
     threshold = resolve_toxicity_threshold(db_path, profile)
     protect_keys = {
@@ -338,9 +457,22 @@ def on_skills_blocked(
         threshold,
         protect_keys=protect_keys,
     )
+    threshold_changed = False
+    if bool(getattr(profile, "skill_recalibrate_on_block", False)):
+        previous = getattr(profile, "skill_bigram_toxicity_threshold", None)
+        threshold = recalibrate_and_store_threshold(profile, db_path)
+        threshold_changed = previous != profile.skill_bigram_toxicity_threshold
+        # Re-evaluate other blocked entries against the fresh cutoff.
+        pruned = prune_blocked_skills_by_cloud(
+            profile,
+            db_path,
+            None if threshold == float("inf") else threshold,
+            protect_keys=protect_keys,
+        )
     return {
         "ngrams_ingested": ingested,
         "ngram_keys_upserted": ingested,
         "threshold": threshold,
+        "threshold_changed": threshold_changed,
         "pruned": pruned,
     }

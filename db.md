@@ -16,9 +16,11 @@ Implements the Repository Pattern, acting as the strict single source of truth f
 - `count_jobs_with_skill_links(db_path)` — distinct jobs with at least one `job_skills` row (denominator for Skills tab job share %)
 - `get_top_skills_by_job_links(db_path, limit, exclude_keys=None)` — skill names ranked by `job_skills` link count; excluding normalized keys. **Dual filter for eligible skills:** `INNER JOIN job_skills` (only skills with at least one job link) **and** `COALESCE(sp.occurrences, 0) >= 1` (pattern-learning counter must be positive — excludes orphan `skill_patterns` rows that never graduated from the learning pipeline). **Tie-break:** equal link counts sort alphabetically by `sp.name` (`ORDER BY link_count DESC, sp.name ASC`).
 - `count_bad_ngrams(db_path)` — row count in `bad_ngram_weights`
+- `summarize_bad_ngrams(db_path)` — `{ngram_count, total_weight, max_weight}` for Skills-tab status
 - `get_bad_ngram_weights(db_path, ngrams)` — batch lookup `{(ngram, gram_size): weight}`
-- `upsert_bad_ngrams(db_path, ngrams, increment=1)` — increment weights for bigram/unigram keys (accumulator; never decrements)
-- `upsert_bad_ngram_counts(db_path, counts)` — batch variant `{ (ngram, gram_size): increment }` in one transaction
+- `upsert_bad_ngrams(db_path, ngrams, increment=1, max_weight=None)` — increment weights for bigram/unigram keys; optional per-key cap
+- `upsert_bad_ngram_counts(db_path, counts, max_weight=None)` — batch variant `{ (ngram, gram_size): increment }` in one transaction; caps with `MIN(cap, weight + delta)` when `max_weight > 0`
+- `decrement_bad_ngram_counts(db_path, counts)` — subtract weights; delete rows at ≤ 0 (forgive path)
 - `cleanup_blocked_skills_from_db(db_path, blocked_skills)` — dedupes blocked skill names via `_normalize_skill_name_key`, delegates each to `delete_skill_from_db`, returns aggregated `{skills_processed, skill_rows_deleted, job_skill_links_deleted, affected_job_ids}`
 - `cleanup_stale_low_share_skills_from_db(db_path, protected_keys)` — delete-only retention: age-eligible `skill_patterns` (`created_at` parseable and older than `SKILL_RETENTION_DAYS` = `JOB_RETENTION_DAYS` (90)) whose Job share `position_pct` is `< SKILL_STALE_JOB_SHARE_PCT_THRESHOLD` (0.1). Skips empty/null/unparseable `created_at` and normalized `protected_keys`. Uses shared `position_pct` (same rounding as Skills tab). Returns `{skills_deleted, skill_rows_deleted, job_skill_links_deleted, affected_job_ids, skills_considered, skills_skipped, deleted_skill_names}`. Does not touch profile, `blocked_skills`, or bad cloud.
 - `position_pct(position_count, jobs_with_skills)` — Skills-tab Job share formula (`round(100.0 * count / denom, 1)`; 0 when denom or count ≤ 0); shared by UI and stale cleanup

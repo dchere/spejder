@@ -65,6 +65,8 @@ class DashboardSkillsTableTest(unittest.TestCase):
             self.out_html,
             "Test dashboard",
             skills_items=skills_items,
+            runtime_profile=self.profile,
+            db_path=self.db_path,
         )
         with open(self.out_html, encoding="utf-8") as f:
             self.html = f.read()
@@ -73,9 +75,9 @@ class DashboardSkillsTableTest(unittest.TestCase):
     def tearDown(self):
         self._tmpdir.cleanup()
 
-    def test_skills_table_column_order_and_default_sort(self):
-        sort_keys = _extract_sort_keys(self.table_html)
-        self.assertEqual(sort_keys[:3], ["name", "added_at", "source"])
+    def test_skills_cloud_status_rendered(self):
+        self.assertIn('id="skills-cloud-status"', self.html)
+        self.assertIn("Bad cloud:", self.html)
 
         self.assertIn(
             'data-sort-key="added_at" title="When the skill was first stored',
