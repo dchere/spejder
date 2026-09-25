@@ -382,9 +382,9 @@ In `profile.json`:
 - `user_skills`: your editable skill list used for scoring.
 - `unwanted_skills`: Skills tab **Not for me**; subtracted in scoring via `skill_unwanted_penalty`. Missing key in old `profile.json` = empty. Mutually exclusive with `user_skills` / `missing_skills_suggestions` (unwanted wins on load/save). Not `blocked_skills`.
 - `blocked_skills`: skills hidden from the Skills tab and filtered out from extracted skill results; blocking also deletes matching rows from SQLite `skill_patterns` and `job_skills`, ingests bigrams into `bad_ngram_weights`, and may prune redundant blocked entries once the cloud learns them.
-- `skill_bigram_toxicity_threshold`: last sync-computed toxicity cutoff (auto-updated on GUI background sync; used as a cache between syncs).
+- `skill_bigram_toxicity_threshold`: last sync-computed toxicity cutoff (auto-updated on GUI background sync and `process-inbox`; used as a cache between syncs).
 - `skill_bigram_threshold_margin`: calibration margin between mature good and blocked skill score distributions (default `0.5`; the operator-tunable coefficient).
-- `bad_cloud_seeded`: set automatically after one-time seeding of `bad_ngram_weights` from existing `blocked_skills` during GUI sync.
+- `bad_cloud_seeded`: set automatically after one-time seeding of `bad_ngram_weights` from existing `blocked_skills` during GUI sync or `process-inbox`.
 - `missing_skills_suggestions`: generated from applied jobs.
 - `skill_new_confidence_threshold`: minimum LLM confidence for accepting a novel skill candidate (default `0.9`).
 - `skill_match_weight`: bonus per matched required skill.

@@ -23,6 +23,39 @@ from spejder.parsers.itday_portal import (
 from spejder.workflows.gui_sync import GuiSyncContext, run_inbox_sync
 from spejder.workflows.inbox_workflow import process_inbox
 from spejder.workflows.portal_sync import sync_itday_portal
+from spejder.workflows.skill_hygiene import SkillHygieneResult
+
+
+_HYGIENE_EMPTY = SkillHygieneResult(
+    blocked_cleanup={
+        "skills_processed": 0,
+        "skill_rows_deleted": 0,
+        "job_skill_links_deleted": 0,
+        "affected_job_ids": [],
+    },
+    blocked_rescored=0,
+    stale_cleanup={
+        "skills_deleted": 0,
+        "skill_rows_deleted": 0,
+        "job_skill_links_deleted": 0,
+        "affected_job_ids": [],
+        "profile_removed": 0,
+        "deleted_skill_names": [],
+    },
+    stale_rescored=0,
+    cloud_stats={"seeded": False, "pruned": []},
+    new_threshold=0.1,
+    previous_threshold=None,
+    threshold_changed=False,
+)
+
+
+def _fake_hygiene(db_path, profile, *, on_stage=None):
+    if on_stage is not None:
+        on_stage("blocked_skills", "Cleaning blocked skills from database")
+        on_stage("stale_skills", "Cleaning stale low-share skills")
+        on_stage("bad_cloud", "Initializing bad cloud")
+    return _HYGIENE_EMPTY
 
 
 _FIXTURE_PATH = os.path.join(
@@ -224,12 +257,8 @@ class RunInboxSyncPortalTest(unittest.TestCase):
         return_value={"found": 1, "inserted_new": 1, "skipped_existing": 0, "processed": 1},
     )
     @patch(
-        "spejder.workflows.gui_sync.recalibrate_and_store_threshold",
-        return_value=0.1,
-    )
-    @patch(
-        "spejder.workflows.gui_sync.ensure_bad_cloud_initialized",
-        return_value={"seeded": False, "pruned": []},
+        "spejder.workflows.gui_sync.run_skill_hygiene_stages",
+        side_effect=_fake_hygiene,
     )
     @patch(
         "spejder.workflows.gui_sync._learn_skill_patterns_from_positions",
@@ -237,26 +266,6 @@ class RunInboxSyncPortalTest(unittest.TestCase):
             "considered_positions": 0,
             "new_skill_patterns": 0,
             "total_known_skill_patterns": 0,
-        },
-    )
-    @patch(
-        "spejder.workflows.gui_sync.run_stale_skill_cleanup",
-        return_value={
-            "skills_deleted": 0,
-            "skill_rows_deleted": 0,
-            "job_skill_links_deleted": 0,
-            "affected_job_ids": [],
-            "profile_removed": 0,
-            "deleted_skill_names": [],
-        },
-    )
-    @patch(
-        "spejder.workflows.gui_sync.cleanup_blocked_skills_from_db",
-        return_value={
-            "skills_processed": 0,
-            "skill_rows_deleted": 0,
-            "job_skill_links_deleted": 0,
-            "affected_job_ids": [],
         },
     )
     @patch("spejder.workflows.gui_sync._generate_missing_descriptions_for_ingest", return_value=(0, 0))
@@ -271,31 +280,23 @@ class RunInboxSyncPortalTest(unittest.TestCase):
         _delete_files,
         _dedupe,
         _gen_desc,
-        _blocked_cleanup,
-        mock_stale_cleanup,
         _learn,
-        _bad_cloud,
-        _recalibrate,
+        mock_hygiene,
         _portal,
     ):
         result = run_inbox_sync(self.context)
         self.assertEqual(result.status, "done")
-        mock_stale_cleanup.assert_called_once_with(
-            self.context.db_path,
-            self.context.runtime_profile,
-        )
+        mock_hygiene.assert_called_once()
+        self.assertEqual(mock_hygiene.call_args.args[0], self.context.db_path)
+        self.assertIs(mock_hygiene.call_args.args[1], self.context.runtime_profile)
 
     @patch(
         "spejder.workflows.gui_sync.sync_itday_portal",
         return_value={"found": 1, "inserted_new": 1, "skipped_existing": 0, "processed": 1},
     )
     @patch(
-        "spejder.workflows.gui_sync.recalibrate_and_store_threshold",
-        return_value=0.1,
-    )
-    @patch(
-        "spejder.workflows.gui_sync.ensure_bad_cloud_initialized",
-        return_value={"seeded": False, "pruned": []},
+        "spejder.workflows.gui_sync.run_skill_hygiene_stages",
+        side_effect=_fake_hygiene,
     )
     @patch(
         "spejder.workflows.gui_sync._learn_skill_patterns_from_positions",
@@ -303,26 +304,6 @@ class RunInboxSyncPortalTest(unittest.TestCase):
             "considered_positions": 0,
             "new_skill_patterns": 0,
             "total_known_skill_patterns": 0,
-        },
-    )
-    @patch(
-        "spejder.workflows.gui_sync.run_stale_skill_cleanup",
-        return_value={
-            "skills_deleted": 0,
-            "skill_rows_deleted": 0,
-            "job_skill_links_deleted": 0,
-            "affected_job_ids": [],
-            "profile_removed": 0,
-            "deleted_skill_names": [],
-        },
-    )
-    @patch(
-        "spejder.workflows.gui_sync.cleanup_blocked_skills_from_db",
-        return_value={
-            "skills_processed": 0,
-            "skill_rows_deleted": 0,
-            "job_skill_links_deleted": 0,
-            "affected_job_ids": [],
         },
     )
     @patch("spejder.workflows.gui_sync._generate_missing_descriptions_for_ingest", return_value=(0, 0))
@@ -337,11 +318,8 @@ class RunInboxSyncPortalTest(unittest.TestCase):
         _delete_files,
         mock_dedupe,
         _gen_desc,
-        _blocked_cleanup,
-        mock_stale_cleanup,
         _learn,
-        _bad_cloud,
-        _recalibrate,
+        mock_hygiene,
         _portal,
     ):
         stages: list[str] = []
@@ -351,7 +329,9 @@ class RunInboxSyncPortalTest(unittest.TestCase):
         )
         result = run_inbox_sync(context)
         self.assertEqual(result.status, "done")
-        mock_stale_cleanup.assert_called_once_with(context.db_path, context.runtime_profile)
+        mock_hygiene.assert_called_once()
+        self.assertEqual(mock_hygiene.call_args.args[0], context.db_path)
+        self.assertIs(mock_hygiene.call_args.args[1], context.runtime_profile)
         self.assertEqual(mock_dedupe.call_count, 2)
         self.assertEqual(
             mock_dedupe.call_args_list[0].kwargs.get("log_prefix"),
@@ -363,6 +343,9 @@ class RunInboxSyncPortalTest(unittest.TestCase):
         )
         self.assertIn("portal_dedupe", stages)
         self.assertIn("dedupe", stages)
+        self.assertIn("blocked_skills", stages)
+        self.assertIn("stale_skills", stages)
+        self.assertIn("bad_cloud", stages)
 
     @patch(
         "spejder.workflows.gui_sync.sync_itday_portal",

@@ -9,11 +9,11 @@ Coordinates the ingestion of new job postings from the inbox folder, matching jo
 **Related modules:**
 - `spejder.workflows.ingest_utils` — per-file ingest stats + inbox file cleanup
 - `spejder.workflows.inbox_report` — relevant-job LLM summaries + HTML dashboard write
-- `spejder.workflows.skill_hygiene` — stale low-share skill retention after pattern learning
+- `spejder.workflows.skill_hygiene` — shared `run_skill_hygiene_stages` (blocked → stale → bad cloud) after pattern learning
 - `spejder.workflows.sync_log` — append-only `{report_dir}/sync.log` (source=`process_inbox`)
 
 **Sync log:**
-Opens `SyncRunLog` at `default_sync_log_path(report_dir)` for the run (default `echo_stdout=True`, so the CLI mirrors each event as `sync …`). Wraps overlapping stages with the same ids as GUI sync (`portal`, `portal_dedupe`, `ingest`, `cleanup`, `descriptions`, `skills`, `patterns`, `stale_skills`) and passes progress callbacks into ingest / descriptions / materialize / pattern learning. Ingest progress uses **job** counts with `total=0` (no pct) plus `files=` via `IngestProgressTracker` (ticks on `inserted_new` change, every 25 processed jobs, and a final line when needed). Materialize / pattern learning use `progress_label=""` / `progress=False` when `on_progress` is wired (stage/progress events cover cadence). Does **not** invent `blocked_skills` / `bad_cloud` / `dedupe` stages when the CLI pipeline omits those steps. Early empty return logs `pipeline_end status=skipped`; success/failure use `pipeline_end` + `run_end`. Kept non-event prints: empty-inbox notice, ingest/cleanup/description/pattern/stale summaries, final rollups, hard failures.
+Opens `SyncRunLog` at `default_sync_log_path(report_dir)` for the run (default `echo_stdout=True`, so the CLI mirrors each event as `sync …`). Wraps overlapping stages with the same ids as GUI sync (`portal`, `portal_dedupe`, `ingest`, `cleanup`, `descriptions`, `skills`, `patterns`, `blocked_skills`, `stale_skills`, `bad_cloud`) and passes progress callbacks into ingest / descriptions / materialize / pattern learning. Ingest progress uses **job** counts with `total=0` (no pct) plus `files=` via `IngestProgressTracker` (ticks on `inserted_new` change, every 25 processed jobs, and a final line when needed). Materialize / pattern learning use `progress_label=""` / `progress=False` when `on_progress` is wired (stage/progress events cover cadence). Does **not** invent `dedupe` (post-ingest) when the CLI pipeline omits that step. Early empty return logs `pipeline_end status=skipped`; success/failure use `pipeline_end` + `run_end`. Kept non-event prints: empty-inbox notice, ingest/cleanup/description/pattern/hygiene summaries, final rollups, hard failures.
 
 **Ingest flow (ordered):**
 0. Sync IT-DAY job portal (`sync_itday_portal(..., enabled=profile.itday_portal_sync_enabled)`) — after `ensure_db` / entry transform; LLM is not required for fetch; skipped when the profile flag is false
@@ -22,7 +22,7 @@ Opens `SyncRunLog` at `default_sync_log_path(report_dir)` for the run (default `
 2. Generate missing descriptions
 3. Materialize skills (+ conditional rescore on skill change in active scope)
 3b. Learn skill patterns from applied/relevant positions
-3c. Stale low-share skill cleanup (`run_stale_skill_cleanup`): after learning, delete unflagged DB skills older than retention (same rule as job retention) with Job share < 0.1%; skips Skills-tab flags and `blocked_skills` keys; rescore affected jobs; `save_profile` when profile patterns/keywords pruned (no dashboard queue; does not append `blocked_skills`)
+3c. Shared skill hygiene (`run_skill_hygiene_stages`): same contract as GUI sync — blocked DB cleanup + rescore → stale low-share cleanup + rescore → bad-cloud seed + threshold recalibrate; stages `blocked_skills` / `stale_skills` / `bad_cloud`; `save_profile` when `profile_dirty` (no dashboard queue)
 3d. `update_profile_from_db_signals` (learned keywords / missing skills)
 4. Summarize relevant jobs + write inbox report
 
