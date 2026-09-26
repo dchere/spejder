@@ -448,11 +448,11 @@ class PlatformMergeOrderTest(unittest.TestCase):
             with self.subTest(path=path):
                 with (
                     patch(
-                        "spejder.jobs.parsing.core._extract_google_entries_by_link",
+                        "spejder.jobs.parsing.platforms._extract_google_entries_by_link",
                         return_value={link: google_fields},
                     ),
                     patch(
-                        "spejder.jobs.parsing.core._extract_jobindex_entries_by_link",
+                        "spejder.jobs.parsing.platforms_jobindex._extract_jobindex_entries_by_link",
                         return_value={link: jobindex_fields},
                     ),
                     patch(

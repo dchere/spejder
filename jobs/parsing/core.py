@@ -13,20 +13,9 @@ from .linkedin import (
     _is_linkedin_reference_position_link,
     _work_type_from_html_for_link,
 )
-from .platforms import (
-    _extract_demant_entries_by_link,
-    _extract_google_entries_by_link,
-    _extract_jobindex_entries_by_link,
-)
-from .platforms_career_alerts import (
-    _extract_djinni_entries_by_link,
-    _extract_oracle_cx_entries_by_link,
-    _extract_thehub_entries_by_link,
-)
 from .merge import _ENTRY_FIELD_KEYS, merge_entry_fields
+from .platform_registry import registered_platforms
 from .text_parser import _extract_entries_from_text
-
-_JOBINDEX_MERGE_SKIP_KEYS = frozenset({"work_type", "source"})
 
 
 def _fill_empty_fields(entry: dict, fields: dict) -> None:
@@ -36,16 +25,6 @@ def _fill_empty_fields(entry: dict, fields: dict) -> None:
         value = fields.get(key)
         if value and not entry.get(key):
             entry[key] = value
-
-
-def _jobindex_merge_fields(fields: dict) -> dict:
-    if not fields:
-        return {}
-    return {
-        key: value
-        for key, value in fields.items()
-        if key not in _JOBINDEX_MERGE_SKIP_KEYS
-    }
 
 
 def extract_job_entries(
@@ -68,15 +47,11 @@ def extract_job_entries(
         artifact_list = list(artifacts)
     artifact_by_link = interpret_artifacts(html_text, artifact_list, links=links)
     html_by_link = _extract_html_entries_by_link(html_text)
-    jobindex_by_link = _extract_jobindex_entries_by_link(html_text)
-    demant_by_link = _extract_demant_entries_by_link(html_text)
-    google_by_link = _extract_google_entries_by_link(html_text)
-    thehub_by_link = _extract_thehub_entries_by_link(html_text)
-    djinni_by_link = _extract_djinni_entries_by_link(html_text)
-    oracle_by_link = _extract_oracle_cx_entries_by_link(html_text)
     # Vestas / Danfoss / Novo Nordisk Jobs2Web hosts: shipped artifacts only
     # (see jobs/parsing/artifacts/*.json). Python site extractors remain in
     # jobs2web.py for parity tests, not the merge path.
+    platforms = registered_platforms()
+    platform_maps = [spec.extract(html_text) for spec in platforms]
 
     by_text = _extract_entries_from_text(text)
     by_link = {}
@@ -90,16 +65,15 @@ def extract_job_entries(
         html_fields = (
             {} if link in artifact_by_link else html_by_link.get(link, {})
         )
-        return (
-            google_by_link.get(link, {}),
-            thehub_by_link.get(link, {}),
-            djinni_by_link.get(link, {}),
-            oracle_by_link.get(link, {}),
-            demant_by_link.get(link, {}),
-            _jobindex_merge_fields(jobindex_by_link.get(link, {})),
-            html_fields,
-            artifact_by_link.get(link, {}),
-        )
+        maps: list[dict] = []
+        for spec, by_platform in zip(platforms, platform_maps):
+            fields = by_platform.get(link, {})
+            if spec.merge_transform is not None:
+                fields = spec.merge_transform(fields)
+            maps.append(fields)
+        maps.append(html_fields)
+        maps.append(artifact_by_link.get(link, {}))
+        return tuple(maps)
 
     for lnk, entry in by_link.items():
         merged = merge_entry_fields(*_maps_for(lnk))
@@ -181,5 +155,3 @@ def extract_job_entries(
         filtered_entries.append(entry)
 
     return filtered_entries
-
-

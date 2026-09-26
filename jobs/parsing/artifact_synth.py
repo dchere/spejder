@@ -13,11 +13,15 @@ from urllib.parse import urlparse
 from pydantic import ValidationError
 
 from spejder.config import AppConfig
-from spejder.jobs.parsing.artifact_heuristic import draft_cta_ancestor_artifact
+from spejder.jobs.parsing.artifact_heuristic import (
+    cta_labels_from_artifacts,
+    draft_cta_ancestor_artifact,
+)
 from spejder.jobs.parsing.artifact_interpreter import interpret_artifact
 from spejder.jobs.parsing.artifact_schema import CareerAlertArtifact
 from spejder.jobs.parsing.artifact_store import (
     is_shipped_id,
+    load_artifacts,
     resolve_overlay_dir,
     save_overlay_artifact,
 )
@@ -198,6 +202,9 @@ def try_synthesize_artifact(
     *,
     overlay_dir: Optional[str] = None,
     max_prompt_chars: Optional[int] = None,
+    title_hint: str = "",
+    text: str = "",
+    from_hint: str = "",
 ) -> tuple[Optional[CareerAlertArtifact], str]:
     """
     Heuristic and/or shrink → LLM → validate → optionally persist overlay.
@@ -206,8 +213,25 @@ def try_synthesize_artifact(
     if not html_text:
         return None, "missing_html"
 
+    target_dir = (
+        overlay_dir
+        if overlay_dir is not None
+        else profile.career_alert_artifacts_dir
+    )
+    label_artifacts = load_artifacts(
+        overlay_dir=target_dir,
+        disabled_ids=profile.career_alert_artifacts_disabled,
+    )
+    known_cta = cta_labels_from_artifacts(label_artifacts)
+
     # Deterministic CTA digests (iCIMS etc.) before spending an LLM call.
-    heuristic = draft_cta_ancestor_artifact(html_text)
+    heuristic = draft_cta_ancestor_artifact(
+        html_text,
+        title_hint=title_hint,
+        text=text,
+        from_hint=from_hint,
+        known_cta_labels=known_cta,
+    )
     if heuristic is not None:
         recovered = interpret_artifact(html_text, heuristic)
         proposed = _proposed_from_recovered(recovered)

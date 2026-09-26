@@ -15,6 +15,7 @@ from spejder.jobs.parsing.artifact_schema import (
     compile_safe_path_regex,
 )
 from spejder.jobs.parsing.jobs2web import _parse_jobs2web_anchor_text
+from spejder.jobs.parsing.links import unwrap_track_link
 
 _CTA_LABELS = frozenset(
     {
@@ -38,7 +39,7 @@ def _compiled_path_regex(pattern: str) -> re.Pattern[str] | None:
 def href_matches_artifact(href: str, artifact: CareerAlertArtifact) -> bool:
     if not href:
         return False
-    parsed = urlparse(href)
+    parsed = urlparse(unwrap_track_link(href))
     host = (parsed.netloc or "").lower()
     path = (parsed.path or "").lower()
     match = artifact.match
@@ -104,8 +105,13 @@ def _find_title_container(anchor: Tag) -> Tag | None:
     return best
 
 
-def _title_from_ancestor_block(anchor: Tag) -> tuple[str, str]:
+def _title_from_ancestor_block(
+    anchor: Tag,
+    *,
+    cta_labels: frozenset[str] | None = None,
+) -> tuple[str, str]:
     """Return (title, raw_text) from the nearest substantial ancestor of a CTA button."""
+    labels = cta_labels if cta_labels is not None else _CTA_LABELS
     container = _find_title_container(anchor)
     if container is None:
         return "", ""
@@ -115,7 +121,7 @@ def _title_from_ancestor_block(anchor: Tag) -> tuple[str, str]:
         text = " ".join(tag.get_text(" ", strip=True).split())
         if not text:
             continue
-        if text.casefold() in _CTA_LABELS:
+        if text.casefold() in labels:
             continue
         headings.append(text)
     if headings:
@@ -124,7 +130,7 @@ def _title_from_ancestor_block(anchor: Tag) -> tuple[str, str]:
         return title, raw
 
     peeled = raw
-    for label in _CTA_LABELS:
+    for label in labels:
         peeled = re.sub(rf"(?i)\b{re.escape(label)}\b", " ", peeled)
     peeled = " ".join(peeled.split())
     if not peeled:

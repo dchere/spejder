@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup
 
 from spejder.db import _normalize_position_link
 from spejder.jobs.parsing.links import _is_job_link
+from spejder.jobs.parsing.platform_registry import register_platform
 
 _DJINNI_SKIP_ANCHOR_TEXT = frozenset({"Детальніше", "Дивитися нові вакансії"})
 
@@ -46,6 +47,7 @@ def _djinni_is_metadata_value(value: str) -> bool:
     return False
 
 
+@register_platform("djinni", order=30)
 def _extract_djinni_entries_by_link(html_text: str) -> dict[str, dict[str, str]]:
     if not html_text:
         return {}

@@ -146,6 +146,9 @@ def ingest_docs_to_db(
                 synth_llm,
                 runtime_profile,
                 overlay_dir=runtime_profile.career_alert_artifacts_dir,
+                title_hint=str(doc.get("title") or ""),
+                text=str(doc.get("text") or ""),
+                from_hint=str(doc.get("from") or ""),
             )
             synth_reason = str(reason or "")
             if artifact is not None:
