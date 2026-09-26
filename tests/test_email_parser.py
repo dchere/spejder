@@ -41,6 +41,7 @@ class ParseEmailFileTest(unittest.TestCase):
         doc = email_parser.parse_email_file(self.eml_path)
 
         self.assertEqual(doc["title"], "Acme Corp - job alert")
+        self.assertEqual(doc["from"], "alerts@example.com")
         self.assertIn("https://example.com/plain-link", doc["text"])
         self.assertIn("https://example.com/html-link", doc["html"])
         self.assertIn("https://example.com/plain-link", doc["links"])

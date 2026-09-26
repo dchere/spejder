@@ -26,6 +26,10 @@ def _parse_eml_file(path: str) -> dict:
     if msg.get("Subject"):
         subject = str(make_header(decode_header(msg.get("Subject")))).strip()
 
+    from_addr = ""
+    if msg.get("From"):
+        from_addr = str(make_header(decode_header(msg.get("From")))).strip()
+
     plain_text_parts = []
     html_parts = []
     for part in msg.walk():
@@ -71,6 +75,7 @@ def _parse_eml_file(path: str) -> dict:
         "html": html,
         "links": links,
         "title": title,
+        "from": from_addr,
     }
 
 

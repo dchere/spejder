@@ -1,9 +1,24 @@
 import re
 
 from spejder.db.utils import (
+    _decode_mandrill_track_link,
     _is_djinni_position_link,
     _is_teamtailor_position_link,
 )
+
+
+def unwrap_track_link(link: str) -> str:
+    """Unwrap known email click-trackers to the destination URL.
+
+    Used before host/path match so Mandrill (and similar) wrappers resolve to
+    the real ATS URL early — same destination ``_normalize_position_link`` uses
+    for The Hub / Djinni digests.
+    """
+    raw = (link or "").strip()
+    if not raw:
+        return ""
+    unwrapped = _decode_mandrill_track_link(raw)
+    return unwrapped or raw
 
 
 def _is_job_link(link: str) -> bool:

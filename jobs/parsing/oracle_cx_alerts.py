@@ -5,8 +5,10 @@ from bs4 import BeautifulSoup
 
 from spejder.db import _normalize_position_link, _provider_from_link
 from spejder.db.utils import EMERSON_ORACLE_FA_HOST
+from spejder.jobs.parsing.platform_registry import register_platform
 
 
+@register_platform("oracle_cx", order=40)
 def _extract_oracle_cx_entries_by_link(html_text: str) -> dict[str, dict[str, str]]:
     if not html_text:
         return {}

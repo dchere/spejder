@@ -5,8 +5,11 @@ from bs4 import BeautifulSoup
 
 from spejder.db import _normalize_position_link, _provider_from_link
 
+from .platform_registry import register_platform
 from .platforms_jobindex import _extract_jobindex_entries_by_link
 
+
+@register_platform("demant", order=50)
 def _extract_demant_entries_by_link(html_text: str) -> dict[str, dict[str, str]]:
     if not html_text:
         return {}
@@ -49,6 +52,7 @@ def _extract_demant_entries_by_link(html_text: str) -> dict[str, dict[str, str]]
     return by_link
 
 
+@register_platform("google", order=10)
 def _extract_google_entries_by_link(html_text: str) -> dict[str, dict[str, str]]:
     if not html_text:
         return {}

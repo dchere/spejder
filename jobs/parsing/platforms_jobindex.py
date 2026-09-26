@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 
 from spejder.db import _extract_jobindex_id, _normalize_position_link
 
+from .platform_registry import register_platform
 from .utils import (
     infer_jobindex_company_from_title,
     is_jobindex_company_echo_place,
@@ -24,6 +25,20 @@ from .utils import (
     strip_title_overlap_from_place,
 )
 
+_JOBINDEX_MERGE_SKIP_KEYS = frozenset({"work_type", "source"})
+
+
+def _jobindex_merge_fields(fields: dict) -> dict:
+    if not fields:
+        return {}
+    return {
+        key: value
+        for key, value in fields.items()
+        if key not in _JOBINDEX_MERGE_SKIP_KEYS
+    }
+
+
+@register_platform("jobindex", order=60, merge_transform=_jobindex_merge_fields)
 def _extract_jobindex_entries_by_link(html_text: str) -> dict[str, dict[str, str]]:
     if not html_text:
         return {}

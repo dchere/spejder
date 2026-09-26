@@ -4,6 +4,7 @@ from typing import Optional
 from bs4 import BeautifulSoup
 
 from spejder.db import _normalize_position_link
+from spejder.jobs.parsing.platform_registry import register_platform
 
 _THEHUB_WORK_TYPES = frozenset(
     {"Full-time", "Part-time", "Internship", "Contract", "Freelance"}
@@ -20,6 +21,7 @@ def _thehub_card_block(anchor) -> Optional[object]:
     return anchor.find_parent("td") or anchor.parent
 
 
+@register_platform("thehub", order=20)
 def _extract_thehub_entries_by_link(html_text: str) -> dict[str, dict[str, str]]:
     if not html_text:
         return {}
