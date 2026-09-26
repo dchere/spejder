@@ -141,6 +141,7 @@ def ingest_docs_to_db(
                     verbose=False,
                 )
             html_text = str(doc.get("html") or "")
+            doc_links = [str(item) for item in (doc.get("links") or []) if item]
             artifact, reason = try_synthesize_artifact(
                 html_text,
                 synth_llm,
@@ -149,6 +150,8 @@ def ingest_docs_to_db(
                 title_hint=str(doc.get("title") or ""),
                 text=str(doc.get("text") or ""),
                 from_hint=str(doc.get("from") or ""),
+                links=doc_links,
+                existing_artifacts=artifact_cache,
             )
             synth_reason = str(reason or "")
             if artifact is not None:

@@ -25,8 +25,15 @@ from spejder.jobs.parsing.artifact_store import (
     resolve_overlay_dir,
     save_overlay_artifact,
 )
-from spejder.jobs.parsing.html_shrink import shrink_html_for_prompt
-from spejder.llm import LocalLLM
+from spejder.jobs.parsing.artifact_synth_budget import (
+    consume_synth_attempt,
+    primary_host_from_html,
+)
+from spejder.jobs.parsing.artifact_synth_drift import (
+    disable_stale_overlays_for,
+    drift_prompt_note,
+    find_stale_artifacts,
+)
 from spejder.jobs.parsing.artifact_synth_json import (
     _extract_json_object,
 )
@@ -37,6 +44,8 @@ from spejder.jobs.parsing.artifact_synth_validate import (
     _recovered_too_broad,
     validate_synth_thresholds,
 )
+from spejder.jobs.parsing.html_shrink import shrink_html_for_prompt
+from spejder.llm import LocalLLM
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +89,8 @@ Given shrunk HTML from a career-alert email, return a JSON object with:
 }}
 Rules:
 - Use only filtered_links extract mode and known from_anchor opcodes:
-  jobs2web_middot_or_dash | anchor_text_compact | ancestor_strong_or_first_line.
+  jobs2web_middot_or_dash | anchor_text_compact | ancestor_strong_or_first_line
+  | prev_sibling_text.
 - Emit the artifact object before the positions array.
 - Include at most {max_positions} positions (enough to prove the match rules).
 - Copy position_link values exactly from the HTML hrefs (already without query strings).
@@ -88,11 +98,12 @@ Rules:
 - artifact.match must match those job links (use the real link host/path, not a careers marketing host).
 - When anchors say only "Apply here"/"Apply now" and the title appears beside them
   (see " :: Title" context in the HTML), set:
-  from_anchor=ancestor_strong_or_first_line,
+  from_anchor=ancestor_strong_or_first_line (or prev_sibling_text when the title
+  is a previous sibling cell/paragraph rather than an ancestor heading),
   path_includes to the CTA path (often "/f/a/" for iCIMS),
   and anchor_text_equals=["Apply here"] (or the CTA label used).
 - Reply with a single complete JSON object only, no markdown.
-
+{drift_note}
 HTML:
 {html}
 """
@@ -205,10 +216,17 @@ def try_synthesize_artifact(
     title_hint: str = "",
     text: str = "",
     from_hint: str = "",
+    links: Optional[list[str]] = None,
+    existing_artifacts: Optional[list[CareerAlertArtifact]] = None,
 ) -> tuple[Optional[CareerAlertArtifact], str]:
     """
     Heuristic and/or shrink → LLM → validate → optionally persist overlay.
     Returns (artifact_or_None, reason).
+
+    When ``existing_artifacts`` prefilter-match but recover no titles (format
+    drift), the LLM prompt gets a drift note and a successful persist disables
+    overlapping stale overlays. LLM calls are capped per host/UTC-day via
+    ``career_alert_synth_max_per_host_day`` (≤0 disables the cap).
     """
     if not html_text:
         return None, "missing_html"
@@ -218,11 +236,23 @@ def try_synthesize_artifact(
         if overlay_dir is not None
         else profile.career_alert_artifacts_dir
     )
-    label_artifacts = load_artifacts(
-        overlay_dir=target_dir,
-        disabled_ids=profile.career_alert_artifacts_disabled,
+    label_artifacts = (
+        list(existing_artifacts)
+        if existing_artifacts is not None
+        else load_artifacts(
+            overlay_dir=target_dir,
+            disabled_ids=profile.career_alert_artifacts_disabled,
+        )
     )
     known_cta = cta_labels_from_artifacts(label_artifacts)
+    stale = find_stale_artifacts(html_text, label_artifacts, links=links)
+
+    def _after_persist(
+        saved: Optional[CareerAlertArtifact], reason: str
+    ) -> tuple[Optional[CareerAlertArtifact], str]:
+        if saved is not None and stale:
+            disable_stale_overlays_for(saved, stale, overlay_dir=target_dir)
+        return saved, reason
 
     # Deterministic CTA digests (iCIMS etc.) before spending an LLM call.
     heuristic = draft_cta_ancestor_artifact(
@@ -246,10 +276,19 @@ def try_synthesize_artifact(
                 overlay_dir=overlay_dir,
             )
             if saved is not None:
-                return saved, reason
+                return _after_persist(saved, reason)
 
     if llm is None:
         return None, "no_model"
+
+    host_key = primary_host_from_html(html_text, links)
+    allowed, budget_reason = consume_synth_attempt(
+        target_dir,
+        host_key,
+        max_per_day=int(getattr(profile, "career_alert_synth_max_per_host_day", 3) or 0),
+    )
+    if not allowed:
+        return None, budget_reason
 
     budget = max_prompt_chars
     if budget is None:
@@ -263,7 +302,11 @@ def try_synthesize_artifact(
         # Still usable; proceed with truncated prompt
         pass
 
-    prompt = _SYNTH_PROMPT.format(html=shrunk, max_positions=_SYNTH_MAX_POSITIONS)
+    prompt = _SYNTH_PROMPT.format(
+        html=shrunk,
+        max_positions=_SYNTH_MAX_POSITIONS,
+        drift_note=drift_prompt_note(stale),
+    )
     try:
         raw = llm.generate(prompt, max_tokens=_SYNTH_MAX_TOKENS)
     except (RuntimeError, OSError, ValueError, TypeError) as exc:
@@ -291,7 +334,6 @@ def try_synthesize_artifact(
     if _match_rules_too_broad(draft):
         return None, "empty_match_rules"
 
-    target_dir = overlay_dir if overlay_dir is not None else profile.career_alert_artifacts_dir
     draft = _ensure_synth_id(draft, html_text, overlay_dir=target_dir)
     if is_shipped_id(draft.id):
         return None, "shipped_id_collision"
@@ -299,7 +341,7 @@ def try_synthesize_artifact(
     recovered = interpret_artifact(html_text, draft)
     if not proposed:
         proposed = _proposed_from_recovered(recovered)
-    return _persist_validated_artifact(
+    saved, reason = _persist_validated_artifact(
         draft.model_copy(update={"source": "llm_synth"}),
         html_text=html_text,
         proposed=proposed,
@@ -308,4 +350,5 @@ def try_synthesize_artifact(
         llm=llm,
         overlay_dir=overlay_dir,
     )
+    return _after_persist(saved, reason)
 

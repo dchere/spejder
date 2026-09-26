@@ -53,6 +53,7 @@ Replaces the old dictionary-based profile system (`FALLBACK_DEFAULT_PROFILE`). A
 - `career_alert_synth_enabled` — opt-in auto-synthesis on ingest when a file yields zero positions (default `false`)
 - `career_alert_synth_link_ratio` — minimum fraction of LLM-proposed links the interpreter must recover (default `0.8`)
 - `career_alert_synth_title_ratio` — minimum title-agreement fraction on recovered ∩ proposed links (default `0.8`)
+- `career_alert_synth_max_per_host_day` — max LLM synth attempts per job-board host per UTC day (default `3`; `0` = unlimited; heuristic drafts do not count)
 
 **Job portal profile fields:**
 - `itday_portal_sync_enabled` — when true (default), Sync inbox / serve-gui / process-inbox fetch and ingest [IT-DAY job portal](https://www.itday.dk/job-portal) listings; when false, portal sync is skipped (existing portal rows are left in place)

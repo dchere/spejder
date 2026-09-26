@@ -185,6 +185,12 @@ PROFILE_FIELD_META: dict[str, dict[str, Any]] = {
     ),
     "career_alert_synth_link_ratio": _field("career_alert", "Synth link ratio", "number"),
     "career_alert_synth_title_ratio": _field("career_alert", "Synth title ratio", "number"),
+    "career_alert_synth_max_per_host_day": _field(
+        "career_alert",
+        "Synth max per host/day",
+        "number",
+        help="LLM synth attempts per job-board host per UTC day (0 = unlimited).",
+    ),
     "itday_portal_sync_enabled": _field(
         "portals",
         "Sync IT-DAY job portal",

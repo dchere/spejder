@@ -142,6 +142,38 @@ def _title_from_ancestor_block(
     return peeled[:180].strip(), raw
 
 
+def _title_from_prev_sibling(
+    anchor: Tag,
+    *,
+    cta_labels: frozenset[str] | None = None,
+) -> tuple[str, str]:
+    """Return (title, raw_text) from a previous sibling of the CTA (or its parent)."""
+    labels = cta_labels if cta_labels is not None else _CTA_LABELS
+
+    def _candidate_text(node: Tag) -> str:
+        text = " ".join(node.get_text(" ", strip=True).split())
+        if not text or text.casefold() in labels:
+            return ""
+        if len(text) < 8:
+            return ""
+        return text
+
+    for start in (anchor, anchor.parent if isinstance(anchor.parent, Tag) else None):
+        if start is None:
+            continue
+        for sibling in start.previous_siblings:
+            if not isinstance(sibling, Tag):
+                continue
+            text = _candidate_text(sibling)
+            if text:
+                return text[:180], text
+            for tag in sibling.find_all(["strong", "b", "h1", "h2", "h3", "h4", "span", "p"]):
+                nested = _candidate_text(tag)
+                if nested:
+                    return nested[:180], nested
+    return "", ""
+
+
 def _fields_from_anchor(
     compact: str,
     artifact: CareerAlertArtifact,
@@ -153,6 +185,15 @@ def _fields_from_anchor(
         if anchor is None:
             return None
         title, raw = _title_from_ancestor_block(anchor)
+        if not title:
+            return None
+        place = ""
+        work_type = "Unknown"
+        compact_out = raw or title
+    elif recipes.from_anchor == "prev_sibling_text":
+        if anchor is None:
+            return None
+        title, raw = _title_from_prev_sibling(anchor)
         if not title:
             return None
         place = ""
