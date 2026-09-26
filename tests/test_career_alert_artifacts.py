@@ -9,6 +9,8 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
+from pydantic import ValidationError
+
 from spejder.config import AppConfig
 from spejder.db import ensure_db
 from spejder.jobs.ingestion import ingest_docs_to_db
@@ -24,7 +26,11 @@ from spejder.jobs.parsing.artifact_schema import (
     MatchConfig,
     compile_safe_path_regex,
 )
-from spejder.jobs.parsing.artifact_store import load_artifacts, save_overlay_artifact
+from spejder.jobs.parsing.artifact_store import (
+    load_artifacts,
+    promote_overlay_artifact,
+    save_overlay_artifact,
+)
 from spejder.jobs.parsing.artifact_synth import (
     _extract_json_object,
     try_synthesize_artifact,
@@ -121,34 +127,122 @@ class Jobs2WebArtifactParityTest(unittest.TestCase):
         self.assertEqual(entries[0]["place"], "Reynosa, MEX")
         self.assertEqual(entries[0]["source"], "Example Corp")
 
-    def test_builtin_fields_win_over_artifact(self):
-        """Non-empty built-in fields are not overwritten by artifact recipes."""
-        html = _read_fixture("danfoss_snippet.html")
-        base = _load_shipped("jobs2web_danfoss")
-        artifact = base.model_copy(
-            update={
-                "fields": base.fields.model_copy(
-                    update={"company": "Artifact Override Co", "source": "Artifact Src"}
-                )
-            }
+    def test_jobs2web_hosts_use_shipped_artifacts_in_extract_job_entries(self):
+        """Vestas/Danfoss/Novo no longer have Python merge slots — shipped recipes win."""
+        cases = (
+            ("danfoss_snippet.html", "jobs2web_danfoss", "Danfoss"),
+            ("vestas_snippet.html", "jobs2web_vestas", "Vestas"),
+            ("novonordisk_snippet.html", "jobs2web_novonordisk", "Novo Nordisk"),
         )
-        builtin = _extract_danfoss_entries_by_link(html)
+        for fixture, artifact_id, company in cases:
+            with self.subTest(artifact_id=artifact_id):
+                html = _read_fixture(fixture)
+                artifact = _load_shipped(artifact_id)
+                expected = interpret_artifact(html, artifact)
+                self.assertTrue(expected, msg=artifact_id)
+                doc = {
+                    "html": html,
+                    "text": "",
+                    "title": "",
+                    "links": list(expected.keys()),
+                }
+                # Explicit shipped-only list (same as default load without overlay).
+                entries = extract_job_entries(doc, artifacts=[artifact])
+                by_link = {e["position_link"]: e for e in entries}
+                self.assertEqual(set(by_link), set(expected))
+                for link, fields in expected.items():
+                    self.assertEqual(by_link[link]["company"], company)
+                    self.assertEqual(by_link[link]["title"], fields.get("title"))
+                    self.assertEqual(by_link[link]["source"], company)
+
+    def test_builtin_fields_win_over_artifact(self):
+        """Non-empty built-in platform fields are not overwritten by artifacts."""
+        html = _read_fixture("google_careers_snippet.html")
+        from spejder.jobs.parsing.platforms import _extract_google_entries_by_link
+
+        builtin = _extract_google_entries_by_link(html)
         self.assertTrue(builtin)
         link = next(iter(builtin))
+        artifact = CareerAlertArtifact.model_validate(
+            {
+                "id": "google_override_test",
+                "priority": 200,
+                "match": {
+                    "host_substrings": ["google.com", "careers.google.com"],
+                    "path_includes": ["/jobs/results/"],
+                },
+                "fields": {
+                    "from_anchor": "anchor_text_compact",
+                    "company": "Artifact Override Co",
+                    "source": "Artifact Src",
+                },
+            }
+        )
         doc = {
             "html": html,
-            "text": f"Danfoss\n{builtin[link]['title']}\n{link}",
+            "text": "",
             "title": "",
             "links": [link],
         }
         entries = extract_job_entries(doc, artifacts=[artifact])
         by_link = {e["position_link"]: e for e in entries}
         self.assertIn(link, by_link)
-        self.assertEqual(by_link[link]["company"], "Danfoss")
-        self.assertEqual(by_link[link]["source"], "Danfoss")
+        self.assertEqual(by_link[link]["company"], "Google")
+        self.assertEqual(by_link[link]["source"], "Google Careers")
+
+
+class ArtifactSchemaTest(unittest.TestCase):
+    def test_css_extract_mode_rejected(self):
+        with self.assertRaises(ValidationError):
+            CareerAlertArtifact.model_validate(
+                {
+                    "id": "css_demo",
+                    "match": {
+                        "host_substrings": ["example.com"],
+                        "path_includes": ["/job/"],
+                    },
+                    "extract": {"mode": "css", "selector": ".card"},
+                    "fields": {"from_anchor": "anchor_text_compact"},
+                }
+            )
 
 
 class ArtifactStoreTest(unittest.TestCase):
+    def test_promote_overlay_writes_shipped_and_removes_overlay(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            overlay = os.path.join(tmp, "overlay")
+            shipped = os.path.join(tmp, "shipped")
+            os.makedirs(overlay)
+            os.makedirs(shipped)
+            artifact = CareerAlertArtifact.model_validate(
+                {
+                    "id": "synth_example_host_abc123",
+                    "match": {
+                        "host_substrings": ["jobs.example.com"],
+                        "path_includes": ["/job/"],
+                    },
+                    "fields": {
+                        "from_anchor": "jobs2web_middot_or_dash",
+                        "company": "Example",
+                        "source": "Example",
+                    },
+                    "source": "llm_synth",
+                }
+            )
+            overlay_path = save_overlay_artifact(artifact, overlay_dir=overlay)
+            dest = promote_overlay_artifact(
+                artifact.id,
+                overlay_dir=overlay,
+                shipped_dir=shipped,
+                remove_overlay=True,
+            )
+            self.assertTrue(os.path.isfile(dest))
+            self.assertFalse(os.path.exists(overlay_path))
+            with open(dest, encoding="utf-8") as handle:
+                payload = json.load(handle)
+            self.assertEqual(payload["source"], "shipped")
+            self.assertEqual(payload["id"], artifact.id)
+
     def test_overlay_overrides_shipped_id(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = _load_shipped("jobs2web_danfoss")

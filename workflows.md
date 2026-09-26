@@ -12,7 +12,7 @@ Core orchestration for CLI commands, GUI background sync, and heavy multi-step p
 - `refresh_descriptions` — `enrichment.py`
 - `summarize_file`, `summarize_folder` — `summarization.py`
 - `init_profile` — `profile.py`
-- `list_career_alert_artifacts`, `disable_career_alert_artifact`, `enable_career_alert_artifact` — `career_alert_artifacts.py`
+- `list_career_alert_artifacts`, `disable_career_alert_artifact`, `enable_career_alert_artifact`, `promote_career_alert_artifact` — `career_alert_artifacts.py`
 
 **Submodules:**
 
@@ -41,7 +41,7 @@ Core orchestration for CLI commands, GUI background sync, and heavy multi-step p
 | `llm_utils.py` | CLI LLM init helpers |
 | `summarization.py` | File/folder summarization commands |
 | `user_portrait.py` | User portrait context, LLM generation, diff, file I/O |
-| `career_alert_artifacts.py` | CLI list/disable/enable for career-alert format artifacts |
+| `career_alert_artifacts.py` | CLI list/disable/enable/promote for career-alert format artifacts |
 
 **Context:**
 `cli.py` is a thin argparse layer delegating here. Workflows are callable from tests and `spejder.server` without going through the CLI.

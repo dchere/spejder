@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from spejder.core import DEFAULT_PROFILE_PATH, load_runtime_profile, save_profile
-from spejder.jobs.parsing.artifact_store import list_loaded_artifacts
+from spejder.jobs.parsing.artifact_store import (
+    list_loaded_artifacts,
+    promote_overlay_artifact,
+)
 
 
 def list_career_alert_artifacts(profile: str = None) -> None:
@@ -56,3 +59,32 @@ def enable_career_alert_artifact(artifact_id: str, profile: str = None) -> None:
     runtime.career_alert_artifacts_disabled = disabled
     save_profile(runtime, profile_path)
     print(f"Enabled career-alert artifact: {target}")
+
+
+def promote_career_alert_artifact(
+    artifact_id: str,
+    profile: str = None,
+    *,
+    keep_overlay: bool = False,
+) -> None:
+    """Copy an overlay recipe into the package shipped artifacts directory."""
+    profile_path = profile or DEFAULT_PROFILE_PATH
+    runtime = load_runtime_profile(profile_path)
+    target = (artifact_id or "").strip()
+    if not target:
+        raise SystemExit("artifact id is required")
+    try:
+        dest = promote_overlay_artifact(
+            target,
+            overlay_dir=runtime.career_alert_artifacts_dir,
+            remove_overlay=not keep_overlay,
+        )
+    except (FileNotFoundError, ValueError, OSError) as exc:
+        raise SystemExit(str(exc)) from exc
+    # Promoting into shipped should clear a profile disable for that id.
+    disabled = [x for x in (runtime.career_alert_artifacts_disabled or []) if x != target]
+    if disabled != list(runtime.career_alert_artifacts_disabled or []):
+        runtime.career_alert_artifacts_disabled = disabled
+        save_profile(runtime, profile_path)
+    action = "kept overlay" if keep_overlay else "removed overlay"
+    print(f"Promoted career-alert artifact: {target} -> {dest} ({action})")

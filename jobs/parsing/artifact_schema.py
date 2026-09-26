@@ -13,7 +13,7 @@ AnchorParseOp = Literal[
     "anchor_text_compact",
     "ancestor_strong_or_first_line",
 ]
-ExtractMode = Literal["filtered_links", "css"]
+ExtractMode = Literal["filtered_links"]
 ArtifactProvenance = Literal["shipped", "llm_synth", "manual", "heuristic"]
 
 # Cap untrusted overlay/LLM path regexes to limit ReDoS surface.
@@ -74,7 +74,6 @@ class MatchConfig(BaseModel):
 
 class ExtractConfig(BaseModel):
     mode: ExtractMode = "filtered_links"
-    selector: Optional[str] = None
 
 
 class FieldRecipes(BaseModel):

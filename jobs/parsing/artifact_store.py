@@ -138,3 +138,51 @@ def save_overlay_artifact(
 def is_shipped_id(artifact_id: str, *, shipped_dir: Optional[str] = None) -> bool:
     shipped = load_artifacts_from_dir(shipped_dir or SHIPPED_ARTIFACTS_DIR, origin="shipped")
     return artifact_id in shipped
+
+
+def promote_overlay_artifact(
+    artifact_id: str,
+    *,
+    overlay_dir: Optional[str] = None,
+    shipped_dir: Optional[str] = None,
+    remove_overlay: bool = True,
+) -> str:
+    """Copy an overlay artifact into the shipped package tree (maintainer action).
+
+    Rewrites ``source`` to ``shipped``. Optionally deletes the overlay JSON after
+    a successful write. Raises ``FileNotFoundError`` / ``ValueError`` on bad id.
+    """
+    target = (artifact_id or "").strip()
+    if not target:
+        raise ValueError("artifact id is required")
+
+    overlay_root = resolve_overlay_dir(overlay_dir)
+    overlay = load_artifacts_from_dir(overlay_root, origin="overlay")
+    loaded = overlay.get(target)
+    if loaded is None:
+        raise FileNotFoundError(
+            f"overlay artifact not found: {target!r} under {overlay_root}"
+        )
+
+    dest_dir = shipped_dir or SHIPPED_ARTIFACTS_DIR
+    os.makedirs(dest_dir, exist_ok=True)
+    safe_id = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in target)
+    dest_path = os.path.join(dest_dir, f"{safe_id}.json")
+    promoted = loaded.artifact.model_copy(update={"source": "shipped", "enabled": True})
+    payload = promoted.model_dump(mode="json")
+    with open(dest_path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, ensure_ascii=False)
+        handle.write("\n")
+
+    if remove_overlay:
+        try:
+            os.remove(loaded.path)
+        except OSError as exc:
+            logger.warning(
+                "promoted %s to %s but failed to remove overlay %s: %s",
+                target,
+                dest_path,
+                loaded.path,
+                exc,
+            )
+    return dest_path

@@ -185,7 +185,6 @@ def interpret_artifact(html_text: str, artifact: CareerAlertArtifact) -> dict[st
     if not html_text or not artifact.enabled:
         return {}
     if artifact.extract.mode != "filtered_links":
-        # css mode reserved for later migrations
         return {}
 
     soup = BeautifulSoup(html_text, "html.parser")

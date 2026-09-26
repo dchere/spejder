@@ -174,9 +174,10 @@ Options: `--force`.
 python3 -m spejder.cli list-career-alert-artifacts --profile ./profile.json
 python3 -m spejder.cli disable-career-alert-artifact --id jobs2web_danfoss --profile ./profile.json
 python3 -m spejder.cli enable-career-alert-artifact --id jobs2web_danfoss --profile ./profile.json
+python3 -m spejder.cli promote-career-alert-artifact --id synth_example_host_abc123 --profile ./profile.json
 ```
 
-Overlay dir defaults to `./career_alert_artifacts`. Disable is profile-based (`career_alert_artifacts_disabled`). Opt-in synthesis: `career_alert_synth_enabled` in profile.
+Overlay dir defaults to `./career_alert_artifacts`. Disable is profile-based (`career_alert_artifacts_disabled`). Opt-in synthesis: `career_alert_synth_enabled` in profile. `promote-career-alert-artifact` copies an overlay recipe into the package shipped tree (maintainer/checkout write); drops the overlay file unless `--keep-overlay`.
 
 ### Other
 

@@ -12,4 +12,5 @@ from .career_alert_artifacts import (
     disable_career_alert_artifact,
     enable_career_alert_artifact,
     list_career_alert_artifacts,
+    promote_career_alert_artifact,
 )

@@ -16,6 +16,7 @@ from spejder.workflows import (
     initialize_llm_or_exit,
     list_career_alert_artifacts,
     process_inbox,
+    promote_career_alert_artifact,
     refresh_descriptions,
     render_html,
     report_links,
@@ -114,6 +115,13 @@ def cmd_disable_career_alert_artifact(args):
 
 def cmd_enable_career_alert_artifact(args):
     enable_career_alert_artifact(artifact_id=args.id, profile=args.profile)
+
+def cmd_promote_career_alert_artifact(args):
+    promote_career_alert_artifact(
+        artifact_id=args.id,
+        profile=args.profile,
+        keep_overlay=bool(args.keep_overlay),
+    )
 
 def main(argv=None):
     p = argparse.ArgumentParser(prog="spejder")
@@ -226,6 +234,16 @@ def main(argv=None):
     peca.add_argument("--id", required=True)
     peca.add_argument("--profile", default=USER_PROFILE_PATH)
     peca.set_defaults(func=cmd_enable_career_alert_artifact)
+
+    ppca = sub.add_parser("promote-career-alert-artifact")
+    ppca.add_argument("--id", required=True)
+    ppca.add_argument("--profile", default=USER_PROFILE_PATH)
+    ppca.add_argument(
+        "--keep-overlay",
+        action="store_true",
+        help="Leave the overlay JSON in place after writing the shipped copy",
+    )
+    ppca.set_defaults(func=cmd_promote_career_alert_artifact)
 
     args = p.parse_args(argv)
     if not hasattr(args, "func"):
