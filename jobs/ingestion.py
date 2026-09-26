@@ -16,15 +16,17 @@ def _extract_for_doc(
     *,
     runtime_profile: Optional[AppConfig],
     artifacts: Optional[list[CareerAlertArtifact]] = None,
+    meta_out: Optional[dict] = None,
 ) -> list[dict]:
     if runtime_profile is None:
-        return extract_job_entries(doc)
+        return extract_job_entries(doc, meta_out=meta_out)
     if artifacts is not None:
-        return extract_job_entries(doc, artifacts=artifacts)
+        return extract_job_entries(doc, artifacts=artifacts, meta_out=meta_out)
     return extract_job_entries(
         doc,
         artifacts_dir=runtime_profile.career_alert_artifacts_dir,
         artifacts_disabled=runtime_profile.career_alert_artifacts_disabled,
+        meta_out=meta_out,
     )
 
 
@@ -123,8 +125,12 @@ def ingest_docs_to_db(
 
     for doc in docs:
         file_path = str(doc.get("path") or doc.get("id") or "")
+        extract_meta: dict = {}
         entries = _extract_for_doc(
-            doc, runtime_profile=runtime_profile, artifacts=artifact_cache
+            doc,
+            runtime_profile=runtime_profile,
+            artifacts=artifact_cache,
+            meta_out=extract_meta,
         )
         strong, weak = partition_entries(entries)
         synth_reason = ""
@@ -156,8 +162,12 @@ def ingest_docs_to_db(
             synth_reason = str(reason or "")
             if artifact is not None:
                 artifact_cache = _load_run_artifacts(runtime_profile)
+                extract_meta = {}
                 entries = _extract_for_doc(
-                    doc, runtime_profile=runtime_profile, artifacts=artifact_cache
+                    doc,
+                    runtime_profile=runtime_profile,
+                    artifacts=artifact_cache,
+                    meta_out=extract_meta,
                 )
                 strong, weak = partition_entries(entries)
             else:
@@ -185,6 +195,11 @@ def ingest_docs_to_db(
         processed += file_found
         inserted_new += file_inserted
         skipped_existing += file_skipped
+        artifact_ids = [
+            str(item)
+            for item in (extract_meta.get("artifact_ids") or [])
+            if str(item).strip()
+        ]
         positions_by_file.append(
             {
                 "file": file_path,
@@ -195,6 +210,7 @@ def ingest_docs_to_db(
                 "quality": quality,
                 "synth_reason": synth_reason,
                 "status": status,
+                "artifact_ids": artifact_ids,
             }
         )
     return {

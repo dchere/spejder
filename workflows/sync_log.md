@@ -16,7 +16,7 @@ Append-only sync event log for GUI background sync and `process-inbox`. Operator
 - `stage_start(stage, message="")` — auto-`stage_end`s any open stage first.
 - `stage_end(stage=None, **metrics)` — closes open stage; always includes `elapsed_s` from monotonic start.
 - `progress(stage, *, checked, total, **metrics)` — writes `checked={n}/{total}` and `pct=` (one decimal) when `total > 0`. Callers must use the same unit for `checked` and `total`; ingest uses job counts with `total=0` (no pct) plus a `files=` metric.
-- `note(event, **fields)` — ad-hoc event line (does not touch open-stage timing). Used for per-file ingest outcomes (`event=parse_file` with `status` / `found` / `weak_dropped` / `quality` / `synth_reason`) and quarantine summaries (`event=parse_quarantine`).
+- `note(event, **fields)` — ad-hoc event line (does not touch open-stage timing). Used for per-file ingest outcomes (`event=parse_file` with `status` / `found` / `weak_dropped` / `quality` / `synth_reason` / `artifact_ids`) and quarantine summaries (`event=parse_quarantine`).
 - `pipeline_end(status, message="")` — ends open stage; logs terminal pipeline status (`done` / `failed` / `skipped`).
 - `run_end(status, message="")` — ends open stage if any; logs run duration; closes the file. Idempotent when already closed.
 
