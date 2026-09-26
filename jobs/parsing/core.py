@@ -33,6 +33,7 @@ def extract_job_entries(
     artifacts: Optional[list[CareerAlertArtifact]] = None,
     artifacts_dir: Optional[str] = None,
     artifacts_disabled: Optional[list[str]] = None,
+    meta_out: Optional[dict] = None,
 ) -> list[dict]:
     text = doc.get("text", "") or ""
     html_text = doc.get("html", "") or ""
@@ -45,7 +46,15 @@ def extract_job_entries(
         )
     else:
         artifact_list = list(artifacts)
-    artifact_by_link = interpret_artifacts(html_text, artifact_list, links=links)
+    matched_artifact_ids: list[str] = []
+    artifact_by_link = interpret_artifacts(
+        html_text,
+        artifact_list,
+        links=links,
+        matched_ids=matched_artifact_ids,
+    )
+    if meta_out is not None:
+        meta_out["artifact_ids"] = list(matched_artifact_ids)
     html_by_link = _extract_html_entries_by_link(html_text)
     # Vestas / Danfoss / Novo Nordisk Jobs2Web hosts: shipped artifacts only
     # (see jobs/parsing/artifacts/*.json). Python site extractors remain in

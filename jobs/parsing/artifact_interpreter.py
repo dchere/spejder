@@ -260,18 +260,29 @@ def interpret_artifacts(
     artifacts: list[CareerAlertArtifact],
     *,
     links: list[str] | None = None,
+    matched_ids: list[str] | None = None,
 ) -> dict[str, dict[str, str]]:
-    """Run enabled artifacts by priority (higher first); first writer wins per link."""
+    """Run enabled artifacts by priority (higher first); first writer wins per link.
+
+    When ``matched_ids`` is provided, append each artifact id that wins at least
+    one link (stable order = interpret priority order).
+    """
     ordered = sorted(artifacts, key=lambda a: (-int(a.priority), a.id))
     merged: dict[str, dict[str, str]] = {}
     link_list = list(links or [])
+    seen_ids: set[str] = set()
     for artifact in ordered:
         if not artifact.enabled:
             continue
         if not artifact_prefilter_matches(html_text, link_list, artifact):
             continue
         extracted = interpret_artifact(html_text, artifact)
+        contributed = False
         for link, fields in extracted.items():
             if link not in merged:
                 merged[link] = fields
+                contributed = True
+        if contributed and matched_ids is not None and artifact.id not in seen_ids:
+            seen_ids.add(artifact.id)
+            matched_ids.append(artifact.id)
     return merged

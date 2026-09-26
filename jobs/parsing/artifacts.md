@@ -40,6 +40,8 @@
 
 See `jobs.md`: artifacts fill fields only when the built-in value is empty; artifact-only links (new hosts) become entries after the links loop. Vestas / Danfoss / Novo Nordisk are artifact-only in `extract_job_entries` (Python site extractors in `jobs2web.py` remain for parity tests). Promote a stable overlay into `jobs/parsing/artifacts/` with `promote_overlay_artifact` / CLI `promote-career-alert-artifact`.
 
+`interpret_artifacts(..., matched_ids=)` records each artifact id that wins at least one link (priority order). `extract_job_entries(..., meta_out=)` copies that list to `meta_out["artifact_ids"]`; ingest puts it on each `positions_by_file` row (and quarantine sidecar / `sync.log` `parse_file`).
+
 ## Synthesis gate
 
 Defaults: `career_alert_synth_link_ratio` / `career_alert_synth_title_ratio` = `0.8`; `career_alert_synth_max_per_host_day` = `3` (LLM attempts only; `0` = unlimited). Persist only when interpreter recovery meets thresholds.

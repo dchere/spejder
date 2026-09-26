@@ -136,6 +136,11 @@ def quarantine_unparsed_inbox_files(
         try:
             dest_path = _unique_dest_path(dest_root, basename)
             shutil.move(abs_path, dest_path)
+            artifact_ids = [
+                str(item)
+                for item in (row.get("artifact_ids") or [])
+                if str(item).strip()
+            ]
             sidecar = {
                 "file": abs_path,
                 "quarantined_as": dest_path,
@@ -145,6 +150,7 @@ def quarantine_unparsed_inbox_files(
                 "quality": str(row.get("quality") or ""),
                 "synth_reason": str(row.get("synth_reason") or ""),
                 "status": status or "empty",
+                "artifact_ids": artifact_ids,
             }
             sidecar_path = dest_path + ".json"
             with open(sidecar_path, "w", encoding="utf-8") as handle:
@@ -182,6 +188,11 @@ def log_ingest_parse_outcomes(sync_log, ingest_stats: dict) -> int:
         if status == "ok":
             continue
         file_path = str(row.get("file") or "") or "(unknown)"
+        artifact_ids = [
+            str(item)
+            for item in (row.get("artifact_ids") or [])
+            if str(item).strip()
+        ]
         note(
             "parse_file",
             stage="ingest",
@@ -191,6 +202,7 @@ def log_ingest_parse_outcomes(sync_log, ingest_stats: dict) -> int:
             weak_dropped=int(row.get("weak_dropped", 0) or 0),
             quality=str(row.get("quality") or ""),
             synth_reason=str(row.get("synth_reason") or ""),
+            artifact_ids=",".join(artifact_ids) if artifact_ids else "",
         )
         written += 1
     return written
@@ -225,6 +237,13 @@ def print_ingest_file_stats(ingest_stats: dict) -> None:
         synth_reason = str(row.get("synth_reason") or "")
         if synth_reason:
             extras += f", synth_reason={synth_reason}"
+        artifact_ids = [
+            str(item)
+            for item in (row.get("artifact_ids") or [])
+            if str(item).strip()
+        ]
+        if artifact_ids:
+            extras += f", artifact_ids={','.join(artifact_ids)}"
         print(
             f"  - {file_label}: found={found}, inserted_new={inserted}, "
             f"skipped_existing={skipped}{extras}"
