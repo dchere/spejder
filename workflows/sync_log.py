@@ -25,6 +25,8 @@ class SyncRunLogLike(Protocol):
 
     def progress(self, stage: str, *, checked: int, total: int, **metrics: Any) -> None: ...
 
+    def note(self, event: str, **fields: Any) -> None: ...
+
     def pipeline_end(self, status: str, message: str = "") -> None: ...
 
     def run_end(self, status: str, message: str = "") -> None: ...
@@ -102,6 +104,9 @@ class _NullSyncRunLog:
         return None
 
     def progress(self, stage: str, *, checked: int, total: int, **metrics: Any) -> None:
+        return None
+
+    def note(self, event: str, **fields: Any) -> None:
         return None
 
     def pipeline_end(self, status: str, message: str = "") -> None:
@@ -203,6 +208,14 @@ class SyncRunLog:
             fields["pct"] = (100.0 * checked) / total
         fields.update(metrics)
         self._write(**fields)
+
+    def note(self, event: str, **fields: Any) -> None:
+        """Ad-hoc event line (e.g. per-file ``parse_file`` outcomes)."""
+        if not event:
+            return
+        payload: dict[str, Any] = {"event": event}
+        payload.update(fields)
+        self._write(**payload)
 
     def pipeline_end(self, status: str, message: str = "") -> None:
         if self._open_stage is not None:

@@ -17,8 +17,11 @@ from spejder.parsers import email_parser
 from spejder.workflows.dashboard import DashboardRebuildQueue
 from spejder.workflows.deduplication import run_cross_source_dedupe
 from spejder.workflows.ingest_utils import (
+    default_parse_quarantine_path,
     delete_processed_inbox_files,
+    log_ingest_parse_outcomes,
     print_ingest_file_stats,
+    quarantine_unparsed_inbox_files,
 )
 from spejder.workflows.job_enrichment import (
     _generate_missing_descriptions_for_ingest,
@@ -205,6 +208,9 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
             ingest_progress.last_processed = final_processed
 
         print_ingest_file_stats(ingest_stats)
+        logged = log_ingest_parse_outcomes(context.sync_log, ingest_stats)
+        if logged:
+            print(f"Background sync parse outcomes logged: {logged} non-ok file(s)")
         _emit_stage(context, "cleanup", "Cleaning up processed inbox files")
         delete_stats = delete_processed_inbox_files(ingest_stats, inbox_root=context.inbox_path)
         print(
@@ -214,6 +220,35 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
             f"missing={delete_stats.get('missing', 0)}, "
             f"failed={delete_stats.get('failed', 0)}"
         )
+        if context.sync_log_path:
+            quarantine_dir = default_parse_quarantine_path(
+                os.path.dirname(os.path.abspath(context.sync_log_path))
+            )
+        else:
+            quarantine_dir = default_parse_quarantine_path(
+                context.runtime_profile.default_report_dir or "./outbox"
+            )
+        quarantine_stats = quarantine_unparsed_inbox_files(
+            ingest_stats,
+            inbox_root=context.inbox_path,
+            quarantine_dir=quarantine_dir,
+        )
+        print(
+            "Background sync parse quarantine: "
+            f"eligible={quarantine_stats.get('eligible', 0)}, "
+            f"moved={quarantine_stats.get('moved', 0)}, "
+            f"missing={quarantine_stats.get('missing', 0)}, "
+            f"failed={quarantine_stats.get('failed', 0)} "
+            f"dir={quarantine_dir}"
+        )
+        if quarantine_stats.get("moved", 0) and context.sync_log is not None:
+            context.sync_log.note(
+                "parse_quarantine",
+                stage="cleanup",
+                moved=int(quarantine_stats.get("moved", 0) or 0),
+                eligible=int(quarantine_stats.get("eligible", 0) or 0),
+                dir=quarantine_dir,
+            )
 
         _emit_stage(context, "dedupe", "Deduplicating positions")
         dedupe_result = {"groups_merged": 0, "rows_updated": 0, "rows_deleted": 0}

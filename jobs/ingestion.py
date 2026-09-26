@@ -7,6 +7,7 @@ from spejder.jobs.parsing.artifact_schema import CareerAlertArtifact
 from spejder.jobs.parsing.artifact_store import load_artifacts
 from spejder.jobs.parsing.artifact_synth import try_synthesize_artifact
 from spejder.jobs.parsing.core import extract_job_entries
+from spejder.jobs.parsing.extract_quality import partition_entries, weak_reason_summary
 from spejder.llm import LocalLLM
 
 
@@ -32,6 +33,28 @@ def _load_run_artifacts(runtime_profile: AppConfig) -> list[CareerAlertArtifact]
         overlay_dir=runtime_profile.career_alert_artifacts_dir,
         disabled_ids=runtime_profile.career_alert_artifacts_disabled,
     )
+
+
+def _file_parse_status(
+    *,
+    strong_count: int,
+    weak_count: int,
+    synth_reason: str,
+) -> str:
+    if strong_count > 0:
+        if synth_reason == "ok":
+            return "synth_ok"
+        if weak_count > 0:
+            return "partial_weak"
+        return "ok"
+    if synth_reason and synth_reason != "ok":
+        return "synth_failed"
+    if weak_count > 0:
+        return "weak"
+    if synth_reason == "ok":
+        # Synth wrote an overlay but re-extract still yielded nothing strong.
+        return "synth_empty"
+    return "empty"
 
 
 def ingest_entries_to_db(
@@ -103,8 +126,10 @@ def ingest_docs_to_db(
         entries = _extract_for_doc(
             doc, runtime_profile=runtime_profile, artifacts=artifact_cache
         )
+        strong, weak = partition_entries(entries)
+        synth_reason = ""
         if (
-            not entries
+            not strong
             and runtime_profile is not None
             and runtime_profile.career_alert_synth_enabled
         ):
@@ -122,18 +147,28 @@ def ingest_docs_to_db(
                 runtime_profile,
                 overlay_dir=runtime_profile.career_alert_artifacts_dir,
             )
+            synth_reason = str(reason or "")
             if artifact is not None:
                 artifact_cache = _load_run_artifacts(runtime_profile)
                 entries = _extract_for_doc(
                     doc, runtime_profile=runtime_profile, artifacts=artifact_cache
                 )
+                strong, weak = partition_entries(entries)
             else:
                 print(
-                    f"[spejder] career-alert synth skipped for {file_path or '(unknown)'}: {reason}"
+                    f"[spejder] career-alert synth skipped for {file_path or '(unknown)'}: "
+                    f"{synth_reason}"
                 )
+
+        quality = weak_reason_summary(weak)
+        status = _file_parse_status(
+            strong_count=len(strong),
+            weak_count=len(weak),
+            synth_reason=synth_reason,
+        )
         file_stats = ingest_entries_to_db(
             db_path,
-            entries,
+            strong,
             entry_transform=entry_transform,
             on_new_record=on_new_record,
             on_progress=_cumulative_progress if on_progress else None,
@@ -150,6 +185,10 @@ def ingest_docs_to_db(
                 "found": int(file_found),
                 "inserted_new": int(file_inserted),
                 "skipped_existing": int(file_skipped),
+                "weak_dropped": int(len(weak)),
+                "quality": quality,
+                "synth_reason": synth_reason,
+                "status": status,
             }
         )
     return {

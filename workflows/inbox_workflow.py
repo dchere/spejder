@@ -8,8 +8,11 @@ from spejder.jobs import ingest_docs_to_db, update_profile_from_db_signals
 from spejder.llm import LocalLLM
 from spejder.parsers import email_parser
 from spejder.workflows.ingest_utils import (
+    default_parse_quarantine_path,
     delete_processed_inbox_files,
+    log_ingest_parse_outcomes,
     print_ingest_file_stats,
+    quarantine_unparsed_inbox_files,
 )
 from spejder.workflows.inbox_report import (
     summarize_relevant_jobs_for_inbox,
@@ -137,6 +140,9 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
             f"into DB: {db_path}"
         )
         print_ingest_file_stats(ingest_stats)
+        logged = log_ingest_parse_outcomes(sync_log, ingest_stats)
+        if logged:
+            print(f"Ingest parse outcomes logged: {logged} non-ok file(s)")
         sync_log.stage_start("cleanup", "Cleaning up processed inbox files")
         delete_stats = delete_processed_inbox_files(ingest_stats, inbox_root=inbox)
         print(
@@ -146,6 +152,28 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
             f"missing={delete_stats.get('missing', 0)}, "
             f"failed={delete_stats.get('failed', 0)}"
         )
+        quarantine_dir = default_parse_quarantine_path(report_dir)
+        quarantine_stats = quarantine_unparsed_inbox_files(
+            ingest_stats,
+            inbox_root=inbox,
+            quarantine_dir=quarantine_dir,
+        )
+        print(
+            "Inbox parse quarantine: "
+            f"eligible={quarantine_stats.get('eligible', 0)}, "
+            f"moved={quarantine_stats.get('moved', 0)}, "
+            f"missing={quarantine_stats.get('missing', 0)}, "
+            f"failed={quarantine_stats.get('failed', 0)} "
+            f"dir={quarantine_dir}"
+        )
+        if quarantine_stats.get("moved", 0):
+            sync_log.note(
+                "parse_quarantine",
+                stage="cleanup",
+                moved=int(quarantine_stats.get("moved", 0) or 0),
+                eligible=int(quarantine_stats.get("eligible", 0) or 0),
+                dir=quarantine_dir,
+            )
 
         sync_log.stage_start("descriptions", "Generating missing descriptions")
 

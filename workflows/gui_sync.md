@@ -33,8 +33,8 @@ Background inbox synchronization pipeline extracted from `gui.py`, preserving ex
 - No wildcard imports (`import *`) anywhere under `spejder/`; keep imports explicit.
 - Keep invocation-scoped mutable caches (`text_translation_cache`, `title_translation_cache`) inside `run_inbox_sync`; do not promote to module globals.
 - Build ingest translation transform via `spejder.workflows.job_enrichment.make_translate_job_entry_for_storage` to keep GUI sync and inbox ingest logic aligned.
-- Use `spejder.workflows.ingest_utils` for ingest per-file stats logging and inbox cleanup.
-- Pass `llm` + `runtime_profile` into `ingest_docs_to_db` so opt-in career-alert synthesis can run on `found=0` during background sync.
+- Use `spejder.workflows.ingest_utils` for ingest per-file stats logging, inbox cleanup, parse-outcome sync-log lines, and `{report_dir}/parse_quarantine` for unparsed `.eml` files.
+- Pass `llm` + `runtime_profile` into `ingest_docs_to_db` so opt-in career-alert synthesis can run when a file yields **no strong** positions (zero extracts or all-weak quality gate) during background sync.
 - Call `sync_itday_portal(..., enabled=runtime_profile.itday_portal_sync_enabled)` on every sync before inbox ingest; skip the pipeline only when inbox is empty, descriptions are complete, and the portal inserted no new jobs (skip means **no new portal rows**, not an empty portal listing — existing listings can still yield `found>0` with `inserted_new=0`; disabled portal also yields `inserted_new=0` with `skipped_disabled=True`). The skip log includes `portal_found` when the portal ran, or `portal_sync=disabled` when it was skipped via the profile flag.
 - Treat `GuiSyncContext` callbacks as the only bridge back into GUI orchestration.
 - Sync event format/I/O lives in `spejder.workflows.sync_log`; do not inline line formatting here.
