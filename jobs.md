@@ -56,8 +56,12 @@ The previously monolithic `parsing.py` has been transitioned into a `spejder.job
 - Match lists must be non-empty and non-blank at schema load; interpreter also fails closed on blank-only lists.
 - Interpreter opcodes are a closed set (no `exec`); unknown ops fail validation at load.
 - `extract_job_entries` runs enabled artifacts by priority, then built-ins; **artifact fields fill only when the built-in field is empty**. Links present only in the artifact map still become entries (needed for new-host synth).
-- Opt-in synth (`career_alert_synth_enabled`): on ingest `found=0`, try a deterministic CTA heuristic first (iCIMS-style Apply-here + ancestor title), then optionally shrink HTML → local GGUF (`default_model`) → validate link/title ratios → write overlay only; failed synth leaves the `.eml`. Rejects empty/blank match lists and overly broad recovery. Hook lives in `jobs/ingestion.py`, not inside `extract_job_entries`. Ingest loads artifacts once per run (reload after successful synth).
+- Opt-in synth (`career_alert_synth_enabled`): on ingest when **no strong entries** remain (hard `found=0` **or** every extracted row fails the cheap quality gate in `parsing/extract_quality.py`), try a deterministic CTA heuristic first (iCIMS-style Apply-here + ancestor title), then optionally shrink HTML → local GGUF (`default_model`) → validate link/title ratios → write overlay only; failed synth leaves the `.eml` for quarantine. Rejects empty/blank match lists and overly broad recovery. Hook lives in `jobs/ingestion.py`, not inside `extract_job_entries`. Ingest loads artifacts once per run (reload after successful synth). Only **strong** entries are upserted; weak rows are counted as `weak_dropped` on `positions_by_file` with `status` / `quality` / `synth_reason`.
 - Jobindex / LinkedIn / generic HTML stay in Python; Jobs2Web Python modules remain dual-run fallbacks.
+
+**Extract quality (`parsing/extract_quality.py`):**
+- Weak reasons: `empty_title`, `cta_title` (Apply here / View job / …), `boilerplate_title` / `boilerplate_company`, `title_is_source` (title equals source with empty company).
+- `partition_entries` splits strong vs weak; ingest upserts strong only.
 
 **Career-alert sources (email job alerts):**
 | Source | Link pattern | Extractor | Provider label |
