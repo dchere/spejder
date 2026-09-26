@@ -493,7 +493,14 @@ class ArtifactSynthTest(unittest.TestCase):
             saved, reason = try_synthesize_artifact(html, llm, profile, overlay_dir=tmp)
             self.assertIsNone(saved)
             self.assertEqual(reason, "schema")
-            self.assertEqual(os.listdir(tmp), [])
+            self.assertEqual(
+                [
+                    name
+                    for name in os.listdir(tmp)
+                    if name.endswith(".json") and not name.startswith(".")
+                ],
+                [],
+            )
 
     def test_synth_rejects_match_too_broad(self):
         """Proposed ≪ recovered under passing ratios → match_too_broad, no overlay."""
@@ -533,7 +540,14 @@ class ArtifactSynthTest(unittest.TestCase):
             saved, reason = try_synthesize_artifact(html, llm, profile, overlay_dir=tmp)
             self.assertIsNone(saved)
             self.assertEqual(reason, "match_too_broad")
-            self.assertEqual(os.listdir(tmp), [])
+            self.assertEqual(
+                [
+                    name
+                    for name in os.listdir(tmp)
+                    if name.endswith(".json") and not name.startswith(".")
+                ],
+                [],
+            )
 
     def test_synth_always_rewrites_llm_id(self):
         html = _read_fixture("danfoss_snippet.html")
@@ -586,7 +600,14 @@ class ArtifactSynthTest(unittest.TestCase):
             saved, reason = try_synthesize_artifact(html, llm, profile, overlay_dir=tmp)
             self.assertIsNone(saved)
             self.assertNotEqual(reason, "ok")
-            self.assertEqual(os.listdir(tmp), [])
+            self.assertEqual(
+                [
+                    name
+                    for name in os.listdir(tmp)
+                    if name.endswith(".json") and not name.startswith(".")
+                ],
+                [],
+            )
 
 
 class IngestSynthHookTest(unittest.TestCase):

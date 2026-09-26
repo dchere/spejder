@@ -57,7 +57,8 @@ def _iter_json_paths(directory: str) -> list[str]:
         return []
     paths = []
     for name in sorted(os.listdir(directory)):
-        if not name.endswith(".json"):
+        # Skip sidecar/control files (e.g. `.synth_budget.json`).
+        if name.startswith(".") or not name.endswith(".json"):
             continue
         paths.append(os.path.join(directory, name))
     return paths

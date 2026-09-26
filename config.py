@@ -78,6 +78,8 @@ class AppConfig(BaseModel):
     career_alert_synth_enabled: bool = False
     career_alert_synth_link_ratio: float = 0.8
     career_alert_synth_title_ratio: float = 0.8
+    # Cap LLM synth attempts per job-board host per UTC day (0 = unlimited).
+    career_alert_synth_max_per_host_day: int = 3
 
     itday_portal_sync_enabled: bool = True
 

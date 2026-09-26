@@ -4,7 +4,7 @@
 Dashboard Profile panel: field metadata for every `AppConfig` field, GET payload shaping, and validated save with live runtime reload.
 
 **Modules:**
-- `profile_editor_fields.py` — `PROFILE_FIELD_META`, `GROUP_ORDER` / `GROUP_TITLES` (includes `portals` / "Job portals" with `itday_portal_sync_enabled` checkbox), `READONLY_FIELDS` (`skill_bigram_toxicity_threshold`, `bad_cloud_seeded`); editable skill lists include `unwanted_skills` (`list_str`) and scoring weight `skill_unwanted_penalty` (`number`); bad-cloud knobs `skill_bad_ngram_weight_cap` and `skill_recalibrate_on_block`
+- `profile_editor_fields.py` — `PROFILE_FIELD_META`, `GROUP_ORDER` / `GROUP_TITLES` (includes `portals` / "Job portals" with `itday_portal_sync_enabled` checkbox; career-alert group includes `career_alert_synth_max_per_host_day`), `READONLY_FIELDS` (`skill_bigram_toxicity_threshold`, `bad_cloud_seeded`); editable skill lists include `unwanted_skills` (`list_str`) and scoring weight `skill_unwanted_penalty` (`number`); bad-cloud knobs `skill_bad_ngram_weight_cap` and `skill_recalibrate_on_block`
 - `profile_editor.py` — `build_profile_get_response`, `merge_profile_updates`, `save_profile_updates`, `validation_errors_by_field`; import-time `assert_field_meta_complete()` ensures `set(PROFILE_FIELD_META) == set(AppConfig.model_fields)`
 
 **Save semantics:**

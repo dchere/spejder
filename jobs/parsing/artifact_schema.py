@@ -12,6 +12,7 @@ AnchorParseOp = Literal[
     "jobs2web_middot_or_dash",
     "anchor_text_compact",
     "ancestor_strong_or_first_line",
+    "prev_sibling_text",
 ]
 ExtractMode = Literal["filtered_links"]
 ArtifactProvenance = Literal["shipped", "llm_synth", "manual", "heuristic"]
@@ -93,6 +94,7 @@ class FieldRecipes(BaseModel):
             "jobs2web_middot_or_dash",
             "anchor_text_compact",
             "ancestor_strong_or_first_line",
+            "prev_sibling_text",
         }
         if value not in allowed:
             raise ValueError(f"unknown from_anchor opcode: {value!r}")
