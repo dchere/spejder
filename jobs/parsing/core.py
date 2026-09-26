@@ -19,12 +19,9 @@ from .platforms import (
     _extract_jobindex_entries_by_link,
 )
 from .platforms_career_alerts import (
-    _extract_danfoss_entries_by_link,
     _extract_djinni_entries_by_link,
-    _extract_novonordisk_entries_by_link,
     _extract_oracle_cx_entries_by_link,
     _extract_thehub_entries_by_link,
-    _extract_vestas_entries_by_link,
 )
 from .merge import _ENTRY_FIELD_KEYS, merge_entry_fields
 from .text_parser import _extract_entries_from_text
@@ -73,13 +70,13 @@ def extract_job_entries(
     html_by_link = _extract_html_entries_by_link(html_text)
     jobindex_by_link = _extract_jobindex_entries_by_link(html_text)
     demant_by_link = _extract_demant_entries_by_link(html_text)
-    danfoss_by_link = _extract_danfoss_entries_by_link(html_text)
     google_by_link = _extract_google_entries_by_link(html_text)
-    vestas_by_link = _extract_vestas_entries_by_link(html_text)
-    novonordisk_by_link = _extract_novonordisk_entries_by_link(html_text)
     thehub_by_link = _extract_thehub_entries_by_link(html_text)
     djinni_by_link = _extract_djinni_entries_by_link(html_text)
     oracle_by_link = _extract_oracle_cx_entries_by_link(html_text)
+    # Vestas / Danfoss / Novo Nordisk Jobs2Web hosts: shipped artifacts only
+    # (see jobs/parsing/artifacts/*.json). Python site extractors remain in
+    # jobs2web.py for parity tests, not the merge path.
 
     by_text = _extract_entries_from_text(text)
     by_link = {}
@@ -87,17 +84,21 @@ def extract_job_entries(
         by_link[entry["position_link"]] = entry
 
     def _maps_for(link: str) -> tuple:
+        # When an artifact matched the link, skip generic HTML fields so the
+        # recipe (Jobs2Web middot split, etc.) is not blocked by raw anchor text.
+        # Typed platforms still win via first-wins before the artifact map.
+        html_fields = (
+            {} if link in artifact_by_link else html_by_link.get(link, {})
+        )
         return (
             google_by_link.get(link, {}),
             thehub_by_link.get(link, {}),
             djinni_by_link.get(link, {}),
-            danfoss_by_link.get(link, {}),
-            vestas_by_link.get(link, {}),
-            novonordisk_by_link.get(link, {}),
             oracle_by_link.get(link, {}),
             demant_by_link.get(link, {}),
             _jobindex_merge_fields(jobindex_by_link.get(link, {})),
-            html_by_link.get(link, {}),
+            html_fields,
+            artifact_by_link.get(link, {}),
         )
 
     for lnk, entry in by_link.items():
@@ -111,8 +112,6 @@ def extract_job_entries(
             wt = _work_type_from_html_for_link(html_text, lnk)
             if wt:
                 entry["work_type"] = wt
-
-        _fill_empty_fields(entry, artifact_by_link.get(lnk, {}))
 
         if not entry.get("source"):
             entry["source"] = _provider_from_link(lnk)
@@ -128,7 +127,6 @@ def extract_job_entries(
         if normalized in by_link:
             continue
         merged = merge_entry_fields(*_maps_for(normalized))
-        art_fields = artifact_by_link.get(normalized, {})
         company, title = extract_company_title(text, title_hint)
         entry = {
             "company": merged.get("company") or "",
@@ -139,7 +137,6 @@ def extract_job_entries(
             "raw_text": merged.get("raw_text") or "",
             "source": merged.get("source") or "",
         }
-        _fill_empty_fields(entry, art_fields)
         if not entry.get("company"):
             entry["company"] = company
         if not entry.get("title"):
