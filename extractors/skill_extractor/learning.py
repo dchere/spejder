@@ -1,5 +1,7 @@
 """Batch skill pattern learning from applied and relevant job positions."""
 
+from __future__ import annotations
+
 from collections import Counter
 from typing import Callable, Optional
 
@@ -17,6 +19,20 @@ from .job_skills_read import get_job_skills_filtered
 from .normalization import _normalize_skill_name
 from .patterns import _get_skill_patterns
 from .utils import _skill_to_regex
+
+
+def _cap_learning_scores(
+    counts: Counter[str] | dict[str, int], score_cap: int
+) -> Counter[str]:
+    """Clamp learning scores to ``score_cap`` when enabled (cap > 0)."""
+    capped: Counter[str] = Counter()
+    cap = int(score_cap or 0)
+    for name, score in counts.items():
+        value = max(0, int(score or 0))
+        if cap > 0:
+            value = min(value, cap)
+        capped[name] = value
+    return capped
 
 
 def _select_learning_rows(
@@ -153,6 +169,11 @@ def _learn_skill_patterns_from_positions(
                 print(f"{progress_label}: {considered}/{learn_total} processed")
             if on_progress is not None:
                 on_progress(considered, learn_total)
+
+    # Optional profile cap bounds outliers / UI (0 = disabled). Applied after
+    # batch aggregation so reconcile and new-pattern admission share one score.
+    score_cap = int(getattr(runtime_profile, "skill_learning_score_cap", 0) or 0)
+    counts = _cap_learning_scores(counts, score_cap)
 
     # Persist current batch scores (set, not accumulate). Also zeros rows that
     # no longer appear in applied/relevant evidence — including any pre-fix

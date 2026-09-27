@@ -3,6 +3,7 @@
 import os
 import tempfile
 import unittest
+from collections import Counter
 from unittest import mock
 
 from spejder.config import AppConfig
@@ -18,6 +19,7 @@ from spejder.db import (
 )
 from spejder.db.connection import _connect
 from spejder.extractors.skill_extractor.learning import (
+    _cap_learning_scores,
     _learn_skill_patterns_from_positions,
     _select_learning_rows,
 )
@@ -296,6 +298,74 @@ class AppliedWeightConfigTest(unittest.TestCase):
 
         _learn_skill_patterns_from_positions(self.db_path, self.profile)
         self.assertEqual(_occurrences(self.db_path, "Python"), 5)
+
+
+class LearningScoreCapTest(unittest.TestCase):
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self._tmpdir.name, "jobs.db")
+        ensure_db(self.db_path)
+        upsert_skill_pattern(
+            self.db_path,
+            name="Python",
+            pattern=r"\bPython\b",
+            source="profile_seed",
+            occurrences_inc=0,
+        )
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def test_cap_helper_clamps_when_enabled(self):
+        raw = Counter({"Python": 12, "SQL": 2})
+        self.assertEqual(dict(_cap_learning_scores(raw, 0)), {"Python": 12, "SQL": 2})
+        self.assertEqual(dict(_cap_learning_scores(raw, 5)), {"Python": 5, "SQL": 2})
+        self.assertEqual(dict(_cap_learning_scores(raw, -1)), {"Python": 12, "SQL": 2})
+
+    def test_learn_caps_reconciled_score(self):
+        profile = AppConfig(
+            skill_learning_max_positions=180,
+            skill_learning_min_occurrences=3,
+            skill_learning_max_new_patterns=20,
+            skill_learning_applied_weight=3,
+            skill_learning_score_cap=4,
+            known_skill_patterns=[],
+            blocked_skills=[],
+        )
+        for i in range(3):
+            job_id = _insert_job(
+                self.db_path,
+                f"https://example.com/cap-{i}",
+                title=f"Cap Job {i}",
+            )
+            set_job_applied(self.db_path, job_id, True)
+            set_job_skills(self.db_path, job_id, ["Python"])
+
+        _learn_skill_patterns_from_positions(self.db_path, profile)
+        # Uncapped batch would be 9 (3 applied × weight 3); cap clamps to 4.
+        self.assertEqual(_occurrences(self.db_path, "Python"), 4)
+
+    def test_zero_cap_disables_clamp(self):
+        profile = AppConfig(
+            skill_learning_max_positions=180,
+            skill_learning_min_occurrences=3,
+            skill_learning_max_new_patterns=20,
+            skill_learning_applied_weight=3,
+            skill_learning_score_cap=0,
+            known_skill_patterns=[],
+            blocked_skills=[],
+        )
+        for i in range(2):
+            job_id = _insert_job(
+                self.db_path,
+                f"https://example.com/nocap-{i}",
+                title=f"No Cap {i}",
+            )
+            set_job_applied(self.db_path, job_id, True)
+            set_job_skills(self.db_path, job_id, ["Python"])
+
+        _learn_skill_patterns_from_positions(self.db_path, profile)
+        self.assertEqual(_occurrences(self.db_path, "Python"), 6)
 
 
 if __name__ == "__main__":

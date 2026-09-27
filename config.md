@@ -21,6 +21,8 @@ Replaces the old dictionary-based profile system (`FALLBACK_DEFAULT_PROFILE`). A
 
 **Skill extraction profile fields:**
 - `skill_new_confidence_threshold` — minimum LLM confidence for novel skill candidates (default `0.9`); quality/evidence checks in `filtering._is_candidate_strong` still apply
+- `skill_learning_applied_weight` — per-position weight for applied jobs in Learned scoring (default `3`; relevant is always `1`)
+- `skill_learning_score_cap` — optional max Learned score written on each learning pass (default `0` = disabled). Bounds outliers/UI without changing the set-from-evidence model
 - `skill_bigram_toxicity_threshold` — last sync-computed toxicity cutoff (auto-written cache for extraction between syncs; not a hand-edit knob). GUI sync and `process-inbox` overwrite it via `recalibrate_and_store_threshold` in shared `run_skill_hygiene_stages`. Also written immediately on block when `skill_recalibrate_on_block` is true.
 - `skill_bigram_threshold_margin` — operator-tunable margin for the p95 good / p50 bad formula (default `0.5`)
 - `skill_bad_ngram_weight_cap` — max weight per bad-cloud ngram on ingest (default `3`; `<= 0` = uncapped). Softens ghost toxicity from heavy compound-phrase blocking.

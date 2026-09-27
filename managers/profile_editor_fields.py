@@ -150,6 +150,10 @@ PROFILE_FIELD_META: dict[str, dict[str, Any]] = {
         "skills", "Skill learning applied weight", "number",
         help="Per-position weight for applied jobs in Learned scoring (default 3; relevant is always 1).",
     ),
+    "skill_learning_score_cap": _field(
+        "skills", "Skill learning score cap", "number",
+        help="Max Learned score (occurrences/weight) after each learning pass. 0 disables the cap.",
+    ),
     "skill_new_confidence_threshold": _field("skills", "New skill confidence threshold", "number"),
     "skill_bigram_threshold_margin": _field(
         "skills", "Bigram toxicity threshold margin", "number",
