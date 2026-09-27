@@ -54,6 +54,12 @@ def upsert_skill_pattern(
     weight_inc: float = 0.0,
     enabled: bool = True,
 ) -> bool:
+    """Insert or update a skill pattern.
+
+    ``occurrences_inc`` / ``weight_inc`` remain additive for seed/helpers.
+    Learning passes must use ``reconcile_skill_pattern_learning_scores`` so
+    Learned reflects current batch evidence rather than lifetime sums.
+    """
     name_clean = (name or "").strip()
     pattern_clean = (pattern or "").strip()
     name_key = _normalize_skill_name_key(name_clean)
@@ -100,6 +106,67 @@ def upsert_skill_pattern(
         )
         conn.commit()
         return True
+    finally:
+        conn.close()
+
+
+def reconcile_skill_pattern_learning_scores(
+    db_path: str, scores_by_name: dict[str, int]
+) -> dict[str, int]:
+    """Set ``occurrences`` / ``weight`` from the current learning batch.
+
+    Every existing ``skill_patterns`` row is reconciled in one transaction:
+    scores present in ``scores_by_name`` (matched by ``name_key``) are stored
+    as absolute values; all other rows are reset to 0. This is the one-time
+    migration path for inflated additive Learned values — the next learning
+    pass after upgrade replaces lifetime sums with current evidence.
+
+    Does not insert new patterns (callers still use ``upsert_skill_pattern``
+    for admission of new names). Rows with a positive score also bump
+    ``last_seen_at``; zeroed rows keep their prior ``last_seen_at``.
+    """
+    ensure_db(db_path)
+    now = datetime.now(timezone.utc).isoformat()
+    keyed: dict[str, int] = {}
+    for raw_name, raw_score in (scores_by_name or {}).items():
+        name_key = _normalize_skill_name_key(str(raw_name or ""))
+        if not name_key:
+            continue
+        score = max(0, int(raw_score or 0))
+        # Prefer the highest score if duplicate keys collide after normalize.
+        keyed[name_key] = max(score, keyed.get(name_key, 0))
+
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE skill_patterns
+            SET occurrences=0, weight=0, updated_at=?
+            """,
+            (now,),
+        )
+        reset_count = int(cur.rowcount or 0)
+        scored = 0
+        for name_key, score in keyed.items():
+            if score <= 0:
+                continue
+            cur.execute(
+                """
+                UPDATE skill_patterns
+                SET occurrences=?, weight=?, updated_at=?, last_seen_at=?
+                WHERE name_key=?
+                """,
+                (score, float(score), now, now, name_key),
+            )
+            if cur.rowcount:
+                scored += 1
+        conn.commit()
+        return {
+            "patterns_reset": reset_count,
+            "patterns_scored": scored,
+            "score_keys": len(keyed),
+        }
     finally:
         conn.close()
 

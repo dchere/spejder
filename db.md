@@ -25,6 +25,8 @@ Implements the Repository Pattern, acting as the strict single source of truth f
 - `cleanup_stale_low_share_skills_from_db(db_path, protected_keys)` — delete-only retention: age-eligible `skill_patterns` (`created_at` parseable and older than `SKILL_RETENTION_DAYS` = `JOB_RETENTION_DAYS` (90)) whose Job share `position_pct` is `< SKILL_STALE_JOB_SHARE_PCT_THRESHOLD` (0.1). Skips empty/null/unparseable `created_at` and normalized `protected_keys`. Uses shared `position_pct` (same rounding as Skills tab). Returns `{skills_deleted, skill_rows_deleted, job_skill_links_deleted, affected_job_ids, skills_considered, skills_skipped, deleted_skill_names}`. Does not touch profile, `blocked_skills`, or bad cloud.
 - `position_pct(position_count, jobs_with_skills)` — Skills-tab Job share formula (`round(100.0 * count / denom, 1)`; 0 when denom or count ≤ 0); shared by UI and stale cleanup
 - `get_skill_patterns(db_path, enabled_only=True)` — returns skill pattern rows including `created_at` (ISO timestamp when first stored in `skill_patterns`); default SQL order remains `weight DESC, occurrences DESC, name ASC` for callers that rely on it
+- `upsert_skill_pattern(...)` — insert/update a pattern; `occurrences_inc` / `weight_inc` are **additive** (seed/helpers). Learning must not use this to accumulate Learned.
+- `reconcile_skill_pattern_learning_scores(db_path, scores_by_name)` — set `occurrences`/`weight` from the current learning batch (absolute scores by `name_key`); zeros every other row. First learning pass after upgrade is the migration for inflated additive totals. Does not insert new patterns.
 - (And many more database query functions)
 
 **Context:**

@@ -6,6 +6,7 @@ _EXPORTS = {
     "get_job_link": "connection",
     "get_skill_patterns": "skills",
     "upsert_skill_pattern": "skills",
+    "reconcile_skill_pattern_learning_scores": "skills",
     "migrate_profile_skill_patterns_to_db": "skills",
     "replace_job_skills": "skills",
     "set_job_skills": "skills",
