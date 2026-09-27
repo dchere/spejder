@@ -103,6 +103,7 @@ class SkillLearningSetFromEvidenceTest(unittest.TestCase):
             skill_learning_max_positions=180,
             skill_learning_min_occurrences=3,
             skill_learning_max_new_patterns=20,
+            skill_learning_applied_weight=3,
             known_skill_patterns=[],
             blocked_skills=[],
         )
@@ -254,6 +255,47 @@ class SelectLearningRowsTest(unittest.TestCase):
         relevant = [{"id": 3}]
         rows = _select_learning_rows(applied, relevant, max_positions=180)
         self.assertEqual([(r["id"], w) for r, w in rows], [(1, 3), (2, 3), (3, 1)])
+
+    def test_applied_weight_is_configurable(self):
+        applied = [{"id": 1}, {"id": 2}]
+        relevant = [{"id": 3}]
+        rows = _select_learning_rows(
+            applied, relevant, max_positions=180, applied_weight=5
+        )
+        self.assertEqual([(r["id"], w) for r, w in rows], [(1, 5), (2, 5), (3, 1)])
+
+
+class AppliedWeightConfigTest(unittest.TestCase):
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self._tmpdir.name, "jobs.db")
+        ensure_db(self.db_path)
+        self.profile = AppConfig(
+            skill_learning_max_positions=180,
+            skill_learning_min_occurrences=3,
+            skill_learning_max_new_patterns=20,
+            skill_learning_applied_weight=5,
+            known_skill_patterns=[],
+            blocked_skills=[],
+        )
+        upsert_skill_pattern(
+            self.db_path,
+            name="Python",
+            pattern=r"\bPython\b",
+            source="profile_seed",
+            occurrences_inc=0,
+        )
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def test_learn_uses_profile_applied_weight(self):
+        job_id = _insert_job(self.db_path, "https://example.com/aw", title="Applied W")
+        set_job_applied(self.db_path, job_id, True)
+        set_job_skills(self.db_path, job_id, ["Python"])
+
+        _learn_skill_patterns_from_positions(self.db_path, self.profile)
+        self.assertEqual(_occurrences(self.db_path, "Python"), 5)
 
 
 if __name__ == "__main__":

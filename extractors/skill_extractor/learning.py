@@ -23,13 +23,17 @@ def _select_learning_rows(
     applied_rows: list,
     relevant_rows: list,
     max_positions: int,
+    applied_weight: int = 3,
 ) -> list[tuple[dict, int]]:
     """Build weighted learning rows without starving relevant evidence.
 
-    Applied positions weight 3; relevant (non-applied) weight 1. When the
-    combined set exceeds ``max_positions``, reserve about one-sixth of the
-    budget for relevant so a large applied set cannot drop all +1 signals.
+    Applied positions use ``applied_weight`` (profile
+    ``skill_learning_applied_weight``, default 3); relevant (non-applied)
+    weight 1. When the combined set exceeds ``max_positions``, reserve about
+    one-sixth of the budget for relevant so a large applied set cannot drop
+    all +1 signals.
     """
+    applied_w = int(applied_weight or 3)
     applied: list[tuple[dict, int]] = []
     relevant: list[tuple[dict, int]] = []
     seen_ids: set[int] = set()
@@ -39,7 +43,7 @@ def _select_learning_rows(
         if rid in seen_ids:
             continue
         seen_ids.add(rid)
-        applied.append((row, 3))
+        applied.append((row, applied_w))
 
     for row in relevant_rows:
         rid = int(row.get("id", 0) or 0)
@@ -75,7 +79,13 @@ def _learn_skill_patterns_from_positions(
     )
 
     max_positions = int(runtime_profile.skill_learning_max_positions or 180)
-    rows = _select_learning_rows(applied_rows, relevant_rows, max_positions)
+    applied_weight = int(runtime_profile.skill_learning_applied_weight or 3)
+    rows = _select_learning_rows(
+        applied_rows,
+        relevant_rows,
+        max_positions,
+        applied_weight=applied_weight,
+    )
 
     if not rows:
         if progress:

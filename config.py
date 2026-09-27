@@ -61,6 +61,7 @@ class AppConfig(BaseModel):
     skill_learning_max_positions: int = 180
     skill_learning_min_occurrences: int = 3
     skill_learning_max_new_patterns: int = 20
+    skill_learning_applied_weight: int = 3
     skill_match_weight: float = 1.2
     skill_missing_penalty: float = 0.15
     skill_unwanted_penalty: float = 1.2
