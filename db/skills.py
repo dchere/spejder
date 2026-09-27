@@ -25,6 +25,7 @@ from .skills_patterns import (
     _skill_to_regex_simple,
     get_skill_patterns,
     migrate_profile_skill_patterns_to_db,
+    reconcile_skill_pattern_learning_scores,
     upsert_skill_pattern,
 )
 from .skills_rank import (

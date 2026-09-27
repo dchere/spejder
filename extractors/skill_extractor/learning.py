@@ -7,6 +7,7 @@ from spejder.config import AppConfig
 from spejder.db import (
     get_all_applied_jobs,
     get_jobs_by_category,
+    reconcile_skill_pattern_learning_scores,
     upsert_skill_pattern,
 )
 from spejder.llm import LocalLLM
@@ -16,6 +17,48 @@ from .job_skills_read import get_job_skills_filtered
 from .normalization import _normalize_skill_name
 from .patterns import _get_skill_patterns
 from .utils import _skill_to_regex
+
+
+def _select_learning_rows(
+    applied_rows: list,
+    relevant_rows: list,
+    max_positions: int,
+) -> list[tuple[dict, int]]:
+    """Build weighted learning rows without starving relevant evidence.
+
+    Applied positions weight 3; relevant (non-applied) weight 1. When the
+    combined set exceeds ``max_positions``, reserve about one-sixth of the
+    budget for relevant so a large applied set cannot drop all +1 signals.
+    """
+    applied: list[tuple[dict, int]] = []
+    relevant: list[tuple[dict, int]] = []
+    seen_ids: set[int] = set()
+
+    for row in applied_rows:
+        rid = int(row.get("id", 0) or 0)
+        if rid in seen_ids:
+            continue
+        seen_ids.add(rid)
+        applied.append((row, 3))
+
+    for row in relevant_rows:
+        rid = int(row.get("id", 0) or 0)
+        if rid in seen_ids:
+            continue
+        seen_ids.add(rid)
+        relevant.append((row, 1))
+
+    if max_positions <= 0:
+        return []
+    if len(applied) + len(relevant) <= max_positions:
+        return applied + relevant
+
+    relevant_budget = min(len(relevant), max(0, max_positions // 6))
+    applied_budget = max_positions - relevant_budget
+    applied_take = applied[:applied_budget]
+    remaining = max_positions - len(applied_take)
+    relevant_take = relevant[:remaining]
+    return applied_take + relevant_take
 
 
 def _learn_skill_patterns_from_positions(
@@ -31,31 +74,20 @@ def _learn_skill_patterns_from_positions(
         db_path, "relevant", limit=0, unviewed_only=False, exclude_hidden=False
     )
 
-    rows = []
-    seen_ids = set()
-    for row in applied_rows:
-        rid = int(row.get("id", 0) or 0)
-        if rid in seen_ids:
-            continue
-        seen_ids.add(rid)
-        rows.append((row, 3))
-    for row in relevant_rows:
-        rid = int(row.get("id", 0) or 0)
-        if rid in seen_ids:
-            continue
-        seen_ids.add(rid)
-        rows.append((row, 1))
+    max_positions = int(runtime_profile.skill_learning_max_positions or 180)
+    rows = _select_learning_rows(applied_rows, relevant_rows, max_positions)
 
     if not rows:
         if progress:
             print(f"{progress_label}: no applied/relevant positions found")
+        # Still reconcile to zero so Learned tracks empty current evidence.
+        reconcile_skill_pattern_learning_scores(db_path, {})
         return {
             "considered_positions": 0,
             "new_skill_patterns": 0,
             "total_known_skill_patterns": len(_get_skill_patterns(db_path, runtime_profile)),
         }
 
-    max_positions = int(runtime_profile.skill_learning_max_positions or 180)
     min_occurrences = int(runtime_profile.skill_learning_min_occurrences or 3)
     max_new = int(runtime_profile.skill_learning_max_new_patterns or 20)
 
@@ -73,10 +105,10 @@ def _learn_skill_patterns_from_positions(
         return out
 
     if progress:
-        print(f"{progress_label}: starting (positions={min(len(rows), max_positions)})")
+        print(f"{progress_label}: starting (positions={len(rows)})")
 
-    learn_total = min(len(rows), max_positions)
-    for row, weight in rows[:max_positions]:
+    learn_total = len(rows)
+    for row, weight in rows:
         job_id = int(row.get("id", 0) or 0)
         cached = (
             get_job_skills_filtered(db_path, job_id, runtime_profile)
@@ -112,26 +144,13 @@ def _learn_skill_patterns_from_positions(
             if on_progress is not None:
                 on_progress(considered, learn_total)
 
+    # Persist current batch scores (set, not accumulate). Also zeros rows that
+    # no longer appear in applied/relevant evidence — including any pre-fix
+    # inflated additive totals on the first pass after upgrade.
+    reconcile_skill_pattern_learning_scores(db_path, dict(counts))
+
     existing_patterns = _get_skill_patterns(db_path, runtime_profile)
     existing_names = {name.strip().lower() for name, _ in existing_patterns}
-    existing_map = {name.strip().lower(): pattern for name, pattern in existing_patterns}
-
-    for skill, score in counts.items():
-        key = skill.strip().lower()
-        if key not in existing_names:
-            continue
-        pattern = existing_map.get(key, "")
-        if not pattern:
-            continue
-        upsert_skill_pattern(
-            db_path,
-            name=skill,
-            pattern=pattern,
-            source="learned",
-            occurrences_inc=int(score),
-            weight_inc=float(score),
-            enabled=True,
-        )
 
     candidates = [
         name
@@ -156,13 +175,14 @@ def _learn_skill_patterns_from_positions(
         pattern = _skill_to_regex(skill)
         if not pattern:
             continue
+        score = int(counts.get(skill, 0))
         ok = upsert_skill_pattern(
             db_path,
             name=skill,
             pattern=pattern,
             source="learned",
-            occurrences_inc=int(counts.get(skill, 0)),
-            weight_inc=float(counts.get(skill, 0)),
+            occurrences_inc=score,
+            weight_inc=float(score),
             enabled=True,
         )
         if ok:
