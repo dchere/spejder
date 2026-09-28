@@ -8,6 +8,7 @@ from spejder.config import AppConfig
 from .constants import SKILL_CUE_PATTERN
 from .filtering import _filter_extracted_skills
 from .normalization import _normalize_skill_name
+from .short_token_gates import _short_token_evidence_ok
 
 
 def _extract_skills_fallback(
@@ -21,8 +22,12 @@ def _extract_skills_fallback(
     low = source.lower()
     for label, pattern in skill_patterns:
         m = re.search(pattern, low, flags=re.IGNORECASE)
-        if m:
-            hits.append((m.start(), label))
+        if not m:
+            continue
+        # Keep folded identity; gate ambiguous short tokens against original case.
+        if not _short_token_evidence_ok(label, source):
+            continue
+        hits.append((m.start(), label))
     hits.sort(key=lambda x: x[0])
 
     ordered = []
@@ -55,6 +60,8 @@ def _extract_skills_fallback(
     for skill in phrase_candidates:
         key = skill.lower()
         if key in seen:
+            continue
+        if not _short_token_evidence_ok(skill, source):
             continue
         seen.add(key)
         ordered.append(skill)

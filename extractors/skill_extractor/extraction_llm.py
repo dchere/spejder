@@ -9,6 +9,7 @@ from .extraction_prompt import _build_job_skill_extraction_prompt
 from .filtering import _filter_extracted_skills, _is_candidate_strong, _passes_phrase_quality
 from .normalization import _normalize_skill_name
 from .patterns import _get_skill_patterns
+from .short_token_gates import _short_token_evidence_ok
 from .utils import (
     _clean_model_output,
     _extract_json_object,
@@ -66,9 +67,12 @@ def _extract_job_skills_llm_path(
                 continue
             if not _passes_phrase_quality(skill):
                 continue
-            if key in cleaned.lower():
-                selected.append(known_by_key[key])
-                seen.add(key)
+            if key not in cleaned.lower():
+                continue
+            if not _short_token_evidence_ok(key, cleaned):
+                continue
+            selected.append(known_by_key[key])
+            seen.add(key)
 
         for item in _to_items(parsed_json.get("new_candidates")):
             skill = _normalize_skill_name(str(item.get("name", "")))
@@ -101,8 +105,11 @@ def _extract_job_skills_llm_path(
         constrained = []
         for skill in parsed_text:
             key = skill.lower()
-            if key in known_by_key and _passes_phrase_quality(skill):
-                constrained.append(known_by_key[key])
+            if key not in known_by_key or not _passes_phrase_quality(skill):
+                continue
+            if not _short_token_evidence_ok(key, cleaned):
+                continue
+            constrained.append(known_by_key[key])
         filtered_constrained = _filter_extracted_skills(
             constrained, profile, db_path, known_keys
         )

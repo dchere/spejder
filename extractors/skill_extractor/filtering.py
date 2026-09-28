@@ -9,6 +9,7 @@ from spejder.db import count_bad_ngrams
 from .bad_cloud import resolve_toxicity_threshold, toxicity_scores_by_key
 from .constants import SKILL_CLEANUP_GENERIC_SINGLE, SKILL_CUE_PATTERN
 from .normalization import _normalize_skill_name
+from .short_token_gates import SHORT_AMBIGUOUS_SKILL_KEYS, _short_token_evidence_ok
 from .utils import _profile_skill_pattern_fields, _skill_to_regex
 
 
@@ -175,6 +176,8 @@ def _is_candidate_strong(
         window = corpus[window_start:window_end]
         if not SKILL_CUE_PATTERN.search(window):
             return False
+    if not _short_token_evidence_ok(skill, cleaned):
+        return False
     return True
 
 
@@ -182,6 +185,9 @@ def _passes_phrase_quality(skill_name: str) -> bool:
     skill = _normalize_skill_name(skill_name)
     if not skill:
         return False
+    # Exact allowlisted short tokens (e.g. IT→it) are gated by evidence elsewhere.
+    if skill in SHORT_AMBIGUOUS_SKILL_KEYS:
+        return True
     if re.match(r"^(?:our|we|you|they|it|this|that|these|those|and|or|but)\b", skill):
         return False
     tokens = [t for t in re.findall(r"[a-z0-9+#.]+", skill) if t]
