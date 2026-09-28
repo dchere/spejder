@@ -23,6 +23,7 @@ class SkillExtractorSmokeTest(unittest.TestCase):
             learning,
             normalization,
             patterns,
+            short_token_gates,
             ui,
             user_sync,
             utils,
