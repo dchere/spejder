@@ -140,12 +140,12 @@ class FormatDurationAndEtaTest(unittest.TestCase):
         cold = format_skills_stage_message(checked=50, total=200, eta_s=None)
         self.assertEqual(
             cold,
-            "Materializing skills and rescoring jobs — 25% of positions done.",
+            "Materializing skills and rescoring jobs — 25% done.",
         )
         msg = format_skills_stage_message(checked=50, total=200, eta_s=180)
         self.assertEqual(
             msg,
-            "Materializing skills and rescoring jobs — 25% of positions done. "
+            "Materializing skills and rescoring jobs — 25% done. "
             "Estimated time left: 3 minutes.",
         )
         short_eta = format_skills_stage_message(checked=1, total=10, eta_s=40)
@@ -153,9 +153,10 @@ class FormatDurationAndEtaTest(unittest.TestCase):
         done = format_skills_stage_message(checked=10, total=10, eta_s=0)
         self.assertEqual(
             done,
-            "Materializing skills and rescoring jobs — 100% of positions done.",
+            "Materializing skills and rescoring jobs — 100% done.",
         )
         self.assertNotIn("Estimated time left", done)
+        self.assertNotIn("of positions", msg)
 
     def test_format_descriptions_stage_message(self) -> None:
         self.assertEqual(
@@ -165,17 +166,18 @@ class FormatDurationAndEtaTest(unittest.TestCase):
         msg = format_descriptions_stage_message(checked=50, total=200, eta_s=180)
         self.assertEqual(
             msg,
-            f"{DESCRIPTIONS_STAGE_MESSAGE} — 25% of positions done. "
+            f"{DESCRIPTIONS_STAGE_MESSAGE} — 25% done. "
             "Estimated time left: 3 minutes.",
         )
         cold = format_descriptions_stage_message(checked=50, total=200, eta_s=None)
         self.assertEqual(
             cold,
-            f"{DESCRIPTIONS_STAGE_MESSAGE} — 25% of positions done.",
+            f"{DESCRIPTIONS_STAGE_MESSAGE} — 25% done.",
         )
         done = format_descriptions_stage_message(checked=10, total=10, eta_s=0)
-        self.assertIn("100% of positions done.", done)
+        self.assertIn("100% done.", done)
         self.assertNotIn("Estimated time left", done)
+        self.assertNotIn("of positions", msg)
 
 
 class MaterializeEtaIntegrationTest(unittest.TestCase):
@@ -212,8 +214,8 @@ class MaterializeEtaIntegrationTest(unittest.TestCase):
             self.assertEqual(recorded[0][:3], (3, 3, 3))
             self.assertEqual(recorded[0][3], 0.0)  # remaining=0
             self.assertTrue(status_msgs)
-            self.assertIn("0% of positions done.", status_msgs[0])
-            self.assertIn("100% of positions done.", status_msgs[-1])
+            self.assertIn("0% done.", status_msgs[0])
+            self.assertIn("100% done.", status_msgs[-1])
             self.assertTrue(os.path.isfile(store))
             with open(store, encoding="utf-8") as handle:
                 data = json.load(handle)
@@ -272,8 +274,8 @@ class DescriptionsEtaIntegrationTest(unittest.TestCase):
             self.assertEqual(recorded[0][:3], (3, 3, 0))
             self.assertEqual(recorded[0][3], 0.0)
             self.assertTrue(status_msgs)
-            self.assertIn("0% of positions done.", status_msgs[0])
-            self.assertIn("100% of positions done.", status_msgs[-1])
+            self.assertIn("0% done.", status_msgs[0])
+            self.assertIn("100% done.", status_msgs[-1])
             self.assertTrue(status_msgs[-1].startswith(DESCRIPTIONS_STAGE_MESSAGE))
             self.assertTrue(os.path.isfile(store))
             with open(store, encoding="utf-8") as handle:

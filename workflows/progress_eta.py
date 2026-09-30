@@ -158,8 +158,8 @@ def format_skills_stage_message(
     """GUI / stage status line: base message plus optional pct and ETA.
 
     Examples:
-    - ``Materializing skills and rescoring jobs — 25% of positions done. Estimated time left: 3 minutes.``
-    - Cold start (no ETA yet): ``… — 25% of positions done.``
+    - ``Materializing skills and rescoring jobs — 25% done. Estimated time left: 3 minutes.``
+    - Cold start (no ETA yet): ``… — 25% done.``
     """
     if total <= 0:
         return base
@@ -169,7 +169,7 @@ def format_skills_stage_message(
         pct_label = f"{int(round(pct))}%"
     else:
         pct_label = f"{pct:.1f}%"
-    message = f"{base} — {pct_label} of positions done."
+    message = f"{base} — {pct_label} done."
     if eta_s is not None and checked < total:
         message += f" Estimated time left: {format_eta_minutes_left(eta_s)}."
     return message
