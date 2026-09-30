@@ -111,6 +111,19 @@ def format_duration(seconds: float) -> str:
     return f"{secs}s"
 
 
+def format_eta_minutes_left(seconds: float) -> str:
+    """Customer-facing ETA in whole minutes (or “less than a minute”)."""
+    secs = max(0.0, float(seconds))
+    if secs < 60:
+        return "less than a minute"
+    mins = int(round(secs / 60.0))
+    if mins < 1:
+        return "less than a minute"
+    if mins == 1:
+        return "1 minute"
+    return f"{mins} minutes"
+
+
 def estimate_remaining_seconds(
     *,
     remaining: int,
@@ -142,20 +155,24 @@ def format_skills_stage_message(
     eta_s: Optional[float],
     base: str = SKILLS_STAGE_MESSAGE,
 ) -> str:
-    """GUI / stage status line: base message plus optional pct and ETA."""
-    parts = [base]
-    if total > 0:
-        pct = (100.0 * checked) / total
-        # Integer pct when whole; one decimal otherwise (matches sync_log pct feel).
-        if abs(pct - round(pct)) < 0.05:
-            parts.append(f"{int(round(pct))}%")
-        else:
-            parts.append(f"{pct:.1f}%")
+    """GUI / stage status line: base message plus optional pct and ETA.
+
+    Examples:
+    - ``Materializing skills and rescoring jobs — 25% of positions done. Estimated time left: 3 minutes.``
+    - Cold start (no ETA yet): ``… — 25% of positions done.``
+    """
+    if total <= 0:
+        return base
+    pct = (100.0 * checked) / total
+    # Integer pct when whole; one decimal otherwise (matches sync_log pct feel).
+    if abs(pct - round(pct)) < 0.05:
+        pct_label = f"{int(round(pct))}%"
+    else:
+        pct_label = f"{pct:.1f}%"
+    message = f"{base} — {pct_label} of positions done."
     if eta_s is not None and checked < total:
-        parts.append(f"~{format_duration(eta_s)} left")
-    if len(parts) == 1:
-        return parts[0]
-    return f"{parts[0]} — " + " · ".join(parts[1:])
+        message += f" Estimated time left: {format_eta_minutes_left(eta_s)}."
+    return message
 
 
 def format_descriptions_stage_message(

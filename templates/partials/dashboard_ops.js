@@ -53,22 +53,41 @@
                 return response.json();
             }
 
+            function setSyncStatusText(statusEl, text) {
+                const value = text || '';
+                statusEl.textContent = value;
+                if (value) {
+                    statusEl.setAttribute('title', value);
+                } else {
+                    statusEl.removeAttribute('title');
+                }
+            }
+
             function applySyncStatus(data, btnEl, statusEl) {
                 const running = Boolean(data.running);
                 btnEl.disabled = running;
                 if (running) {
-                    statusEl.textContent = data.stage_message || data.message || 'Syncing…';
+                    setSyncStatusText(
+                        statusEl,
+                        data.stage_message || data.message || 'Syncing…',
+                    );
                     return;
                 }
                 const status = data.status || 'idle';
                 if (status === 'complete') {
-                    statusEl.textContent = data.message || 'Sync complete — reload the page to see new positions';
+                    setSyncStatusText(
+                        statusEl,
+                        data.message || 'Sync complete — reload the page to see new positions',
+                    );
                 } else if (status === 'skipped') {
-                    statusEl.textContent = data.message || 'Nothing to sync — inbox is empty and descriptions are up to date';
+                    setSyncStatusText(
+                        statusEl,
+                        data.message || 'Nothing to sync — inbox is empty and descriptions are up to date',
+                    );
                 } else if (status === 'failed') {
-                    statusEl.textContent = data.message || 'Sync failed';
+                    setSyncStatusText(statusEl, data.message || 'Sync failed');
                 } else {
-                    statusEl.textContent = '';
+                    setSyncStatusText(statusEl, '');
                 }
             }
 
@@ -80,7 +99,7 @@
                         syncPollTimer = setTimeout(() => pollSyncStatus(btnEl, statusEl), 2000);
                     }
                 } catch (err) {
-                    statusEl.textContent = `Error: ${err.message}`;
+                    setSyncStatusText(statusEl, `Error: ${err.message}`);
                     btnEl.disabled = false;
                 }
             }
@@ -92,7 +111,7 @@
                     syncPollTimer = null;
                 }
                 btnEl.disabled = true;
-                statusEl.textContent = 'Starting sync…';
+                setSyncStatusText(statusEl, 'Starting sync…');
                 try {
                     const response = await fetch(apiUrl('/api/inbox/sync'), {
                         method: 'POST',
@@ -104,7 +123,7 @@
                     }
                     pollSyncStatus(btnEl, statusEl);
                 } catch (err) {
-                    statusEl.textContent = `Error: ${err.message}`;
+                    setSyncStatusText(statusEl, `Error: ${err.message}`);
                     btnEl.disabled = false;
                 }
             }

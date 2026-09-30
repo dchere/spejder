@@ -119,6 +119,24 @@ def materialize_jobs_skills(
     title_translation_cache: dict[str, str] = {}
     updated = 0
     total = len(rows)
+    # Immediate GUI line with 0% (and historical ETA when known) before first cadence tick.
+    if on_status_message is not None and total > 0:
+        eta_s = None
+        if track_eta and historical is not None:
+            eta_s = estimate_remaining_seconds(
+                remaining=total,
+                run_total_seconds=run_total_seconds,
+                run_count=run_count,
+                historical=historical,
+            )
+        on_status_message(
+            format_skills_stage_message(
+                checked=0,
+                total=total,
+                eta_s=eta_s,
+                base=SKILLS_STAGE_MESSAGE,
+            )
+        )
     for idx, row in enumerate(rows, start=1):
         t0 = time.monotonic()
         try:

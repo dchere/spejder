@@ -18,6 +18,7 @@ from spejder.workflows.progress_eta import (
     estimate_remaining_seconds,
     format_descriptions_stage_message,
     format_duration,
+    format_eta_minutes_left,
     format_skills_stage_message,
     load_rolling_average,
     save_rolling_average,
@@ -89,6 +90,15 @@ class FormatDurationAndEtaTest(unittest.TestCase):
         self.assertEqual(format_duration(65), "1m 5s")
         self.assertEqual(format_duration(3661), "1h 1m 1s")
 
+    def test_format_eta_minutes_left(self) -> None:
+        self.assertEqual(format_eta_minutes_left(0), "less than a minute")
+        self.assertEqual(format_eta_minutes_left(45), "less than a minute")
+        self.assertEqual(format_eta_minutes_left(59.4), "less than a minute")
+        self.assertEqual(format_eta_minutes_left(60), "1 minute")
+        self.assertEqual(format_eta_minutes_left(89), "1 minute")
+        self.assertEqual(format_eta_minutes_left(125), "2 minutes")
+        self.assertEqual(format_eta_minutes_left(180), "3 minutes")
+
     def test_estimate_prefers_run_average_after_min_samples(self) -> None:
         historical = RollingTimeAverage(total_seconds=100.0, count=10)  # 10s/pos
         eta = estimate_remaining_seconds(
@@ -127,26 +137,45 @@ class FormatDurationAndEtaTest(unittest.TestCase):
             format_skills_stage_message(checked=0, total=0, eta_s=None),
             "Materializing skills and rescoring jobs",
         )
-        msg = format_skills_stage_message(checked=50, total=200, eta_s=125)
-        self.assertIn("25%", msg)
-        self.assertIn("~2m 5s left", msg)
-        self.assertTrue(msg.startswith("Materializing skills and rescoring jobs — "))
+        cold = format_skills_stage_message(checked=50, total=200, eta_s=None)
+        self.assertEqual(
+            cold,
+            "Materializing skills and rescoring jobs — 25% of positions done.",
+        )
+        msg = format_skills_stage_message(checked=50, total=200, eta_s=180)
+        self.assertEqual(
+            msg,
+            "Materializing skills and rescoring jobs — 25% of positions done. "
+            "Estimated time left: 3 minutes.",
+        )
+        short_eta = format_skills_stage_message(checked=1, total=10, eta_s=40)
+        self.assertIn("Estimated time left: less than a minute.", short_eta)
         done = format_skills_stage_message(checked=10, total=10, eta_s=0)
-        self.assertIn("100%", done)
-        self.assertNotIn("left", done)
+        self.assertEqual(
+            done,
+            "Materializing skills and rescoring jobs — 100% of positions done.",
+        )
+        self.assertNotIn("Estimated time left", done)
 
     def test_format_descriptions_stage_message(self) -> None:
         self.assertEqual(
             format_descriptions_stage_message(checked=0, total=0, eta_s=None),
             DESCRIPTIONS_STAGE_MESSAGE,
         )
-        msg = format_descriptions_stage_message(checked=50, total=200, eta_s=125)
-        self.assertTrue(msg.startswith(f"{DESCRIPTIONS_STAGE_MESSAGE} — "))
-        self.assertIn("25%", msg)
-        self.assertIn("~2m 5s left", msg)
+        msg = format_descriptions_stage_message(checked=50, total=200, eta_s=180)
+        self.assertEqual(
+            msg,
+            f"{DESCRIPTIONS_STAGE_MESSAGE} — 25% of positions done. "
+            "Estimated time left: 3 minutes.",
+        )
+        cold = format_descriptions_stage_message(checked=50, total=200, eta_s=None)
+        self.assertEqual(
+            cold,
+            f"{DESCRIPTIONS_STAGE_MESSAGE} — 25% of positions done.",
+        )
         done = format_descriptions_stage_message(checked=10, total=10, eta_s=0)
-        self.assertIn("100%", done)
-        self.assertNotIn("left", done)
+        self.assertIn("100% of positions done.", done)
+        self.assertNotIn("Estimated time left", done)
 
 
 class MaterializeEtaIntegrationTest(unittest.TestCase):
@@ -183,7 +212,8 @@ class MaterializeEtaIntegrationTest(unittest.TestCase):
             self.assertEqual(recorded[0][:3], (3, 3, 3))
             self.assertEqual(recorded[0][3], 0.0)  # remaining=0
             self.assertTrue(status_msgs)
-            self.assertIn("100%", status_msgs[-1])
+            self.assertIn("0% of positions done.", status_msgs[0])
+            self.assertIn("100% of positions done.", status_msgs[-1])
             self.assertTrue(os.path.isfile(store))
             with open(store, encoding="utf-8") as handle:
                 data = json.load(handle)
@@ -242,7 +272,8 @@ class DescriptionsEtaIntegrationTest(unittest.TestCase):
             self.assertEqual(recorded[0][:3], (3, 3, 0))
             self.assertEqual(recorded[0][3], 0.0)
             self.assertTrue(status_msgs)
-            self.assertIn("100%", status_msgs[-1])
+            self.assertIn("0% of positions done.", status_msgs[0])
+            self.assertIn("100% of positions done.", status_msgs[-1])
             self.assertTrue(status_msgs[-1].startswith(DESCRIPTIONS_STAGE_MESSAGE))
             self.assertTrue(os.path.isfile(store))
             with open(store, encoding="utf-8") as handle:

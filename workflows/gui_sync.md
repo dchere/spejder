@@ -18,8 +18,8 @@ Background inbox synchronization pipeline extracted from `gui.py`, preserving ex
 1. Ingest inbox input (or detect missing-description backfill mode)
 2. Delete processed inbox files
 3. Run company+title position deduplication (`merge_duplicate_positions`)
-4. Materialize skills for active-rescore scope jobs (`get_jobs_for_active_rescore`); conditional per-job rescore when skills changed; dashboard rebuild only when `skills_updated > 0`. Progress ticks update GUI `stage_message` via `on_stage` (pct + ETA; does **not** re-open `sync_log` stage timing) and `sync_log.progress` with `eta=` / `eta_s=`; rolling avg stored at `{db_path}.skills_eta.json` (`progress_eta.py`)
-5. Generate missing descriptions; dashboard rebuild when descriptions updated. Same progress UX as skills: GUI `on_stage("descriptions", …)` pct + ETA, `sync_log.progress` with `eta=` / `eta_s=`, rolling avg at `{db_path}.descriptions_eta.json`
+4. Materialize skills for active-rescore scope jobs (`get_jobs_for_active_rescore`); conditional per-job rescore when skills changed; dashboard rebuild only when `skills_updated > 0`. Progress ticks update GUI `stage_message` via `on_stage` (customer-readable pct + minutes ETA; does **not** re-open `sync_log` stage timing) and `sync_log.progress` with `eta=` / `eta_s=`; rolling avg stored at `{db_path}.skills_eta.json` (`progress_eta.py`)
+5. Generate missing descriptions; dashboard rebuild when descriptions updated. Same progress UX as skills: GUI `on_stage("descriptions", …)` pct + minutes ETA, `sync_log.progress` with `eta=` / `eta_s=`, rolling avg at `{db_path}.descriptions_eta.json`
 6. Learn skill patterns from applied/relevant positions; dashboard rebuild when new patterns added
 7–8. Shared skill hygiene via `run_skill_hygiene_stages` (`skill_hygiene.py`) — **same stage order and DB/profile side effects as CLI `process-inbox`**:
    - 7. Clean blocked skills from SQLite (`cleanup_blocked_skills_from_db` on `runtime_profile.blocked_skills`); rescore affected jobs (`rescore_jobs_if_active`); dashboard rebuild when links/patterns deleted or jobs rescored (deferred hygiene — does not block earlier enrichment)
