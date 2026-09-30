@@ -109,22 +109,42 @@ def _get_position_page_context(
 
 
 def _append_page_context_to_raw_text(
-    raw_text: str, position_link: str, page_context: str, max_chars: int = 9000
+    raw_text: str,
+    position_link: str,
+    page_context: str,
+    max_chars: int = 9000,
+    page_max_chars: int = 3000,
 ) -> str:
+    """Append scraped page text, reserving budget so the page tail is not end-truncated.
+
+    Truncates non-page (title/summary/raw) first; the page block (up to
+    ``page_max_chars``) is kept intact within ``max_chars``.
+    """
     base_raw = (raw_text or "").strip()
     link = (position_link or "").strip()
     context = (page_context or "").strip()
     if not context:
-        return base_raw
+        return base_raw[:max_chars]
+    context = context[: max(0, int(page_max_chars))]
     if not base_raw:
         return context[:max_chars]
     if not link:
-        return base_raw
+        return base_raw[:max_chars]
 
     marker = f"[POSITION_PAGE_CONTEXT {link}]"
     if marker in base_raw:
-        return base_raw
+        return base_raw[:max_chars]
 
-    merged = f"{base_raw}\n\n{marker}\n{context}".strip()
-    return merged[:max_chars]
+    overhead = len(f"\n\n{marker}\n")
+    # If marker + page alone exceed the total cap, keep the page head.
+    if overhead + len(context) >= max_chars:
+        ctx_budget = max(0, max_chars - overhead)
+        return f"{marker}\n{context[:ctx_budget]}".strip()[:max_chars]
+
+    suffix = f"\n\n{marker}\n{context}"
+    base_budget = max_chars - len(suffix)
+    base_trimmed = base_raw[:base_budget].rstrip()
+    if not base_trimmed:
+        return f"{marker}\n{context}".strip()[:max_chars]
+    return f"{base_trimmed}{suffix}"
 
