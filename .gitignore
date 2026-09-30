@@ -23,6 +23,7 @@ jobs.db
 jobs.db-wal
 jobs.db-shm
 *.skills_eta.json
+*.descriptions_eta.json
 profile.json
 inbox/
 outbox/

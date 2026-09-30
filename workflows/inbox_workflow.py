@@ -175,11 +175,28 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
                 dir=quarantine_dir,
             )
 
-        sync_log.stage_start("descriptions", "Generating missing descriptions")
+        from spejder.workflows.progress_eta import (
+            DESCRIPTIONS_STAGE_MESSAGE,
+            SKILLS_STAGE_MESSAGE,
+            descriptions_eta_store_path,
+            format_duration,
+            skills_eta_store_path,
+        )
 
-        def _on_desc_progress(checked: int, total: int, updated: int) -> None:
+        sync_log.stage_start("descriptions", DESCRIPTIONS_STAGE_MESSAGE)
+
+        def _on_desc_progress(
+            checked: int,
+            total: int,
+            updated: int,
+            eta_s: float | None = None,
+        ) -> None:
+            metrics: dict = {"updated": updated}
+            if eta_s is not None:
+                metrics["eta_s"] = float(eta_s)
+                metrics["eta"] = format_duration(eta_s)
             sync_log.progress(
-                "descriptions", checked=checked, total=total, updated=updated
+                "descriptions", checked=checked, total=total, **metrics
             )
 
         desc_updated, desc_skipped = _generate_missing_descriptions_for_ingest(
@@ -187,15 +204,11 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
             llm=llm,
             runtime_profile=profile,
             allow_empty=False,
+            progress=False,
             on_progress=_on_desc_progress,
+            eta_store_path=descriptions_eta_store_path(db_path),
         )
         print(f"Descriptions generated during ingest: updated={desc_updated}, skipped={desc_skipped}")
-
-        from spejder.workflows.progress_eta import (
-            SKILLS_STAGE_MESSAGE,
-            format_duration,
-            skills_eta_store_path,
-        )
 
         sync_log.stage_start("skills", SKILLS_STAGE_MESSAGE)
 
