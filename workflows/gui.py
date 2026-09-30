@@ -69,6 +69,8 @@ def serve_gui(
         llm: Optional[LocalLLM] = None,
         progress_label: str = "",
         on_progress=None,
+        on_status_message=None,
+        eta_store_path=None,
     ) -> int:
         return populate_missing_dashboard_skills(
             db_path,
@@ -77,6 +79,8 @@ def serve_gui(
             llm=llm,
             progress_label=progress_label,
             on_progress=on_progress,
+            on_status_message=on_status_message,
+            eta_store_path=eta_store_path,
         )
 
     sync_context = GuiSyncContext(

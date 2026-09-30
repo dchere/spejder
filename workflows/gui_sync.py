@@ -28,6 +28,11 @@ from spejder.workflows.job_enrichment import (
     make_translate_job_entry_for_storage,
 )
 from spejder.workflows.portal_sync import sync_itday_portal
+from spejder.workflows.progress_eta import (
+    SKILLS_STAGE_MESSAGE,
+    format_duration,
+    skills_eta_store_path,
+)
 from spejder.workflows.skill_hygiene import run_skill_hygiene_stages
 from spejder.workflows.sync_log import IngestProgressTracker, SyncRunLog, SyncRunLogLike
 
@@ -42,7 +47,9 @@ class _PopulateSkillsFn(Protocol):
         *,
         llm: Optional["LocalLLM"] = None,
         progress_label: str = "",
-        on_progress: Optional[Callable[[int, int, int], None]] = None,
+        on_progress: Optional[Callable[..., None]] = None,
+        on_status_message: Optional[Callable[[str], None]] = None,
+        eta_store_path: Optional[str] = None,
     ) -> int: ...
 
 
@@ -262,20 +269,38 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
 
         blocked_rescored = 0
 
-        _emit_stage(context, "skills", "Materializing skills and rescoring jobs")
+        _emit_stage(context, "skills", SKILLS_STAGE_MESSAGE)
         skill_rows = get_jobs_for_active_rescore(context.db_path)
 
-        def _on_skills_progress(checked: int, total: int, updated: int) -> None:
-            if context.sync_log is not None:
-                context.sync_log.progress(
-                    "skills", checked=checked, total=total, updated=updated
-                )
+        def _on_skills_status(message: str) -> None:
+            # Refresh GUI stage text only — do not re-open sync_log stage timing.
+            if context.on_stage is not None:
+                context.on_stage("skills", message)
 
+        def _on_skills_progress(
+            checked: int,
+            total: int,
+            updated: int,
+            eta_s: Optional[float] = None,
+        ) -> None:
+            if context.sync_log is None:
+                return
+            metrics: dict = {"updated": updated}
+            if eta_s is not None:
+                metrics["eta_s"] = float(eta_s)
+                metrics["eta"] = format_duration(eta_s)
+            context.sync_log.progress(
+                "skills", checked=checked, total=total, **metrics
+            )
+
+        want_progress = context.sync_log is not None or context.on_stage is not None
         skills_updated = context.populate_missing_dashboard_skills(
             skill_rows,
             llm=llm_for_sync,
             progress_label="",
-            on_progress=_on_skills_progress if context.sync_log is not None else None,
+            on_progress=_on_skills_progress if want_progress else None,
+            on_status_message=_on_skills_status if context.on_stage is not None else None,
+            eta_store_path=skills_eta_store_path(context.db_path) if want_progress else None,
         )
         print(f"Background sync: missing skills populated ({skills_updated} jobs updated)")
 

@@ -51,7 +51,9 @@ def populate_missing_dashboard_skills(
     *,
     llm: Optional[LocalLLM] = None,
     progress_label: str = "",
-    on_progress: Optional[Callable[[int, int, int], None]] = None,
+    on_progress: Optional[Callable[..., None]] = None,
+    on_status_message: Optional[Callable[[str], None]] = None,
+    eta_store_path: Optional[str] = None,
 ) -> int:
     if not rows:
         return 0
@@ -65,6 +67,8 @@ def populate_missing_dashboard_skills(
         skip_cached=True,
         progress_label=progress_label,
         on_progress=on_progress,
+        on_status_message=on_status_message,
+        eta_store_path=eta_store_path,
     )
     return updated
 

@@ -15,7 +15,7 @@ Append-only sync event log for GUI background sync and `process-inbox`. Operator
 - `run_start(*, source, run_id=None)` — `run_id` defaults to `uuid4().hex[:12]`.
 - `stage_start(stage, message="")` — auto-`stage_end`s any open stage first.
 - `stage_end(stage=None, **metrics)` — closes open stage; always includes `elapsed_s` from monotonic start.
-- `progress(stage, *, checked, total, **metrics)` — writes `checked={n}/{total}` and `pct=` (one decimal) when `total > 0`. Callers must use the same unit for `checked` and `total`; ingest uses job counts with `total=0` (no pct) plus a `files=` metric.
+- `progress(stage, *, checked, total, **metrics)` — writes `checked={n}/{total}` and `pct=` (one decimal) when `total > 0`. Callers must use the same unit for `checked` and `total`; ingest uses job counts with `total=0` (no pct) plus a `files=` metric. Skills materialize may add `eta_s` (one decimal) and human `eta=` (e.g. `2m 5s`).
 - `note(event, **fields)` — ad-hoc event line (does not touch open-stage timing). Used for per-file ingest outcomes (`event=parse_file` with `status` / `found` / `weak_dropped` / `quality` / `synth_reason` / `artifact_ids`) and quarantine summaries (`event=parse_quarantine`).
 - `pipeline_end(status, message="")` — ends open stage; logs terminal pipeline status (`done` / `failed` / `skipped`).
 - `run_end(status, message="")` — ends open stage if any; logs run duration; closes the file. Idempotent when already closed.
@@ -31,7 +31,7 @@ File example:
 ts=2026-09-22T08:01:00.123Z run=a1b2c3d4e5f6 source=gui_sync event=run_start
 ts=2026-09-22T08:01:00.200Z run=a1b2c3d4e5f6 event=stage_start stage=portal message="Checking IT-DAY job portal"
 ts=2026-09-22T08:01:12.450Z run=a1b2c3d4e5f6 event=stage_end stage=portal elapsed_s=12.250
-ts=2026-09-22T08:02:30.000Z run=a1b2c3d4e5f6 event=progress stage=skills checked=50/200 pct=25.0 updated=12
+ts=2026-09-22T08:02:30.000Z run=a1b2c3d4e5f6 event=progress stage=skills checked=50/200 pct=25.0 updated=12 eta_s=125.0 eta="2m 5s"
 ts=2026-09-22T08:10:00.000Z run=a1b2c3d4e5f6 event=pipeline_end status=done message="Inbox sync pipeline complete"
 ts=2026-09-22T08:10:00.010Z run=a1b2c3d4e5f6 event=stage_start stage=rebuild message="Waiting for dashboard rebuild"
 ts=2026-09-22T08:10:05.000Z run=a1b2c3d4e5f6 event=stage_end stage=rebuild elapsed_s=4.990
@@ -42,7 +42,7 @@ Console mirror (same facts, no `ts=`):
 ```
 sync run=a1b2c3d4e5f6 source=gui_sync event=run_start
 sync run=a1b2c3d4e5f6 event=stage_start stage=portal message="Checking IT-DAY job portal"
-sync run=a1b2c3d4e5f6 event=progress stage=skills checked=50/200 pct=25.0 updated=12
+sync run=a1b2c3d4e5f6 event=progress stage=skills checked=50/200 pct=25.0 updated=12 eta_s=125.0 eta="2m 5s"
 sync run=a1b2c3d4e5f6 event=progress stage=ingest checked=25/0 inserted=3 skipped_existing=22 files=2
 sync run=a1b2c3d4e5f6 event=stage_end stage=portal elapsed_s=12.250
 sync run=a1b2c3d4e5f6 event=pipeline_end status=done message="Inbox sync pipeline complete"

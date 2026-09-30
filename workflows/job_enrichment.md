@@ -13,7 +13,8 @@ Per-job text enrichment: translation, description generation, skill materializat
   - Rescores when `rescore AND job_in_active_rescore_scope(row) AND (skills_changed OR first_materialize)`
   - `first_materialize=True` when the job had no cached `job_skills` before extraction (covers keyword-only score when LLM returns no skills)
   - Batch scope via `get_jobs_for_active_rescore` (unviewed, applied, interview stages)
-  - Optional `on_progress(checked, total, updated)` on cadence (`idx % 25 == 0 or idx == total`) in a `finally` so early `continue` (missing id / skip_cached) still reaches the 100% tick; `progress_label` stdout prints only when a row actually ran materialize (skip paths stay silent). Sync pipelines (`gui_sync` / `process-inbox`) pass `progress_label=""` when `on_progress` is wired so console cadence comes from `sync_log` only; enrichment-only/dashboard paths may still use a non-empty label.
+  - Optional `on_progress(checked, total, updated[, eta_s])` on cadence (`idx % 25 == 0 or idx == total`) in a `finally` so early `continue` (missing id / skip_cached) still reaches the 100% tick; 3-arg callbacks still work (`TypeError` fallback). Optional `on_status_message(str)` refreshes GUI stage text with pct / ETA. When progress/status/ETA path is active, per-position wall time updates a rolling average sidecar (`{db_path}.skills_eta.json` via `progress_eta.py`; collapses after ~2000 samples to `1000 * avg`). `progress_label` stdout prints only when a row actually ran materialize (skip paths stay silent). Sync pipelines (`gui_sync` / `process-inbox`) pass `progress_label=""` when `on_progress` is wired so console cadence comes from `sync_log` only; enrichment-only/dashboard paths may still use a non-empty label.
+- `progress_eta.py` — rolling time-per-position average, duration/ETA formatting, skills stage status line
 - `job_easy_apply.py` — `_is_easy_apply_item`
 
 **API (import from `job_enrichment` facade):**
