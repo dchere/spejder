@@ -210,6 +210,31 @@ class DashboardTemplatesTest(unittest.TestCase):
         self.assertNotIn('id="btn-block-selected"', html)
         self.assertNotIn('id="btn-delete-selected"', html)
 
+    def test_dashboard_sync_status_is_own_right_aligned_row(self):
+        """Sync status sits below the toolbar so action buttons stay put."""
+        html = jinja_env.get_template("dashboard.html").render(
+            **_minimal_dashboard_context()
+        )
+        actions_match = re.search(
+            r'class="controls-actions"[^>]*>(.*?)</div>\s*</div>\s*'
+            r'<div id="sync-inbox-status"',
+            html,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(actions_match, "status should follow controls-actions + controls close")
+        actions_html = actions_match.group(1)
+        self.assertIn('id="btn-sync-inbox"', actions_html)
+        self.assertIn('id="btn-profile"', actions_html)
+        self.assertNotIn("sync-inbox-status", actions_html)
+
+        self.assertIn(".sync-inbox-status { display: block;", html)
+        self.assertIn("text-align: right", html)
+        sync_css_start = html.index(".sync-inbox-status {")
+        sync_css = html[sync_css_start : html.index("}", sync_css_start)]
+        self.assertNotIn("text-overflow", sync_css)
+        self.assertNotIn("ellipsis", sync_css)
+        self.assertIn('id="sync-inbox-status" class="sync-inbox-status" aria-live="polite"', html)
+
     def test_company_dashboard_html_includes_corner_css_from_partial(self):
         template = jinja_env.get_template("company_dashboard.html")
         html = template.render(**_minimal_company_context())

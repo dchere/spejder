@@ -12,12 +12,17 @@
             .pseudo-link:hover { color: #084298; }
             {% include "partials/dashboard_card_corners.css" %}
             {% include "partials/dashboard_skills.css" %}
-            .controls-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+            .controls-wrap { margin-bottom: 12px; }
+            .controls-wrap > .controls { margin-bottom: 0; }
+            .controls-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
             .toolbar-action-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 36px; min-height: 36px; padding: 8px; border: 1px solid #0a58ca; color: #0a58ca; background: #fff; border-radius: 8px; cursor: pointer; }
             .toolbar-action-btn.active { background: #eef4ff; box-shadow: inset 0 0 0 1px #0a58ca; }
             .toolbar-action-btn:disabled { opacity: 0.55; cursor: not-allowed; }
             .toolbar-action-group { display: inline-flex; align-items: center; gap: 6px; }
-            .regenerate-status, .sync-inbox-status, .tab-refresh-status { font-size: 12px; color: #555; align-self: center; max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .regenerate-status, .tab-refresh-status { font-size: 12px; color: #555; align-self: center; max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            /* Own row under the toolbar so action buttons do not shift with message length. */
+            .sync-inbox-status { display: block; font-size: 12px; color: #555; text-align: right; line-height: 1.35; margin: 4px 0 0 0; }
+            .sync-inbox-status:empty { display: none; margin: 0; }
             .portrait-wrap { background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 12px; }
             .portrait-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
             .portrait-btn { border: 1px solid #0a58ca; color: #0a58ca; background: #fff; border-radius: 6px; padding: 6px 10px; cursor: pointer; }
@@ -37,36 +42,36 @@
     </head>
     <body>
         <h1>{{title}}</h1>
-        <div class="controls">
-            <button id="btn-relevant" class="mode-btn active" type="button" data-total="{{ relevant_total_count }}">Relevant ({{ len_relevant_items }}/{{ relevant_total_count }})</button>
-            <button id="btn-not-relevant" class="mode-btn" type="button" data-total="{{ not_relevant_total_count }}">Not relevant ({{ len_not_relevant_items }}/{{ not_relevant_total_count }})</button>
-            <button id="btn-applied" class="mode-btn" type="button">Applied ({{ len_applied_items }})</button>
-            <button id="btn-interview" class="mode-btn" type="button">Interview ({{ len_interview_items }})</button>
-            <button id="btn-stopped" class="mode-btn" type="button">Stopped ({{ len_stopped_items }})</button>
-            <button id="btn-hidden" class="mode-btn" type="button">Hidden ({{ len_hidden_items }})</button>
-            <button id="btn-skills" class="mode-btn" type="button">Skills ({{ len_skills_items }})</button>
-            <button id="btn-edited-today" class="mode-btn" type="button">Edited today ({{ len_viewed_today_items }})</button>
-            <span id="tab-refresh-status" class="tab-refresh-status"></span>
-            <div class="controls-actions">
-                <button id="btn-portrait" class="toolbar-action-btn" type="button" aria-label="Portrait" title="Portrait">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/></svg>
-                </button>
-                <div class="toolbar-action-group">
-                    <button id="btn-regenerate" class="toolbar-action-btn" type="button" aria-label="Regenerate report" title="Regenerate report" onclick="regenerateReport(this)">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+        <div class="controls-wrap">
+            <div class="controls">
+                <button id="btn-relevant" class="mode-btn active" type="button" data-total="{{ relevant_total_count }}">Relevant ({{ len_relevant_items }}/{{ relevant_total_count }})</button>
+                <button id="btn-not-relevant" class="mode-btn" type="button" data-total="{{ not_relevant_total_count }}">Not relevant ({{ len_not_relevant_items }}/{{ not_relevant_total_count }})</button>
+                <button id="btn-applied" class="mode-btn" type="button">Applied ({{ len_applied_items }})</button>
+                <button id="btn-interview" class="mode-btn" type="button">Interview ({{ len_interview_items }})</button>
+                <button id="btn-stopped" class="mode-btn" type="button">Stopped ({{ len_stopped_items }})</button>
+                <button id="btn-hidden" class="mode-btn" type="button">Hidden ({{ len_hidden_items }})</button>
+                <button id="btn-skills" class="mode-btn" type="button">Skills ({{ len_skills_items }})</button>
+                <button id="btn-edited-today" class="mode-btn" type="button">Edited today ({{ len_viewed_today_items }})</button>
+                <span id="tab-refresh-status" class="tab-refresh-status"></span>
+                <div class="controls-actions">
+                    <button id="btn-portrait" class="toolbar-action-btn" type="button" aria-label="Portrait" title="Portrait">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/></svg>
                     </button>
-                    <span id="regenerate-status" class="regenerate-status"></span>
-                </div>
-                <button id="btn-profile" class="toolbar-action-btn" type="button" aria-label="Profile" title="Profile">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-                </button>
-                <div class="toolbar-action-group">
+                    <div class="toolbar-action-group">
+                        <button id="btn-regenerate" class="toolbar-action-btn" type="button" aria-label="Regenerate report" title="Regenerate report" onclick="regenerateReport(this)">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+                        </button>
+                        <span id="regenerate-status" class="regenerate-status"></span>
+                    </div>
+                    <button id="btn-profile" class="toolbar-action-btn" type="button" aria-label="Profile" title="Profile">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                    </button>
                     <button id="btn-sync-inbox" class="toolbar-action-btn" type="button" aria-label="Sync inbox" title="Sync inbox" onclick="syncInbox(this)">
                         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 12h-6l-2-3H10L8 12H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
                     </button>
-                    <span id="sync-inbox-status" class="sync-inbox-status"></span>
                 </div>
             </div>
+            <div id="sync-inbox-status" class="sync-inbox-status" aria-live="polite"></div>
         </div>
         <section id="panel-relevant" class="grid">{{ relevant_cards }}</section>
         <section id="panel-not-relevant" class="grid hidden">{{ not_relevant_cards }}</section>

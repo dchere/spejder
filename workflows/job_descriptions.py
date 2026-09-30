@@ -91,6 +91,25 @@ def _generate_missing_descriptions_for_ingest(
     if progress:
         print(f"{progress_label}: starting ({total_rows} items)")
 
+    # Immediate GUI line with 0% (and historical ETA when known) before first cadence tick.
+    if on_status_message is not None and total_rows > 0:
+        eta_s = None
+        if track_eta and historical is not None:
+            eta_s = estimate_remaining_seconds(
+                remaining=total_rows,
+                run_total_seconds=run_total_seconds,
+                run_count=run_count,
+                historical=historical,
+            )
+        on_status_message(
+            format_descriptions_stage_message(
+                checked=0,
+                total=total_rows,
+                eta_s=eta_s,
+                base=DESCRIPTIONS_STAGE_MESSAGE,
+            )
+        )
+
     page_context_cache: dict[str, str] = {}
     title_translation_cache: dict[str, str] = {}
     for idx, row in enumerate(rows, start=1):
