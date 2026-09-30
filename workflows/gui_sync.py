@@ -29,7 +29,9 @@ from spejder.workflows.job_enrichment import (
 )
 from spejder.workflows.portal_sync import sync_itday_portal
 from spejder.workflows.progress_eta import (
+    DESCRIPTIONS_STAGE_MESSAGE,
     SKILLS_STAGE_MESSAGE,
+    descriptions_eta_store_path,
     format_duration,
     skills_eta_store_path,
 )
@@ -307,21 +309,41 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
         if skills_updated > 0:
             context.queue_dashboard_rebuild(reason=f"skills materialized={skills_updated}")
 
-        _emit_stage(context, "descriptions", "Generating missing descriptions")
+        _emit_stage(context, "descriptions", DESCRIPTIONS_STAGE_MESSAGE)
 
-        def _on_desc_progress(checked: int, total: int, updated: int) -> None:
-            if context.sync_log is not None:
-                context.sync_log.progress(
-                    "descriptions", checked=checked, total=total, updated=updated
-                )
+        def _on_desc_status(message: str) -> None:
+            # Refresh GUI stage text only — do not re-open sync_log stage timing.
+            if context.on_stage is not None:
+                context.on_stage("descriptions", message)
 
+        def _on_desc_progress(
+            checked: int,
+            total: int,
+            updated: int,
+            eta_s: Optional[float] = None,
+        ) -> None:
+            if context.sync_log is None:
+                return
+            metrics: dict = {"updated": updated}
+            if eta_s is not None:
+                metrics["eta_s"] = float(eta_s)
+                metrics["eta"] = format_duration(eta_s)
+            context.sync_log.progress(
+                "descriptions", checked=checked, total=total, **metrics
+            )
+
+        want_desc_progress = context.sync_log is not None or context.on_stage is not None
         desc_updated, desc_skipped = _generate_missing_descriptions_for_ingest(
             context.db_path,
             llm=llm_for_sync,
             runtime_profile=context.runtime_profile,
             allow_empty=False,
             progress=False,
-            on_progress=_on_desc_progress if context.sync_log is not None else None,
+            on_progress=_on_desc_progress if want_desc_progress else None,
+            on_status_message=_on_desc_status if context.on_stage is not None else None,
+            eta_store_path=(
+                descriptions_eta_store_path(context.db_path) if want_desc_progress else None
+            ),
         )
         if desc_updated > 0:
             context.queue_dashboard_rebuild(reason=f"descriptions updated {desc_updated}")

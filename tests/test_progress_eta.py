@@ -1,4 +1,4 @@
-"""Tests for rolling average collapse and skills ETA formatting."""
+"""Tests for rolling average collapse and skills / descriptions ETA formatting."""
 
 from __future__ import annotations
 
@@ -9,10 +9,14 @@ import time
 import unittest
 from unittest.mock import patch
 
+from spejder.workflows.job_descriptions import _generate_missing_descriptions_for_ingest
 from spejder.workflows.job_skills_materialize import materialize_jobs_skills
 from spejder.workflows.progress_eta import (
+    DESCRIPTIONS_STAGE_MESSAGE,
     RollingTimeAverage,
+    descriptions_eta_store_path,
     estimate_remaining_seconds,
+    format_descriptions_stage_message,
     format_duration,
     format_skills_stage_message,
     load_rolling_average,
@@ -73,6 +77,10 @@ class RollingTimeAverageTest(unittest.TestCase):
         path = skills_eta_store_path("/tmp/jobs.db")
         self.assertTrue(path.endswith("jobs.db.skills_eta.json"))
 
+    def test_descriptions_eta_store_path(self) -> None:
+        path = descriptions_eta_store_path("/tmp/jobs.db")
+        self.assertTrue(path.endswith("jobs.db.descriptions_eta.json"))
+
 
 class FormatDurationAndEtaTest(unittest.TestCase):
     def test_format_duration(self) -> None:
@@ -124,6 +132,19 @@ class FormatDurationAndEtaTest(unittest.TestCase):
         self.assertIn("~2m 5s left", msg)
         self.assertTrue(msg.startswith("Materializing skills and rescoring jobs — "))
         done = format_skills_stage_message(checked=10, total=10, eta_s=0)
+        self.assertIn("100%", done)
+        self.assertNotIn("left", done)
+
+    def test_format_descriptions_stage_message(self) -> None:
+        self.assertEqual(
+            format_descriptions_stage_message(checked=0, total=0, eta_s=None),
+            DESCRIPTIONS_STAGE_MESSAGE,
+        )
+        msg = format_descriptions_stage_message(checked=50, total=200, eta_s=125)
+        self.assertTrue(msg.startswith(f"{DESCRIPTIONS_STAGE_MESSAGE} — "))
+        self.assertIn("25%", msg)
+        self.assertIn("~2m 5s left", msg)
+        done = format_descriptions_stage_message(checked=10, total=10, eta_s=0)
         self.assertIn("100%", done)
         self.assertNotIn("left", done)
 
@@ -184,6 +205,70 @@ class MaterializeEtaIntegrationTest(unittest.TestCase):
             on_progress=lambda c, t, u: recorded.append((c, t, u)),
         )
         mock_materialize.assert_not_called()
+        self.assertEqual(recorded, [(3, 3, 0)])
+
+
+class DescriptionsEtaIntegrationTest(unittest.TestCase):
+    @patch(
+        "spejder.workflows.job_descriptions._enrich_raw_text_with_position_page",
+        return_value="",
+    )
+    @patch("spejder.workflows.job_descriptions.get_jobs_for_description_refresh")
+    def test_on_progress_receives_eta_and_persists_store(
+        self, mock_refresh, _mock_enrich
+    ) -> None:
+        mock_refresh.return_value = [
+            {"id": 1, "raw_text": ""},
+            {"id": 2, "raw_text": ""},
+            {"id": 3, "raw_text": ""},
+        ]
+        recorded: list[tuple] = []
+        status_msgs: list[str] = []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = os.path.join(tmp, "jobs.db")
+            store = descriptions_eta_store_path(db_path)
+
+            updated, skipped = _generate_missing_descriptions_for_ingest(
+                db_path,
+                on_progress=lambda *args: recorded.append(args),
+                on_status_message=status_msgs.append,
+                eta_store_path=store,
+            )
+
+            self.assertEqual(updated, 0)
+            self.assertEqual(skipped, 3)
+            self.assertEqual(len(recorded), 1)
+            self.assertEqual(recorded[0][:3], (3, 3, 0))
+            self.assertEqual(recorded[0][3], 0.0)
+            self.assertTrue(status_msgs)
+            self.assertIn("100%", status_msgs[-1])
+            self.assertTrue(status_msgs[-1].startswith(DESCRIPTIONS_STAGE_MESSAGE))
+            self.assertTrue(os.path.isfile(store))
+            with open(store, encoding="utf-8") as handle:
+                data = json.load(handle)
+            self.assertEqual(data["count"], 3)
+            self.assertGreaterEqual(data["total_seconds"], 0)
+
+    @patch(
+        "spejder.workflows.job_descriptions._enrich_raw_text_with_position_page",
+        return_value="",
+    )
+    @patch("spejder.workflows.job_descriptions.get_jobs_for_description_refresh")
+    def test_legacy_three_arg_on_progress_still_works(
+        self, mock_refresh, _mock_enrich
+    ) -> None:
+        mock_refresh.return_value = [
+            {"id": 1, "raw_text": ""},
+            {"id": 2, "raw_text": ""},
+            {"id": 3, "raw_text": ""},
+        ]
+        recorded: list[tuple[int, int, int]] = []
+
+        _generate_missing_descriptions_for_ingest(
+            "unused.db",
+            on_progress=lambda c, t, u: recorded.append((c, t, u)),
+        )
         self.assertEqual(recorded, [(3, 3, 0)])
 
 

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 SKILLS_STAGE_MESSAGE = "Materializing skills and rescoring jobs"
+DESCRIPTIONS_STAGE_MESSAGE = "Generating missing descriptions"
 
 # Collapse when the sample grows large so history still influences but storage stays bounded.
 _DEFAULT_COLLAPSE_ABOVE = 2000
@@ -53,6 +54,11 @@ class RollingTimeAverage:
 def skills_eta_store_path(db_path: str) -> str:
     """Sidecar JSON next to the jobs DB (not profile — high-churn runtime stats)."""
     return f"{os.path.abspath(db_path)}.skills_eta.json"
+
+
+def descriptions_eta_store_path(db_path: str) -> str:
+    """Sidecar JSON for description-generation wall times (separate from skills)."""
+    return f"{os.path.abspath(db_path)}.descriptions_eta.json"
 
 
 def load_rolling_average(path: str) -> RollingTimeAverage:
@@ -150,3 +156,16 @@ def format_skills_stage_message(
     if len(parts) == 1:
         return parts[0]
     return f"{parts[0]} — " + " · ".join(parts[1:])
+
+
+def format_descriptions_stage_message(
+    *,
+    checked: int,
+    total: int,
+    eta_s: Optional[float],
+    base: str = DESCRIPTIONS_STAGE_MESSAGE,
+) -> str:
+    """GUI / stage status line for description generation (same shape as skills)."""
+    return format_skills_stage_message(
+        checked=checked, total=total, eta_s=eta_s, base=base
+    )

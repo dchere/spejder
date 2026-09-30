@@ -1,6 +1,6 @@
 import re
 import time
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 
 from spejder.config import AppConfig
 from spejder.db import get_jobs_for_description_refresh, set_job_description
@@ -10,7 +10,37 @@ from spejder.managers.language_manager import (
 )
 from spejder.parsers.web_parser import _get_position_page_context
 from spejder.workflows.job_text_enrichment import _enrich_raw_text_with_position_page
+from spejder.workflows.progress_eta import (
+    DESCRIPTIONS_STAGE_MESSAGE,
+    descriptions_eta_store_path,
+    estimate_remaining_seconds,
+    format_descriptions_stage_message,
+    format_duration,
+    load_rolling_average,
+    save_rolling_average,
+)
 from spejder.workflows.text_prepend import _is_invalid_summary_text
+
+# Legacy: (checked, total, updated). Extended: same + optional eta_s (seconds or None).
+ProgressCallback = Union[
+    Callable[[int, int, int], None],
+    Callable[[int, int, int, Optional[float]], None],
+]
+
+
+def _notify_progress(
+    on_progress: Optional[ProgressCallback],
+    checked: int,
+    total: int,
+    updated: int,
+    eta_s: Optional[float],
+) -> None:
+    if on_progress is None:
+        return
+    try:
+        on_progress(checked, total, updated, eta_s)  # type: ignore[call-arg, misc]
+    except TypeError:
+        on_progress(checked, total, updated)  # type: ignore[call-arg]
 
 
 def _generate_missing_descriptions_for_ingest(
@@ -20,8 +50,16 @@ def _generate_missing_descriptions_for_ingest(
     allow_empty: bool = False,
     progress: bool = False,
     progress_label: str = "Description generation",
-    on_progress: Optional[Callable[[int, int, int], None]] = None,
+    on_progress: Optional[ProgressCallback] = None,
+    on_status_message: Optional[Callable[[str], None]] = None,
+    eta_store_path: Optional[str] = None,
 ) -> tuple[int, int]:
+    """Generate missing job descriptions.
+
+    When ``on_progress`` / ``on_status_message`` is set (or ``eta_store_path`` is
+    passed), tracks per-row wall time into a rolling average sidecar and surfaces
+    ETA / percentage on progress ticks (same cadence as skills materialize).
+    """
     rows = get_jobs_for_description_refresh(
         db_path,
         category="",
@@ -38,15 +76,17 @@ def _generate_missing_descriptions_for_ingest(
     total_rows = len(rows)
     started_at = time.monotonic()
 
-    def _fmt_eta(seconds: float) -> str:
-        seconds = max(0, int(seconds))
-        mins, secs = divmod(seconds, 60)
-        hrs, mins = divmod(mins, 60)
-        if hrs > 0:
-            return f"{hrs}h {mins}m {secs}s"
-        if mins > 0:
-            return f"{mins}m {secs}s"
-        return f"{secs}s"
+    track_eta = (
+        on_progress is not None
+        or on_status_message is not None
+        or eta_store_path is not None
+    )
+    store_path = eta_store_path or (
+        descriptions_eta_store_path(db_path) if track_eta else ""
+    )
+    historical = load_rolling_average(store_path) if track_eta else None
+    run_total_seconds = 0.0
+    run_count = 0
 
     if progress:
         print(f"{progress_label}: starting ({total_rows} items)")
@@ -54,6 +94,7 @@ def _generate_missing_descriptions_for_ingest(
     page_context_cache: dict[str, str] = {}
     title_translation_cache: dict[str, str] = {}
     for idx, row in enumerate(rows, start=1):
+        t0 = time.monotonic()
         if progress:
             elapsed = time.monotonic() - started_at
             avg_per_item = elapsed / max(1, idx - 1)
@@ -61,7 +102,8 @@ def _generate_missing_descriptions_for_ingest(
             eta_sec = avg_per_item * remaining if idx > 1 else 0
             print(
                 f"{progress_label}: {idx}/{total_rows} "
-                f"(updated={updated}, skipped={skipped}, elapsed={_fmt_eta(elapsed)}, eta={_fmt_eta(eta_sec)})"
+                f"(updated={updated}, skipped={skipped}, "
+                f"elapsed={format_duration(elapsed)}, eta={format_duration(eta_sec)})"
             )
 
         try:
@@ -106,13 +148,50 @@ def _generate_missing_descriptions_for_ingest(
             set_job_description(db_path, row.get("id", 0), description)
             updated += 1
         finally:
-            if on_progress is not None and (idx % 25 == 0 or idx == total_rows):
-                on_progress(idx, total_rows, updated)
+            dt = time.monotonic() - t0
+            if track_eta and historical is not None:
+                historical.record(dt)
+                run_total_seconds += dt
+                run_count += 1
+            # Always tick on cadence / last idx so early continues still reach 100%.
+            if (on_progress is not None or on_status_message is not None) and (
+                idx % 25 == 0 or idx == total_rows
+            ):
+                eta_s = None
+                if track_eta and historical is not None:
+                    eta_s = estimate_remaining_seconds(
+                        remaining=max(0, total_rows - idx),
+                        run_total_seconds=run_total_seconds,
+                        run_count=run_count,
+                        historical=historical,
+                    )
+                    if store_path:
+                        try:
+                            save_rolling_average(store_path, historical)
+                        except OSError:
+                            pass
+                _notify_progress(on_progress, idx, total_rows, updated, eta_s)
+                if on_status_message is not None:
+                    on_status_message(
+                        format_descriptions_stage_message(
+                            checked=idx,
+                            total=total_rows,
+                            eta_s=eta_s,
+                            base=DESCRIPTIONS_STAGE_MESSAGE,
+                        )
+                    )
+
+    if track_eta and historical is not None and store_path:
+        try:
+            save_rolling_average(store_path, historical)
+        except OSError:
+            pass
 
     if progress:
         total_elapsed = time.monotonic() - started_at
         print(
-            f"{progress_label}: done (updated={updated}, skipped={skipped}, elapsed={_fmt_eta(total_elapsed)})"
+            f"{progress_label}: done (updated={updated}, skipped={skipped}, "
+            f"elapsed={format_duration(total_elapsed)})"
         )
 
     return updated, skipped
