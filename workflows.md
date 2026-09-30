@@ -32,6 +32,7 @@ Core orchestration for CLI commands, GUI background sync, and heavy multi-step p
 | `job_text_enrichment.py` | Raw-text enrichment (title, summary, page context) |
 | `job_descriptions.py` | LLM description generation + quality heuristics |
 | `job_skills_materialize.py` | Skill extraction materialization batches |
+| `progress_eta.py` | Rolling time-per-position average + skills stage pct/ETA formatting |
 | `job_easy_apply.py` | LinkedIn easy-apply detection |
 | `report_workflow.py` | CLI link reports + JSONL HTML export |
 | `deduplication.py` | Company+title position dedupe wrapper |

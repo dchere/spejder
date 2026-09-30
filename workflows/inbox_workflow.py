@@ -191,12 +191,25 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
         )
         print(f"Descriptions generated during ingest: updated={desc_updated}, skipped={desc_skipped}")
 
-        sync_log.stage_start("skills", "Materializing skills and rescoring jobs")
+        from spejder.workflows.progress_eta import (
+            SKILLS_STAGE_MESSAGE,
+            format_duration,
+            skills_eta_store_path,
+        )
 
-        def _on_skills_progress(checked: int, total: int, updated: int) -> None:
-            sync_log.progress(
-                "skills", checked=checked, total=total, updated=updated
-            )
+        sync_log.stage_start("skills", SKILLS_STAGE_MESSAGE)
+
+        def _on_skills_progress(
+            checked: int,
+            total: int,
+            updated: int,
+            eta_s: float | None = None,
+        ) -> None:
+            metrics: dict = {"updated": updated}
+            if eta_s is not None:
+                metrics["eta_s"] = float(eta_s)
+                metrics["eta"] = format_duration(eta_s)
+            sync_log.progress("skills", checked=checked, total=total, **metrics)
 
         materialize_relevant_and_applied_skills(
             db_path,
@@ -206,6 +219,7 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
             skip_cached=True,
             progress_label="",
             on_progress=_on_skills_progress,
+            eta_store_path=skills_eta_store_path(db_path),
         )
 
         relevant_jobs = get_relevant_jobs(db_path, limit=limit)

@@ -71,7 +71,12 @@ def _utc_ts() -> str:
 
 def _format_field(key: str, value: Any) -> str:
     if isinstance(value, float):
-        text = f"{value:.3f}" if key == "elapsed_s" else f"{value:.1f}" if key == "pct" else str(value)
+        if key == "elapsed_s":
+            text = f"{value:.3f}"
+        elif key in ("pct", "eta_s"):
+            text = f"{value:.1f}"
+        else:
+            text = str(value)
     else:
         text = str(value)
     if any(ch in text for ch in (" ", "=", '"')) or text == "":
