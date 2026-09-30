@@ -6,7 +6,14 @@ from unittest.mock import MagicMock, patch
 
 from spejder.config import AppConfig
 from spejder.extractors.skill_extractor.extraction_fallback import _extract_skills_fallback
-from spejder.extractors.skill_extractor.extraction_llm import _extract_job_skills_llm_path
+from spejder.extractors.skill_extractor.extraction_llm import (
+    _extract_job_skills_llm_path,
+    _select_known_skills_for_prompt,
+)
+from spejder.extractors.skill_extractor.extraction_prompt import (
+    KNOWN_SKILLS_PROMPT_LIMIT,
+    _build_job_skill_extraction_prompt,
+)
 from spejder.extractors.skill_extractor.filtering import (
     _filter_blocked_skill_names,
     _passes_phrase_quality,
@@ -123,6 +130,88 @@ class ExtractJobSkillsLlmPathTest(unittest.TestCase):
             )
 
         self.assertEqual(len([s for s in result.split(", ") if s.strip()]), 4)
+
+    def test_prompt_uses_weight_order_and_text_hit_preference(self):
+        # Weight order: zebra first (late alphabet), then apple, then mango.
+        patterns = [
+            ("zebra", r"\bzebra\b"),
+            ("apple", r"\bapple\b"),
+            ("mango", r"\bmango\b"),
+        ]
+        raw = "We need mango expertise and cloud experience."
+        llm = MagicMock()
+        llm.generate.return_value = json.dumps(
+            {"matched_known": [], "new_candidates": []}
+        )
+
+        with patch(
+            "spejder.extractors.skill_extractor.extraction_llm._get_skill_patterns",
+            return_value=patterns,
+        ):
+            _extract_job_skills_llm_path(
+                "jobs.db",
+                raw,
+                llm=llm,
+                profile=AppConfig(),
+            )
+
+        prompt = llm.generate.call_args.args[0]
+        known_section = prompt.split("Known skills (prefer these): ", 1)[1]
+        known_section = known_section.split("\n\n", 1)[0]
+        known_names = [part.strip() for part in known_section.split(",") if part.strip()]
+        # Text-hit mango first, then weight-ordered remainder (zebra, apple).
+        self.assertEqual(known_names, ["mango", "zebra", "apple"])
+
+
+class BuildJobSkillExtractionPromptTest(unittest.TestCase):
+    def test_description_precedes_known_skills_vocabulary(self):
+        prompt = _build_job_skill_extraction_prompt(
+            known_list=["python", "sql"],
+            user_skills=["docker"],
+            cleaned="Need python and sql.",
+        )
+        desc_idx = prompt.index("Description:\n")
+        known_idx = prompt.index("Known skills (prefer these):")
+        user_idx = prompt.index("Candidate skills from user profile")
+        json_idx = prompt.index("JSON:")
+        self.assertLess(desc_idx, known_idx)
+        self.assertLess(known_idx, user_idx)
+        self.assertLess(user_idx, json_idx)
+        self.assertLess(prompt.index("Hard rules:"), desc_idx)
+
+
+class SelectKnownSkillsForPromptTest(unittest.TestCase):
+    def test_preserves_weight_order_without_alpha_sort(self):
+        # Intentionally reverse-alphabetical weight order.
+        patterns = [(f"skill{i}", rf"\bskill{i}\b") for i in range(5, 0, -1)]
+        _known_by_key, known_list = _select_known_skills_for_prompt(
+            patterns, "no hits here", limit=3
+        )
+        self.assertEqual(known_list, ["skill5", "skill4", "skill3"])
+
+    def test_text_hits_precede_weight_ordered_pad(self):
+        patterns = [
+            ("alpha", r"\balpha\b"),
+            ("beta", r"\bbeta\b"),
+            ("gamma", r"\bgamma\b"),
+            ("delta", r"\bdelta\b"),
+        ]
+        _known_by_key, known_list = _select_known_skills_for_prompt(
+            patterns, "Looking for gamma and delta engineers.", limit=3
+        )
+        self.assertEqual(known_list, ["gamma", "delta", "alpha"])
+
+    def test_respects_prompt_limit_constant(self):
+        patterns = [(f"Skill{i}", rf"\bskill{i}\b") for i in range(KNOWN_SKILLS_PROMPT_LIMIT + 20)]
+        _known_by_key, known_list = _select_known_skills_for_prompt(
+            patterns, "skill310 appears late", limit=KNOWN_SKILLS_PROMPT_LIMIT
+        )
+        self.assertEqual(len(known_list), KNOWN_SKILLS_PROMPT_LIMIT)
+        # Text hit skill310 should be first despite weight-order position > 300.
+        self.assertEqual(known_list[0], "skill310")
+        # Low-weight tail beyond the pad window is dropped.
+        self.assertNotIn("skill319", known_list)
+        self.assertIn("skill0", known_list)
 
 
 class FilterBlockedSkillNamesTest(unittest.TestCase):

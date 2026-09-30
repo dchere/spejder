@@ -1,5 +1,7 @@
 """Prompt construction for job skill extraction."""
 
+KNOWN_SKILLS_PROMPT_LIMIT = 300
+
 
 def _build_job_skill_extraction_prompt(
     *,
@@ -7,14 +9,10 @@ def _build_job_skill_extraction_prompt(
     user_skills: list[str],
     cleaned: str,
 ) -> str:
-    known_skills_prompt = ", ".join(known_list[:300])
+    known_skills_prompt = ", ".join(known_list[:KNOWN_SKILLS_PROMPT_LIMIT])
     user_skills_prompt = ", ".join(user_skills)
     return (
         "Task: Extract required professional/technical skills from the job text.\n"
-        "Known skills (prefer these): "
-        f"{known_skills_prompt}\n\n"
-        "Candidate skills from user profile (extra context): "
-        f"{user_skills_prompt}\n\n"
         "Hard rules:\n"
         "1) Return only concrete skill entities (tools, languages, frameworks, methods, domains, certifications).\n"
         "2) Exclude all narrative, hiring, company, and generic phrases.\n"
@@ -37,5 +35,9 @@ def _build_job_skill_extraction_prompt(
         "Output format (strict JSON) with keys matched_known and new_candidates, each an array of objects: "
         "{\"name\": string, \"confidence\": number, \"evidence\": string}.\n\n"
         f"Description:\n{cleaned}\n\n"
+        "Known skills (prefer these): "
+        f"{known_skills_prompt}\n\n"
+        "Candidate skills from user profile (extra context): "
+        f"{user_skills_prompt}\n\n"
         "JSON:"
     )
