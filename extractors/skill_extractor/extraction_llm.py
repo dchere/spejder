@@ -1,11 +1,12 @@
 """LLM path for job skill extraction."""
 
+import re
 from typing import Optional
 
 from spejder.config import AppConfig
 from spejder.llm import LocalLLM
 
-from .extraction_prompt import _build_job_skill_extraction_prompt
+from .extraction_prompt import KNOWN_SKILLS_PROMPT_LIMIT, _build_job_skill_extraction_prompt
 from .filtering import _filter_extracted_skills, _is_candidate_strong, _passes_phrase_quality
 from .normalization import _normalize_skill_name
 from .patterns import _get_skill_patterns
@@ -17,6 +18,53 @@ from .utils import (
     _split_skills_from_text,
     _to_items,
 )
+
+
+def _pattern_hits_cleaned(pattern: str, cleaned_lower: str) -> bool:
+    """True when a skill pattern matches cleaned job text (fallback-style search)."""
+    if not pattern or not cleaned_lower:
+        return False
+    try:
+        return re.search(pattern, cleaned_lower, flags=re.IGNORECASE) is not None
+    except re.error:
+        return False
+
+
+def _select_known_skills_for_prompt(
+    skill_patterns: list[tuple[str, str]],
+    cleaned: str,
+    *,
+    limit: int = KNOWN_SKILLS_PROMPT_LIMIT,
+) -> tuple[dict[str, str], list[str]]:
+    """Build known map + prompt vocabulary.
+
+    Preserves weight/occurrences order from ``skill_patterns`` (no alphabetical
+    re-sort). Prefers pattern text-hits in the job text, then pads with the
+    remaining weight-ordered names up to ``limit``.
+    """
+    known_by_key: dict[str, str] = {}
+    ordered: list[tuple[str, str]] = []
+    for name, pattern in skill_patterns:
+        skill = _normalize_skill_name(name)
+        if not skill:
+            continue
+        key = skill.lower()
+        if key in known_by_key:
+            continue
+        known_by_key[key] = skill
+        ordered.append((skill, pattern or ""))
+
+    cleaned_lower = cleaned.lower()
+    hits: list[str] = []
+    rest: list[str] = []
+    for skill, pattern in ordered:
+        if _pattern_hits_cleaned(pattern, cleaned_lower):
+            hits.append(skill)
+        else:
+            rest.append(skill)
+
+    known_list = (hits + rest)[: max(0, int(limit))]
+    return known_by_key, known_list
 
 
 def _extract_job_skills_llm_path(
@@ -34,13 +82,8 @@ def _extract_job_skills_llm_path(
     new_skill_conf_threshold = float(
         profile_data.get("skill_new_confidence_threshold", 0.9) or 0.9
     )
-    known_by_key = {
-        _normalize_skill_name(name).lower(): _normalize_skill_name(name)
-        for name, _ in skill_patterns
-        if _normalize_skill_name(name)
-    }
+    known_by_key, known_list = _select_known_skills_for_prompt(skill_patterns, cleaned)
     known_keys = set(known_by_key.keys())
-    known_list = [known_by_key[key] for key in sorted(known_by_key.keys())]
     user_skills = []
     for item in profile_data.get("user_skills", []) or []:
         skill = _normalize_skill_name(str(item))

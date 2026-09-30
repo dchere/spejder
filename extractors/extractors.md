@@ -11,9 +11,9 @@ This module is responsible for parsing and extracting specialized entities (such
   - `utils.py` — text parsing, JSON helpers, regex generation
   - `filtering.py` — blocked/protected keys, phrase quality, structural cleanup reasons for CLI `cleanup-skills`; short-token evidence check on new LLM candidates
   - `patterns.py` — skill pattern registry and profile-to-DB migration
-  - `extraction_prompt.py` — LLM prompt construction (includes short-token disambiguation rule)
+  - `extraction_prompt.py` — LLM prompt construction (task/rules → Description → known/user vocabulary → JSON; includes short-token disambiguation rule; `KNOWN_SKILLS_PROMPT_LIMIT` = 300)
   - `extraction_fallback.py` — regex/phrase fallback (applies short-token gates on pattern + phrase hits)
-  - `extraction_llm.py` — LLM JSON parse path for job skills (gates `matched_known` / constrained text for short tokens)
+  - `extraction_llm.py` — LLM JSON parse path for job skills; prompt vocabulary keeps DB weight/occurrences order (no A–Z re-sort), prefers pattern text-hits then pads to the cap; gates `matched_known` / constrained text for short tokens
   - `extraction.py` — orchestration facade (LLM + fallback + DB cache); no per-job skill count cap
   - `job_skills_read.py` — shared filtered read path (`get_job_skills_filtered` / `get_job_skills_filtered_for_jobs`): whitelist → blocked → bad-cloud; optional cache rewrite when names are dropped. Used by rescore, dashboard cards, suggestions, learning, portrait context, and `_get_or_extract_job_skills` cache hits. Raw `db.get_job_skills` remains for existence checks / admin cleanup only.
   - `learning.py` — batch pattern learning from applied/relevant jobs (`get_jobs_by_category(..., exclude_hidden=False)` so parked relevant Hidden jobs still contribute); persists **current** weighted batch scores via `reconcile_skill_pattern_learning_scores` (set/zero, not additive lifetime sums); applied weight from `skill_learning_applied_weight` (default 3; relevant always ×1); optional `skill_learning_score_cap` clamps reconciled scores after the batch (`<= 0` disables); reserves ~1/6 of `skill_learning_max_positions` for relevant when applied would otherwise fill the cap; optional `on_progress(checked, total)` at the shared every-10 tick rate (console `progress_label` prints only when `progress=True`)
