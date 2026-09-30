@@ -29,7 +29,7 @@ Core orchestration for CLI commands, GUI background sync, and heavy multi-step p
 | `inbox_report.py` | Inbox relevant-job summaries + HTML dashboard write |
 | `job_enrichment.py` | Facade re-exporting job enrichment helpers |
 | `job_translation.py` | Ingest entry translation factory |
-| `job_text_enrichment.py` | Raw-text enrichment (title, summary, page context) |
+| `job_text_enrichment.py` | Raw-text enrichment (title, optional summary, page context); skill path drops summary and prefers substantial page scrape |
 | `job_descriptions.py` | LLM description generation + quality heuristics |
 | `job_skills_materialize.py` | Skill extraction materialization batches |
 | `progress_eta.py` | Rolling time-per-position average + skills stage pct/ETA formatting |
@@ -37,7 +37,7 @@ Core orchestration for CLI commands, GUI background sync, and heavy multi-step p
 | `report_workflow.py` | CLI link reports + JSONL HTML export |
 | `deduplication.py` | Company+title position dedupe wrapper |
 | `enrichment.py` | `refresh-descriptions` command |
-| `text_prepend.py` | Summary validity checks + title/summary raw-text prepend |
+| `text_prepend.py` | Summary validity checks + title/summary raw-text prepend (title skip on presence, not only exact `Title:` prefix) |
 | `formatting.py` | Dashboard title HTML line rendering |
 | `llm_utils.py` | CLI LLM init helpers |
 | `summarization.py` | File/folder summarization commands |

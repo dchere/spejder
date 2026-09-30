@@ -43,6 +43,8 @@ def materialize_job_skills(
         llm=llm,
         runtime_profile=runtime_profile,
         title_translation_cache=title_translation_cache,
+        include_summary=False,
+        prefer_page=True,
     )
     skills_text, skills_changed = _get_or_extract_job_skills(
         db_path,

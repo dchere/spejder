@@ -5,7 +5,7 @@ Per-job text enrichment: translation, description generation, skill materializat
 
 **Submodules:**
 - `job_translation.py` — `make_translate_job_entry_for_storage`
-- `job_text_enrichment.py` — `_enrich_raw_text_with_position_page`, `_build_title_fields`, `_resolve_title_and_place` (spaced ` - ` or trailing `i City` title suffix; not `Social- og`-style hyphens). When `place` is missing and trailing `i City` is parsed, the display title is retained in full and only `place` is filled.
+- `job_text_enrichment.py` — `_enrich_raw_text_with_position_page`, `_build_title_fields`, `_resolve_title_and_place` (spaced ` - ` or trailing `i City` title suffix; not `Social- og`-style hyphens). When `place` is missing and trailing `i City` is parsed, the display title is retained in full and only `place` is filled. Skill materialize calls enrichment with `include_summary=False` and `prefer_page=True` (substantial page ≳800 chars drops listing raw that is mostly duplicated by the scrape; title presence dedupe via `text_prepend`). Description / display paths keep default `include_summary=True`. Page append reserves ≤3000 chars so end-truncation does not cut the page tail.
 - `job_descriptions.py` — description LLM generation, quality checks, `_generate_missing_descriptions_for_ingest` (optional `on_progress(checked, total, updated)` throttled every 25 rows/jobs — does not mirror per-item stdout). Sync pipelines pass `progress=False` when `on_progress` is wired so cadence is `sync_log` only.
 - `job_skills_materialize.py` — `materialize_job_skills`, `materialize_jobs_skills`, `materialize_relevant_and_applied_skills`
   - Uses `replace_job_skills`; propagates `skills_changed`
