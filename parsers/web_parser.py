@@ -20,8 +20,10 @@ def _extract_place_from_page_text(position_link: str, page_text: str) -> str:
         return ""
 
     if "jobs.danfoss.com" in link:
+        # Current Jobs2Web pages use "Job Location:"; older digests/pages
+        # used "Job Location (Short):".
         match = re.search(
-            r"Job Location \(Short\):\s*(.+?)\s+Employment Type:",
+            r"Job Location(?:\s*\(Short\))?:\s*(.+?)\s+Employment Type:",
             text,
             flags=re.IGNORECASE,
         )

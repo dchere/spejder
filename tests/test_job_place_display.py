@@ -388,6 +388,20 @@ class DanfossPlaceExtractionTests(unittest.TestCase):
         )
         self.assertEqual(place, "Reynosa, MEX")
 
+    def test_extracts_job_location_without_short(self):
+        # Live Jobs2Web posting pages (e.g. req 51857) omit "(Short)".
+        page_text = (
+            "Job Description Req ID: 51857 "
+            "Job Location: Mountain Home, AR, US Employment Type: Full Time "
+            "Segment: Danfoss Power Solutions Segment"
+        )
+        place = _extract_place_from_page_text(
+            "http://jobs.danfoss.com/job/Senior-Engineer%2C-Automation-"
+            "&-Controls/51857-en_GB",
+            page_text,
+        )
+        self.assertEqual(place, "Mountain Home, AR, US")
+
 
 if __name__ == "__main__":
     unittest.main()
