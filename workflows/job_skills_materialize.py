@@ -11,8 +11,9 @@ from spejder.workflows.progress_eta import (
     SKILLS_STAGE_MESSAGE,
     estimate_remaining_seconds,
     format_skills_stage_message,
-    load_rolling_average,
-    save_rolling_average,
+    historical_from_slow_samples,
+    load_slow_samples,
+    save_slow_samples,
     skills_eta_store_path,
 )
 
@@ -96,14 +97,37 @@ def materialize_jobs_skills(
 ) -> int:
     """Materialize skills for multiple jobs. Returns count of jobs that received skills.
 
-    When ``on_progress`` / ``on_status_message`` is set (or ``eta_store_path`` is
-    passed), tracks per-position wall time into a rolling average sidecar and
-    surfaces ETA / percentage on progress ticks.
+    A classification pass drops missing ids and ``skip_cached`` hits before the
+    timed loop. ``checked`` / ``total`` and the ETA sidecar count only those
+    slow rows. When progress, status, or ``eta_store_path`` is set, each slow
+    completion appends its duration to the versioned slow-sample store and
+    refreshes the stage line (base sentence, plus minutes left when a rate exists).
     """
     if not rows:
         return 0
 
-    from spejder.db import get_job_skills
+    from spejder.db import get_job_skills_for_jobs
+
+    job_ids = [int(row.get("id", 0) or 0) for row in rows]
+    job_ids = [job_id for job_id in job_ids if job_id > 0]
+    skills_by_job = get_job_skills_for_jobs(db_path, job_ids) if job_ids else {}
+
+    slow_rows: list[tuple[dict, bool]] = []
+    for row in rows:
+        job_id = int(row.get("id", 0) or 0)
+        if job_id <= 0:
+            continue
+        skills = skills_by_job.get(job_id) or []
+        if skip_cached and skills:
+            continue
+        slow_rows.append((row, not skills))
+
+    total = len(slow_rows)
+    if total == 0:
+        return 0
+
+    if progress_label:
+        print(f"{progress_label}: starting (jobs={total})")
 
     track_eta = (
         on_progress is not None
@@ -111,42 +135,27 @@ def materialize_jobs_skills(
         or eta_store_path is not None
     )
     store_path = eta_store_path or (skills_eta_store_path(db_path) if track_eta else "")
-    historical = load_rolling_average(store_path) if track_eta else None
-    run_total_seconds = 0.0
-    run_count = 0
+    loaded = load_slow_samples(store_path) if track_eta else []
+    historical = historical_from_slow_samples(loaded)
+    run_samples: list[float] = []
 
     page_context_cache: dict[str, str] = {}
     title_translation_cache: dict[str, str] = {}
     updated = 0
-    total = len(rows)
-    # Immediate GUI line with 0% (and historical ETA when known) before first cadence tick.
     if on_status_message is not None and total > 0:
         eta_s = None
-        if track_eta and historical is not None:
+        if track_eta:
             eta_s = estimate_remaining_seconds(
                 remaining=total,
-                run_total_seconds=run_total_seconds,
-                run_count=run_count,
+                samples=run_samples,
                 historical=historical,
             )
         on_status_message(
-            format_skills_stage_message(
-                checked=0,
-                total=total,
-                eta_s=eta_s,
-                base=SKILLS_STAGE_MESSAGE,
-            )
+            format_skills_stage_message(eta_s=eta_s, base=SKILLS_STAGE_MESSAGE)
         )
-    for idx, row in enumerate(rows, start=1):
-        t0 = time.monotonic()
+    for idx, (row, first_materialize) in enumerate(slow_rows, start=1):
+        t0 = time.monotonic() if track_eta else 0.0
         try:
-            job_id = int(row.get("id", 0) or 0)
-            if not job_id:
-                continue
-            if skip_cached and get_job_skills(db_path, job_id):
-                continue
-
-            had_cache = bool(get_job_skills(db_path, job_id))
             skills_text, _, skills_changed = materialize_job_skills(
                 db_path,
                 row,
@@ -155,51 +164,36 @@ def materialize_jobs_skills(
                 page_context_cache=page_context_cache,
                 title_translation_cache=title_translation_cache,
                 rescore=rescore,
-                first_materialize=not had_cache,
+                first_materialize=first_materialize,
             )
             if skills_text or skills_changed:
                 updated += 1
-            # Stdout only when this row actually ran materialize (skip paths stay silent).
+            # Stdout only for slow rows (cache skips never enter this loop).
             if progress_label and (idx % 25 == 0 or idx == total):
                 print(f"{progress_label}: checked={idx}/{total}, updated={updated}")
         finally:
-            dt = time.monotonic() - t0
-            if track_eta and historical is not None:
-                historical.record(dt)
-                run_total_seconds += dt
-                run_count += 1
-            # Always tick on_progress on cadence / last idx so skips still reach 100%.
-            if (on_progress is not None or on_status_message is not None) and (
-                idx % 25 == 0 or idx == total
-            ):
-                eta_s = None
-                if track_eta and historical is not None:
-                    eta_s = estimate_remaining_seconds(
-                        remaining=max(0, total - idx),
-                        run_total_seconds=run_total_seconds,
-                        run_count=run_count,
-                        historical=historical,
-                    )
-                    if store_path:
-                        try:
-                            save_rolling_average(store_path, historical)
-                        except OSError:
-                            pass
+            if track_eta:
+                run_samples.append(time.monotonic() - t0)
+                if store_path:
+                    try:
+                        save_slow_samples(store_path, loaded + run_samples)
+                    except OSError:
+                        pass
+            eta_s = None
+            if track_eta:
+                eta_s = estimate_remaining_seconds(
+                    remaining=max(0, total - idx),
+                    samples=run_samples,
+                    historical=historical,
+                )
+            if on_progress is not None or on_status_message is not None:
                 _notify_progress(on_progress, idx, total, updated, eta_s)
                 if on_status_message is not None:
                     on_status_message(
                         format_skills_stage_message(
-                            checked=idx,
-                            total=total,
-                            eta_s=eta_s,
-                            base=SKILLS_STAGE_MESSAGE,
+                            eta_s=eta_s, base=SKILLS_STAGE_MESSAGE
                         )
                     )
-    if track_eta and historical is not None and store_path:
-        try:
-            save_rolling_average(store_path, historical)
-        except OSError:
-            pass
     return updated
 
 
@@ -221,8 +215,6 @@ def materialize_relevant_and_applied_skills(
 ) -> int:
     """Phase-2 batch: enrich, extract, persist, and optionally rescore scoped jobs."""
     rows = _collect_relevant_and_applied_rows(db_path)
-    if progress_label:
-        print(f"{progress_label}: starting (jobs={len(rows)})")
     updated = materialize_jobs_skills(
         db_path,
         rows,
