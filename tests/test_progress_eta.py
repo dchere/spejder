@@ -13,6 +13,7 @@ from spejder.workflows.job_descriptions import _generate_missing_descriptions_fo
 from spejder.workflows.job_skills_materialize import materialize_jobs_skills
 from spejder.workflows.progress_eta import (
     DESCRIPTIONS_STAGE_MESSAGE,
+    SKILLS_STAGE_MESSAGE,
     RollingTimeAverage,
     descriptions_eta_store_path,
     estimate_remaining_seconds,
@@ -20,8 +21,8 @@ from spejder.workflows.progress_eta import (
     format_duration,
     format_eta_minutes_left,
     format_skills_stage_message,
-    load_rolling_average,
-    save_rolling_average,
+    load_slow_samples,
+    save_slow_samples,
     skills_eta_store_path,
 )
 
@@ -58,21 +59,35 @@ class RollingTimeAverageTest(unittest.TestCase):
     def test_load_save_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "jobs.db.skills_eta.json")
-            avg = RollingTimeAverage(total_seconds=30.0, count=10)
-            save_rolling_average(path, avg)
-            loaded = load_rolling_average(path)
-            self.assertEqual(loaded.count, 10)
-            self.assertAlmostEqual(loaded.total_seconds, 30.0)
-            self.assertAlmostEqual(loaded.average or 0.0, 3.0)
+            save_slow_samples(path, [1.5, 2.5, 3.5])
+            loaded = load_slow_samples(path)
+            self.assertEqual(loaded, [1.5, 2.5, 3.5])
+            with open(path, encoding="utf-8") as handle:
+                data = json.load(handle)
+            self.assertEqual(data["version"], 2)
+            self.assertEqual(data["kind"], "slow")
 
-    def test_load_corrupt_or_missing_returns_empty(self) -> None:
+    def test_save_keeps_last_32_samples(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "jobs.db.skills_eta.json")
+            save_slow_samples(path, [float(i) for i in range(40)])
+            loaded = load_slow_samples(path)
+            self.assertEqual(len(loaded), 32)
+            self.assertEqual(loaded[0], 8.0)
+            self.assertEqual(loaded[-1], 39.0)
+
+    def test_load_corrupt_missing_or_old_aggregate_returns_empty(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             missing = os.path.join(tmp, "nope.json")
-            self.assertEqual(load_rolling_average(missing).count, 0)
+            self.assertEqual(load_slow_samples(missing), [])
             bad = os.path.join(tmp, "bad.json")
             with open(bad, "w", encoding="utf-8") as handle:
                 handle.write("{not-json")
-            self.assertEqual(load_rolling_average(bad).count, 0)
+            self.assertEqual(load_slow_samples(bad), [])
+            old = os.path.join(tmp, "old.json")
+            with open(old, "w", encoding="utf-8") as handle:
+                json.dump({"total_seconds": 5866, "count": 1793}, handle)
+            self.assertEqual(load_slow_samples(old), [])
 
     def test_skills_eta_store_path(self) -> None:
         path = skills_eta_store_path("/tmp/jobs.db")
@@ -99,94 +114,91 @@ class FormatDurationAndEtaTest(unittest.TestCase):
         self.assertEqual(format_eta_minutes_left(125), "2 minutes")
         self.assertEqual(format_eta_minutes_left(180), "3 minutes")
 
-    def test_estimate_prefers_run_average_after_min_samples(self) -> None:
+    def test_estimate_window_uses_last_eight(self) -> None:
+        samples = [100.0, 50.0] + [2.0] * 8
+        eta = estimate_remaining_seconds(
+            remaining=4,
+            samples=samples,
+            historical=RollingTimeAverage(total_seconds=1000.0, count=10),
+        )
+        self.assertAlmostEqual(eta or 0.0, 8.0)
+
+    def test_estimate_three_in_run_samples_beat_history(self) -> None:
         historical = RollingTimeAverage(total_seconds=100.0, count=10)  # 10s/pos
         eta = estimate_remaining_seconds(
             remaining=5,
-            run_total_seconds=9.0,
-            run_count=3,
+            samples=[3.0, 3.0, 3.0],
             historical=historical,
         )
-        # run avg = 3s → 15s remaining
         self.assertAlmostEqual(eta or 0.0, 15.0)
 
-    def test_estimate_falls_back_to_historical(self) -> None:
+    def test_estimate_one_sample_with_empty_history_is_none(self) -> None:
+        self.assertIsNone(
+            estimate_remaining_seconds(
+                remaining=5,
+                samples=[2.0],
+                historical=RollingTimeAverage(),
+            )
+        )
+
+    def test_estimate_one_sample_uses_historical_rate(self) -> None:
         historical = RollingTimeAverage(total_seconds=40.0, count=10)  # 4s/pos
         eta = estimate_remaining_seconds(
             remaining=5,
-            run_total_seconds=2.0,
-            run_count=1,
+            samples=[2.0],
             historical=historical,
         )
         self.assertAlmostEqual(eta or 0.0, 20.0)
 
     def test_estimate_zero_remaining(self) -> None:
-        historical = RollingTimeAverage()
-        self.assertEqual(
+        self.assertIsNone(
             estimate_remaining_seconds(
                 remaining=0,
-                run_total_seconds=10.0,
-                run_count=5,
-                historical=historical,
-            ),
-            0.0,
+                samples=[1.0, 2.0, 3.0],
+                historical=RollingTimeAverage(total_seconds=40.0, count=10),
+            )
         )
 
     def test_format_skills_stage_message(self) -> None:
-        self.assertEqual(
-            format_skills_stage_message(checked=0, total=0, eta_s=None),
-            "Materializing skills and rescoring jobs",
-        )
-        cold = format_skills_stage_message(checked=50, total=200, eta_s=None)
-        self.assertEqual(
-            cold,
-            "Materializing skills and rescoring jobs — 25% done.",
-        )
-        msg = format_skills_stage_message(checked=50, total=200, eta_s=180)
+        for eta_s in (None, 0):
+            text = format_skills_stage_message(eta_s=eta_s)
+            self.assertEqual(text, SKILLS_STAGE_MESSAGE)
+            self.assertNotIn("%", text)
+        msg = format_skills_stage_message(eta_s=180)
         self.assertEqual(
             msg,
-            "Materializing skills and rescoring jobs — 25% done. "
-            "Estimated time left: 3 minutes.",
+            f"{SKILLS_STAGE_MESSAGE}. Estimated time left: 3 minutes.",
         )
-        short_eta = format_skills_stage_message(checked=1, total=10, eta_s=40)
-        self.assertIn("Estimated time left: less than a minute.", short_eta)
-        done = format_skills_stage_message(checked=10, total=10, eta_s=0)
+        self.assertNotIn("%", msg)
+        short_eta = format_skills_stage_message(eta_s=40)
         self.assertEqual(
-            done,
-            "Materializing skills and rescoring jobs — 100% done.",
+            short_eta,
+            f"{SKILLS_STAGE_MESSAGE}. Estimated time left: less than a minute.",
         )
-        self.assertNotIn("Estimated time left", done)
-        self.assertNotIn("of positions", msg)
+        self.assertNotIn("%", short_eta)
 
     def test_format_descriptions_stage_message(self) -> None:
-        self.assertEqual(
-            format_descriptions_stage_message(checked=0, total=0, eta_s=None),
-            DESCRIPTIONS_STAGE_MESSAGE,
-        )
-        msg = format_descriptions_stage_message(checked=50, total=200, eta_s=180)
+        for eta_s in (None, 0):
+            text = format_descriptions_stage_message(eta_s=eta_s)
+            self.assertEqual(text, DESCRIPTIONS_STAGE_MESSAGE)
+            self.assertNotIn("%", text)
+        msg = format_descriptions_stage_message(eta_s=180)
         self.assertEqual(
             msg,
-            f"{DESCRIPTIONS_STAGE_MESSAGE} — 25% done. "
-            "Estimated time left: 3 minutes.",
+            f"{DESCRIPTIONS_STAGE_MESSAGE}. Estimated time left: 3 minutes.",
         )
-        cold = format_descriptions_stage_message(checked=50, total=200, eta_s=None)
-        self.assertEqual(
-            cold,
-            f"{DESCRIPTIONS_STAGE_MESSAGE} — 25% done.",
-        )
-        done = format_descriptions_stage_message(checked=10, total=10, eta_s=0)
-        self.assertIn("100% done.", done)
-        self.assertNotIn("Estimated time left", done)
-        self.assertNotIn("of positions", msg)
+        self.assertNotIn("%", msg)
+        short_eta = format_descriptions_stage_message(eta_s=40)
+        self.assertIn("Estimated time left: less than a minute.", short_eta)
+        self.assertNotIn("%", short_eta)
 
 
 class MaterializeEtaIntegrationTest(unittest.TestCase):
     @patch("spejder.workflows.job_skills_materialize.materialize_job_skills")
-    @patch("spejder.db.get_job_skills", return_value=[])
+    @patch("spejder.db.get_job_skills_for_jobs", return_value={})
     def test_on_progress_receives_eta_and_persists_store(
         self, _mock_get_skills, mock_materialize
     ) -> None:
-        mock_materialize.return_value = ("Python", "raw", True)
         rows = [{"id": i} for i in range(1, 4)]
         recorded: list[tuple] = []
         status_msgs: list[str] = []
@@ -210,21 +222,125 @@ class MaterializeEtaIntegrationTest(unittest.TestCase):
             )
 
             self.assertEqual(updated, 3)
-            self.assertEqual(len(recorded), 1)
-            self.assertEqual(recorded[0][:3], (3, 3, 3))
-            self.assertEqual(recorded[0][3], 0.0)  # remaining=0
+            self.assertEqual([item[:3] for item in recorded], [(1, 3, 1), (2, 3, 2), (3, 3, 3)])
+            self.assertIsNone(recorded[-1][3])
             self.assertTrue(status_msgs)
-            self.assertIn("0% done.", status_msgs[0])
-            self.assertIn("100% done.", status_msgs[-1])
+            self.assertEqual(status_msgs[0], SKILLS_STAGE_MESSAGE)
+            self.assertEqual(status_msgs[-1], SKILLS_STAGE_MESSAGE)
+            for message in status_msgs:
+                self.assertNotIn("%", message)
             self.assertTrue(os.path.isfile(store))
             with open(store, encoding="utf-8") as handle:
                 data = json.load(handle)
-            self.assertEqual(data["count"], 3)
-            self.assertGreater(data["total_seconds"], 0)
+            self.assertEqual(data["version"], 2)
+            self.assertEqual(data["kind"], "slow")
+            self.assertEqual(len(data["samples"]), 3)
+            self.assertNotIn("count", data)
+            self.assertNotIn("total_seconds", data)
 
     @patch("spejder.workflows.job_skills_materialize.materialize_job_skills")
-    @patch("spejder.db.get_job_skills", return_value=["Python"])
-    def test_legacy_three_arg_on_progress_still_works(
+    @patch("spejder.db.get_job_skills_for_jobs", return_value={})
+    def test_old_aggregate_does_not_open_skills_eta(
+        self, _mock_get_skills, mock_materialize
+    ) -> None:
+        mock_materialize.return_value = ("Python", "raw", True)
+        status_msgs: list[str] = []
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = os.path.join(tmp, "jobs.db")
+            store = skills_eta_store_path(db_path)
+            with open(store, "w", encoding="utf-8") as handle:
+                json.dump({"total_seconds": 5866, "count": 1793}, handle)
+            self.assertEqual(load_slow_samples(store), [])
+            materialize_jobs_skills(
+                db_path,
+                [{"id": 1}],
+                on_status_message=status_msgs.append,
+                eta_store_path=store,
+            )
+            self.assertEqual(status_msgs[0], SKILLS_STAGE_MESSAGE)
+            self.assertNotIn("Estimated time left", status_msgs[0])
+            with open(store, encoding="utf-8") as handle:
+                data = json.load(handle)
+            self.assertEqual(data["version"], 2)
+            self.assertEqual(data["kind"], "slow")
+            self.assertEqual(len(data["samples"]), 1)
+            self.assertNotIn("count", data)
+
+    @patch("spejder.workflows.job_skills_materialize.materialize_job_skills")
+    @patch("spejder.db.get_job_skills_for_jobs", return_value={})
+    def test_versioned_samples_open_skills_eta(
+        self, _mock_get_skills, mock_materialize
+    ) -> None:
+        mock_materialize.return_value = ("Python", "raw", True)
+        status_msgs: list[str] = []
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = os.path.join(tmp, "jobs.db")
+            store = skills_eta_store_path(db_path)
+            save_slow_samples(store, [60.0, 60.0, 60.0])
+            materialize_jobs_skills(
+                db_path,
+                [{"id": 1}],
+                on_status_message=status_msgs.append,
+                eta_store_path=store,
+            )
+            self.assertIn("Estimated time left:", status_msgs[0])
+            self.assertNotIn("%", status_msgs[0])
+
+    @patch("spejder.workflows.job_skills_materialize.materialize_job_skills")
+    @patch("spejder.db.get_job_skills_for_jobs")
+    def test_mixed_batch_counts_only_slow_rows(
+        self, mock_get_skills, mock_materialize
+    ) -> None:
+        def skills_for(_db_path: str, job_ids: list[int]) -> dict[int, list[str]]:
+            return {int(job_id): (["Python"] if int(job_id) <= 2 else []) for job_id in job_ids}
+
+        mock_get_skills.side_effect = skills_for
+
+        def slow_materialize(*_a, **_k):
+            time.sleep(0.01)
+            return ("Python", "raw", True)
+
+        mock_materialize.side_effect = slow_materialize
+        rows = [{"id": i} for i in range(1, 7)]
+        recorded: list[tuple] = []
+        status_msgs: list[str] = []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = os.path.join(tmp, "jobs.db")
+            store = skills_eta_store_path(db_path)
+            updated = materialize_jobs_skills(
+                db_path,
+                rows,
+                skip_cached=True,
+                on_progress=lambda *args: recorded.append(args),
+                on_status_message=status_msgs.append,
+                eta_store_path=store,
+            )
+
+            self.assertEqual(updated, 4)
+            self.assertEqual(mock_materialize.call_count, 4)
+            self.assertEqual([item[0] for item in recorded], [1, 2, 3, 4])
+            self.assertEqual([item[1] for item in recorded], [4, 4, 4, 4])
+            called_ids = [call.args[1]["id"] for call in mock_materialize.call_args_list]
+            self.assertEqual(called_ids, [3, 4, 5, 6])
+            for call in mock_materialize.call_args_list:
+                self.assertTrue(call.kwargs["first_materialize"])
+            with open(store, encoding="utf-8") as handle:
+                data = json.load(handle)
+            self.assertIn(len(data["samples"]), (3, 4))
+            self.assertTrue(all(sample >= 0.005 for sample in data["samples"]))
+            # status[0] is the opening line; status[3] follows the 3rd slow job.
+            self.assertIn("Estimated time left:", status_msgs[3])
+            self.assertNotIn("%", status_msgs[3])
+            self.assertEqual(status_msgs[-1], SKILLS_STAGE_MESSAGE)
+            self.assertNotIn("%", status_msgs[-1])
+
+    @patch("spejder.workflows.job_skills_materialize.materialize_job_skills")
+    @patch(
+        "spejder.db.get_job_skills_for_jobs",
+        return_value={1: ["Python"], 2: ["Python"], 3: ["Python"]},
+    )
+    def test_legacy_three_arg_on_progress_not_called_when_all_cached(
         self, _mock_get_skills, mock_materialize
     ) -> None:
         rows = [{"id": i} for i in range(1, 4)]
@@ -237,7 +353,22 @@ class MaterializeEtaIntegrationTest(unittest.TestCase):
             on_progress=lambda c, t, u: recorded.append((c, t, u)),
         )
         mock_materialize.assert_not_called()
-        self.assertEqual(recorded, [(3, 3, 0)])
+        self.assertEqual(recorded, [])
+
+    @patch("spejder.workflows.job_skills_materialize.materialize_job_skills")
+    @patch("spejder.db.get_job_skills_for_jobs", return_value={})
+    def test_legacy_three_arg_on_progress_once_per_slow_job(
+        self, _mock_get_skills, mock_materialize
+    ) -> None:
+        mock_materialize.return_value = ("Python", "raw", True)
+        recorded: list[tuple[int, int, int]] = []
+        with tempfile.TemporaryDirectory() as tmp:
+            materialize_jobs_skills(
+                os.path.join(tmp, "jobs.db"),
+                [{"id": i} for i in range(1, 4)],
+                on_progress=lambda c, t, u: recorded.append((c, t, u)),
+            )
+        self.assertEqual(recorded, [(1, 3, 1), (2, 3, 2), (3, 3, 3)])
 
 
 class DescriptionsEtaIntegrationTest(unittest.TestCase):
@@ -270,18 +401,78 @@ class DescriptionsEtaIntegrationTest(unittest.TestCase):
 
             self.assertEqual(updated, 0)
             self.assertEqual(skipped, 3)
-            self.assertEqual(len(recorded), 1)
-            self.assertEqual(recorded[0][:3], (3, 3, 0))
-            self.assertEqual(recorded[0][3], 0.0)
+            self.assertEqual(
+                [item[:3] for item in recorded],
+                [(1, 3, 0), (2, 3, 0), (3, 3, 0)],
+            )
+            self.assertIsNone(recorded[-1][3])
             self.assertTrue(status_msgs)
-            self.assertIn("0% done.", status_msgs[0])
-            self.assertIn("100% done.", status_msgs[-1])
-            self.assertTrue(status_msgs[-1].startswith(DESCRIPTIONS_STAGE_MESSAGE))
+            for message in status_msgs:
+                self.assertNotIn("%", message)
+            self.assertEqual(status_msgs[-1], DESCRIPTIONS_STAGE_MESSAGE)
             self.assertTrue(os.path.isfile(store))
             with open(store, encoding="utf-8") as handle:
                 data = json.load(handle)
-            self.assertEqual(data["count"], 3)
-            self.assertGreaterEqual(data["total_seconds"], 0)
+            self.assertEqual(data["version"], 2)
+            self.assertEqual(data["kind"], "slow")
+            self.assertEqual(len(data["samples"]), 3)
+            self.assertNotIn("count", data)
+            self.assertNotIn("total_seconds", data)
+
+    @patch(
+        "spejder.workflows.job_descriptions._enrich_raw_text_with_position_page",
+        return_value="",
+    )
+    @patch("spejder.workflows.job_descriptions.get_jobs_for_description_refresh")
+    def test_old_aggregate_does_not_open_descriptions_eta(
+        self, mock_refresh, _mock_enrich
+    ) -> None:
+        mock_refresh.return_value = [{"id": 1, "raw_text": ""}]
+        status_msgs: list[str] = []
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = os.path.join(tmp, "jobs.db")
+            store = descriptions_eta_store_path(db_path)
+            with open(store, "w", encoding="utf-8") as handle:
+                json.dump({"total_seconds": 2838, "count": 26}, handle)
+            self.assertEqual(load_slow_samples(store), [])
+            _generate_missing_descriptions_for_ingest(
+                db_path,
+                on_status_message=status_msgs.append,
+                eta_store_path=store,
+            )
+            self.assertEqual(status_msgs[0], DESCRIPTIONS_STAGE_MESSAGE)
+            self.assertNotIn("Estimated time left", status_msgs[0])
+            with open(store, encoding="utf-8") as handle:
+                data = json.load(handle)
+            self.assertEqual(data["version"], 2)
+            self.assertEqual(data["kind"], "slow")
+            self.assertNotIn("count", data)
+
+    @patch(
+        "spejder.workflows.job_descriptions._enrich_raw_text_with_position_page",
+        return_value="",
+    )
+    @patch("spejder.workflows.job_descriptions.get_jobs_for_description_refresh")
+    def test_versioned_samples_open_descriptions_eta(
+        self, mock_refresh, _mock_enrich
+    ) -> None:
+        mock_refresh.return_value = [
+            {"id": 1, "raw_text": ""},
+            {"id": 2, "raw_text": ""},
+            {"id": 3, "raw_text": ""},
+        ]
+        status_msgs: list[str] = []
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = os.path.join(tmp, "jobs.db")
+            store = descriptions_eta_store_path(db_path)
+            save_slow_samples(store, [60.0, 60.0, 60.0])
+            _generate_missing_descriptions_for_ingest(
+                db_path,
+                on_status_message=status_msgs.append,
+                eta_store_path=store,
+            )
+            self.assertIn("Estimated time left:", status_msgs[0])
+            self.assertNotIn("%", status_msgs[0])
 
     @patch(
         "spejder.workflows.job_descriptions._enrich_raw_text_with_position_page",
@@ -298,11 +489,12 @@ class DescriptionsEtaIntegrationTest(unittest.TestCase):
         ]
         recorded: list[tuple[int, int, int]] = []
 
-        _generate_missing_descriptions_for_ingest(
-            "unused.db",
-            on_progress=lambda c, t, u: recorded.append((c, t, u)),
-        )
-        self.assertEqual(recorded, [(3, 3, 0)])
+        with tempfile.TemporaryDirectory() as tmp:
+            _generate_missing_descriptions_for_ingest(
+                os.path.join(tmp, "jobs.db"),
+                on_progress=lambda c, t, u: recorded.append((c, t, u)),
+            )
+        self.assertEqual(recorded, [(1, 3, 0), (2, 3, 0), (3, 3, 0)])
 
 
 if __name__ == "__main__":

@@ -16,8 +16,9 @@ from spejder.workflows.progress_eta import (
     estimate_remaining_seconds,
     format_descriptions_stage_message,
     format_duration,
-    load_rolling_average,
-    save_rolling_average,
+    historical_from_slow_samples,
+    load_slow_samples,
+    save_slow_samples,
 )
 from spejder.workflows.text_prepend import _is_invalid_summary_text
 
@@ -56,9 +57,11 @@ def _generate_missing_descriptions_for_ingest(
 ) -> tuple[int, int]:
     """Generate missing job descriptions.
 
-    When ``on_progress`` / ``on_status_message`` is set (or ``eta_store_path`` is
-    passed), tracks per-row wall time into a rolling average sidecar and surfaces
-    ETA / percentage on progress ticks (same cadence as skills materialize).
+    Selected missing-description rows are the slow population (including early
+    ``continue``). When progress, status, or ``eta_store_path`` is set, each
+    selected row appends its duration to the versioned slow-sample store and
+    refreshes progress / the stage line (base sentence, plus minutes left when
+    a rate exists).
     """
     rows = get_jobs_for_description_refresh(
         db_path,
@@ -84,27 +87,23 @@ def _generate_missing_descriptions_for_ingest(
     store_path = eta_store_path or (
         descriptions_eta_store_path(db_path) if track_eta else ""
     )
-    historical = load_rolling_average(store_path) if track_eta else None
-    run_total_seconds = 0.0
-    run_count = 0
+    loaded = load_slow_samples(store_path) if track_eta else []
+    historical = historical_from_slow_samples(loaded)
+    run_samples: list[float] = []
 
     if progress:
         print(f"{progress_label}: starting ({total_rows} items)")
 
-    # Immediate GUI line with 0% (and historical ETA when known) before first cadence tick.
     if on_status_message is not None and total_rows > 0:
         eta_s = None
-        if track_eta and historical is not None:
+        if track_eta:
             eta_s = estimate_remaining_seconds(
                 remaining=total_rows,
-                run_total_seconds=run_total_seconds,
-                run_count=run_count,
+                samples=run_samples,
                 historical=historical,
             )
         on_status_message(
             format_descriptions_stage_message(
-                checked=0,
-                total=total_rows,
                 eta_s=eta_s,
                 base=DESCRIPTIONS_STAGE_MESSAGE,
             )
@@ -167,44 +166,29 @@ def _generate_missing_descriptions_for_ingest(
             set_job_description(db_path, row.get("id", 0), description)
             updated += 1
         finally:
-            dt = time.monotonic() - t0
-            if track_eta and historical is not None:
-                historical.record(dt)
-                run_total_seconds += dt
-                run_count += 1
-            # Always tick on cadence / last idx so early continues still reach 100%.
-            if (on_progress is not None or on_status_message is not None) and (
-                idx % 25 == 0 or idx == total_rows
-            ):
+            if track_eta:
+                run_samples.append(time.monotonic() - t0)
+                if store_path:
+                    try:
+                        save_slow_samples(store_path, loaded + run_samples)
+                    except OSError:
+                        pass
+            if on_progress is not None or on_status_message is not None:
                 eta_s = None
-                if track_eta and historical is not None:
+                if track_eta:
                     eta_s = estimate_remaining_seconds(
                         remaining=max(0, total_rows - idx),
-                        run_total_seconds=run_total_seconds,
-                        run_count=run_count,
+                        samples=run_samples,
                         historical=historical,
                     )
-                    if store_path:
-                        try:
-                            save_rolling_average(store_path, historical)
-                        except OSError:
-                            pass
                 _notify_progress(on_progress, idx, total_rows, updated, eta_s)
                 if on_status_message is not None:
                     on_status_message(
                         format_descriptions_stage_message(
-                            checked=idx,
-                            total=total_rows,
                             eta_s=eta_s,
                             base=DESCRIPTIONS_STAGE_MESSAGE,
                         )
                     )
-
-    if track_eta and historical is not None and store_path:
-        try:
-            save_rolling_average(store_path, historical)
-        except OSError:
-            pass
 
     if progress:
         total_elapsed = time.monotonic() - started_at
