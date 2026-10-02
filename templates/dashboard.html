@@ -277,6 +277,9 @@
                         if (card.parentElement !== panelEditedToday) panelEditedToday.prepend(card);
                     }
                     refreshCounts();
+                    if (signal === 'not relevant' && window.confirm('Clear skills and re-extract them on the next sync?')) {
+                        await cleanJobSkills(jobId, inputEl, { skipConfirm: true });
+                    }
                 } catch (err) {
                     if (statusEl) statusEl.textContent = `Error: ${err.message}. Start: python -m spejder.cli serve-gui`;
                     inputEl.checked = !isRelevant;
@@ -334,6 +337,7 @@
             window.setInterviewStopped = setInterviewStopped;
             window.setHidden = setHidden;
             window.deleteJob = deleteJob;
+            window.cleanJobSkills = cleanJobSkills;
             window.saveCompanyFeedback = saveCompanyFeedback;
             window.setUserSkill = setUserSkill;
             window.setLearnSkill = setLearnSkill;
