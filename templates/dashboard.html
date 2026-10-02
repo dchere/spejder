@@ -271,6 +271,10 @@
                     const stillHidden = Boolean(hiddenCheckbox && hiddenCheckbox.checked);
                     const targetPanel = signal === 'relevant' ? panelRelevant : panelNotRelevant;
                     if (!stillHidden && card && !isViewed && card.parentElement !== targetPanel) {
+                        if (card.parentElement === panelRelevant || card.parentElement === panelNotRelevant) {
+                            bumpPanelTotal(card.parentElement, -1);
+                        }
+                        bumpPanelTotal(targetPanel, 1);
                         targetPanel.prepend(card);
                     } else if (!stillHidden && card && isViewed && !appliedStagePanels.includes(card.parentElement)) {
                         bumpPanelTotal(card.parentElement, -1);

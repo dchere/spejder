@@ -263,6 +263,31 @@ class DashboardTemplatesTest(unittest.TestCase):
                 self.assertIn("panelNotRelevant", else_branch)
                 self.assertIn("relevantCheckbox.checked", else_branch)
 
+    def test_main_set_relevant_unviewed_move_bumps_both_totals(self):
+        body = _extract_js_function_body(
+            _render_template("dashboard.html"), "setRelevant"
+        )
+        marker = (
+            "if (!stillHidden && card && !isViewed && card.parentElement !== targetPanel)"
+        )
+        start = body.index(marker)
+        viewed = body.index(
+            "} else if (!stillHidden && card && isViewed && !appliedStagePanels",
+            start,
+        )
+        unviewed = body[start:viewed]
+        source_guard = (
+            "card.parentElement === panelRelevant || "
+            "card.parentElement === panelNotRelevant"
+        )
+        self.assertIn(source_guard, unviewed)
+        source_bump = unviewed.index("bumpPanelTotal(card.parentElement, -1)")
+        target_bump = unviewed.index("bumpPanelTotal(targetPanel, 1)")
+        prepend = unviewed.index("targetPanel.prepend(card)")
+        self.assertLess(unviewed.index(source_guard), source_bump)
+        self.assertLess(source_bump, prepend)
+        self.assertLess(target_bump, prepend)
+
     def test_set_relevant_keeps_still_hidden_cards(self):
         for name in ("dashboard.html", "company_dashboard.html"):
             with self.subTest(template=name):
