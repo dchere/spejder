@@ -152,6 +152,32 @@
                 }
             }
 
+            async function deleteJob(jobId, btnEl) {
+                const card = btnEl.closest('.card');
+                const statusEl = card ? card.querySelector('.feedback-status') : null;
+                if (!window.confirm('Delete this position from the database?')) return;
+                try {
+                    const response = await fetch(apiUrl('/api/job/delete'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ job_id: jobId })
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || 'Request failed');
+                    }
+                    document.querySelectorAll(`[data-job-id="${jobId}"]`).forEach((el) => {
+                        if (el.parentElement === panelRelevant || el.parentElement === panelNotRelevant) {
+                            bumpPanelTotal(el.parentElement, -1);
+                        }
+                        el.remove();
+                    });
+                    refreshCounts();
+                } catch (err) {
+                    if (statusEl) statusEl.textContent = `Error: ${err.message}`;
+                }
+            }
+
             async function saveCompanyFeedback(jobId, btnEl) {
                 const card = btnEl.closest('.card');
                 const statusEl = card ? card.querySelector('.feedback-status') : null;
