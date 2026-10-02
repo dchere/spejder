@@ -482,6 +482,104 @@ class DashboardTemplatesTest(unittest.TestCase):
         self.assertIn("Refreshing…", body)
         self.assertIn("tabRefreshStatus.textContent = ''", body)
 
+    def test_clean_skills_button_and_relevant_uncheck_confirm(self):
+        import tempfile
+
+        from spejder.managers.dashboard_cards import (
+            _build_job_cards,
+            _render_html_from_items,
+        )
+
+        card = _build_job_cards(
+            [
+                {
+                    "id": 7,
+                    "source": "Test",
+                    "company": "Acme",
+                    "title": "Engineer",
+                    "place": "",
+                    "work_type": "Unknown",
+                    "description": "",
+                    "skills": "Python",
+                    "position_link": "https://example.com/job",
+                    "relevance_score": 0.5,
+                    "category": "relevant",
+                    "viewed": 0,
+                    "applied": 0,
+                    "hidden": 0,
+                }
+            ]
+        )
+        self.assertIn('class="clean-skills-btn"', card)
+        self.assertIn('onclick="cleanJobSkills(7, this)"', card)
+        self.assertIn(">Clean skills</button>", card)
+        self.assertLess(card.index("clean-skills-btn"), card.index("delete-job-btn"))
+        confirm = "Clear skills and re-extract them on the next sync?"
+        for name in ("dashboard.html", "company_dashboard.html"):
+            with self.subTest(template=name):
+                context = (
+                    _minimal_dashboard_context()
+                    if name == "dashboard.html"
+                    else _minimal_company_context()
+                )
+                context["relevant_cards"] = card
+                html = jinja_env.get_template(name).render(**context)
+                self.assertIn('onclick="cleanJobSkills(7, this)"', html)
+                self.assertIn(">Clean skills</button>", html)
+                self.assertIn(".clean-skills-btn", html)
+                self.assertIn("function cleanJobSkills", html)
+                relevant = _extract_js_function_body(html, "setRelevant")
+                self.assertIn(confirm, relevant)
+                self.assertIn("signal === 'not relevant' && window.confirm", relevant)
+                self.assertIn("cleanJobSkills(jobId, inputEl, { skipConfirm: true })", relevant)
+                self.assertLess(relevant.index("/api/feedback"), relevant.index("window.confirm"))
+                cleaner = _extract_js_function_body(html, "cleanJobSkills")
+                self.assertIn(confirm, cleaner)
+                self.assertIn("/api/job/clean-skills", cleaner)
+                self.assertLess(cleaner.index("window.confirm"), cleaner.index("/api/job/clean-skills"))
+                self.assertIn("skipConfirm", cleaner)
+                self.assertIn("viewed_cleared", cleaner)
+                self.assertIn(".skill-tags", cleaner)
+                self.assertIn("skills-empty", cleaner)
+                self.assertNotIn(
+                    "if (appliedStagePanels.includes(el.parentElement)) return;",
+                    cleaner,
+                )
+                self.assertIn("removeAppliedOnlyUI(el)", cleaner)
+                self.assertLess(
+                    cleaner.index("if (!data.viewed_cleared) return;"),
+                    cleaner.index("removeAppliedOnlyUI(el)"),
+                )
+                self.assertIn("targetPanel.prepend(el)", cleaner)
+                self.assertIn("bumpPanelTotal", cleaner)
+                self.assertIn("panelRelevant", cleaner)
+                self.assertIn("panelNotRelevant", cleaner)
+                self.assertIn(".feedback-status", cleaner)
+                self.assertIn('`[data-job-id="${jobId}"]`', cleaner)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, "report.html")
+            _render_html_from_items(
+                [
+                    {
+                        "source": "Test",
+                        "company": "Acme",
+                        "title": "Engineer",
+                        "place": "",
+                        "work_type": "Unknown",
+                        "description": "",
+                        "skills": "Python",
+                        "position_link": "https://example.com/job",
+                    }
+                ],
+                out,
+                "Report",
+            )
+            with open(out, encoding="utf-8") as handle:
+                report = handle.read()
+        self.assertIn('class="skill-tag"', report)
+        self.assertNotIn("clean-skills-btn", report)
+        self.assertNotIn("cleanJobSkills", report)
+
     def test_dashboard_restores_tab_from_query_param(self):
         text = _read_template("dashboard.html")
         self.assertIn("function initTabFromUrl()", text)

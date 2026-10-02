@@ -19,6 +19,7 @@ _EXPORTS = {
     "position_pct": "skills",
     "clear_job_skills_for_unviewed_jobs": "skills",
     "clear_job_skills_for_job": "skills",
+    "clean_job_skills": "skills",
     "delete_skill_from_db": "skills",
     "cleanup_blocked_skills_from_db": "skills",
     "cleanup_stale_low_share_skills_from_db": "skills",

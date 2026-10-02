@@ -1,5 +1,6 @@
 """job_skills CRUD."""
 from datetime import datetime, timezone
+from typing import Optional
 
 from .connection import _connect
 from .utils import _normalize_skill_name_key
@@ -126,6 +127,61 @@ def clear_job_skills_for_job(db_path: str, job_id: int) -> int:
         cur.execute("DELETE FROM job_skills WHERE job_id=?", (int(job_id),))
         conn.commit()
         return int(cur.rowcount or 0)
+    finally:
+        conn.close()
+
+
+_MANUAL_FEEDBACK_REASONS = frozenset({
+    "manual_feedback=relevant",
+    "manual_feedback=not relevant",
+})
+
+
+def clean_job_skills(db_path: str, job_id: int) -> Optional[dict]:
+    """Delete one job's skill links so a later sync can re-extract them.
+
+    Leaves ``skill_patterns`` and the job row in place. A viewed job that is
+    not applied, on interview, or stopped gets ``viewed=0`` only (does not
+    clear applied or interview fields). A manual-feedback ``relevance_reason``
+    is cleared; ``category`` and ``relevant`` stay until the next rescore.
+    Returns None when the job does not exist, else ``{viewed_cleared: bool}``.
+    """
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT COALESCE(viewed, 0), COALESCE(applied, 0), COALESCE(on_interview, 0),
+                   COALESCE(interview_stopped, 0), relevance_reason
+            FROM jobs WHERE id=?
+            """,
+            (int(job_id),),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        viewed, applied, on_interview, stopped, reason = row
+        in_pipeline = applied == 1 or on_interview == 1 or stopped == 1
+        viewed_cleared = viewed == 1 and not in_pipeline
+        clear_reason = (reason or "").strip().lower() in _MANUAL_FEEDBACK_REASONS
+        cur.execute("DELETE FROM job_skills WHERE job_id=?", (int(job_id),))
+        assignments: list[str] = []
+        params: list = []
+        if viewed_cleared:
+            assignments.append("viewed=0")
+        if clear_reason:
+            assignments.append("relevance_reason=''")
+        if assignments:
+            now = datetime.now(timezone.utc).isoformat()
+            assignments.append("updated_at=?")
+            params.append(now)
+            params.append(int(job_id))
+            cur.execute(
+                f"UPDATE jobs SET {', '.join(assignments)} WHERE id=?",
+                params,
+            )
+        conn.commit()
+        return {"viewed_cleared": viewed_cleared}
     finally:
         conn.close()
 

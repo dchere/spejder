@@ -13,6 +13,7 @@ from .skills_delete import (
     delete_skill_from_db,
 )
 from .skills_links import (
+    clean_job_skills,
     clear_job_skills_for_job,
     clear_job_skills_for_unviewed_jobs,
     get_job_ids_for_skill,

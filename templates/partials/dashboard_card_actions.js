@@ -178,6 +178,44 @@
                 }
             }
 
+            async function cleanJobSkills(jobId, triggerEl, options) {
+                const card = triggerEl ? triggerEl.closest('.card') : null;
+                const statusEl = card ? card.querySelector('.feedback-status') : null;
+                const skipConfirm = Boolean(options && options.skipConfirm);
+                if (!skipConfirm && !window.confirm('Clear skills and re-extract them on the next sync?')) return;
+                try {
+                    const response = await fetch(apiUrl('/api/job/clean-skills'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ job_id: jobId })
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || 'Request failed');
+                    }
+                    document.querySelectorAll(`[data-job-id="${jobId}"]`).forEach((el) => {
+                        const tags = el.querySelector('.skill-tags');
+                        if (tags) tags.innerHTML = '<span class="skills-empty">No skills extracted</span>';
+                        if (!data.viewed_cleared) return;
+                        const viewedCheckbox = el.querySelector('.viewed-wrap input');
+                        if (viewedCheckbox) viewedCheckbox.checked = false;
+                        removeAppliedOnlyUI(el);
+                        const relevantCheckbox = el.querySelector('.relevant-wrap input');
+                        const targetPanel = relevantCheckbox && relevantCheckbox.checked ? panelRelevant : panelNotRelevant;
+                        if (el.parentElement !== targetPanel) {
+                            if (el.parentElement === panelRelevant || el.parentElement === panelNotRelevant) {
+                                bumpPanelTotal(el.parentElement, -1);
+                            }
+                            bumpPanelTotal(targetPanel, 1);
+                            targetPanel.prepend(el);
+                        }
+                    });
+                    refreshCounts();
+                } catch (err) {
+                    if (statusEl) statusEl.textContent = `Error: ${err.message}`;
+                }
+            }
+
             async function saveCompanyFeedback(jobId, btnEl) {
                 const card = btnEl.closest('.card');
                 const statusEl = card ? card.querySelector('.feedback-status') : null;

@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from spejder.db import (
+    clean_job_skills,
     delete_jobs,
     get_job_link,
     set_job_applied,
@@ -56,6 +57,10 @@ class HiddenRequest(BaseModel):
 
 
 class DeleteJobRequest(BaseModel):
+    job_id: int = 0
+
+
+class CleanSkillsRequest(BaseModel):
     job_id: int = 0
 
 
@@ -170,3 +175,25 @@ def api_job_delete(req: DeleteJobRequest, runtime: ServerRuntime = Depends(get_r
     print(f"API: Deleted job_id={req.job_id}")
     runtime.queue_dashboard_rebuild(reason=f"job {req.job_id} deleted")
     return {"ok": True, "job_id": req.job_id}
+
+
+@router.post("/api/job/clean-skills")
+def api_job_clean_skills(req: CleanSkillsRequest, runtime: ServerRuntime = Depends(get_runtime)):
+    if req.job_id <= 0:
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": "job_id must be a positive integer"},
+        )
+    result = clean_job_skills(runtime.db_path, req.job_id)
+    if result is None:
+        return JSONResponse(
+            status_code=404,
+            content={"ok": False, "error": "job not found"},
+        )
+    print(f"API: Cleaned skills for job_id={req.job_id}")
+    runtime.queue_dashboard_rebuild(reason=f"job {req.job_id} skills cleaned")
+    return {
+        "ok": True,
+        "job_id": req.job_id,
+        "viewed_cleared": bool(result["viewed_cleared"]),
+    }

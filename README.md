@@ -92,7 +92,7 @@ Open `http://127.0.0.1:8765/report.html`.
 
 Requires `serve-gui`. Deep UI wiring lives in [`workflows/dashboard.md`](workflows/dashboard.md); API shapes in [`server.md`](server.md).
 
-**Tabs:** Relevant and Not relevant show unviewed jobs only. Viewed jobs move to **Edited today** (local calendar day). **Applied** / **Interview** / **Stopped** are the apply pipeline (mutually exclusive Interview/Stopped). **Hidden** parks a card without changing category/scores. Applied and Hidden do not auto-switch tabs. Delete removes the position from the database; a later email with the same link can add it again.
+**Tabs:** Relevant and Not relevant show unviewed jobs only. Viewed jobs move to **Edited today** (local calendar day). **Applied** / **Interview** / **Stopped** are the apply pipeline (mutually exclusive Interview/Stopped). **Hidden** parks a card without changing category/scores. Applied and Hidden do not auto-switch tabs. Delete removes the position from the database; a later email with the same link can add it again. **Clean skills** drops that card's extracted skills until the next sync fills them again; unchecking Relevant still marks the job viewed, then asks the same question (yes unviews it so the next sync can re-extract).
 
 **Toolbar** (right of the tab bar): Portrait, Regenerate report, Profile (gear), Sync inbox. Sync runs the same pipeline as startup background sync (inbox ingest, optional IT-DAY portal, dedupe, skills, descriptions). Reload manually when sync finishes.
 
