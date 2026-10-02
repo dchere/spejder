@@ -1,10 +1,12 @@
-"""Job pipeline API routes (feedback, applied, interview, viewed, hidden)."""
+"""Job pipeline API routes (feedback, applied, interview, viewed, hidden, delete)."""
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from spejder.db import (
+    delete_jobs,
+    get_job_link,
     set_job_applied,
     set_job_company_feedback,
     set_job_feedback,
@@ -51,6 +53,10 @@ class ViewedRequest(BaseModel):
 class HiddenRequest(BaseModel):
     job_id: int = 0
     hidden: bool
+
+
+class DeleteJobRequest(BaseModel):
+    job_id: int = 0
 
 
 @router.post("/api/feedback")
@@ -146,3 +152,21 @@ def api_hidden(req: HiddenRequest, runtime: ServerRuntime = Depends(get_runtime)
     )
     runtime.queue_dashboard_rebuild(reason=reason)
     return {"ok": True, "job_id": req.job_id, "hidden": req.hidden}
+
+
+@router.post("/api/job/delete")
+def api_job_delete(req: DeleteJobRequest, runtime: ServerRuntime = Depends(get_runtime)):
+    if req.job_id <= 0:
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": "job_id must be a positive integer"},
+        )
+    if get_job_link(runtime.db_path, req.job_id) is None:
+        return JSONResponse(
+            status_code=404,
+            content={"ok": False, "error": "job not found"},
+        )
+    delete_jobs(runtime.db_path, [req.job_id])
+    print(f"API: Deleted job_id={req.job_id}")
+    runtime.queue_dashboard_rebuild(reason=f"job {req.job_id} deleted")
+    return {"ok": True, "job_id": req.job_id}

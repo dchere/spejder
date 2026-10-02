@@ -15,7 +15,7 @@ Provides an interactive dashboard (web GUI) to review extracted jobs and view th
 | `__init__.py` | Re-export `create_app`, `start_server` only |
 | `context.py` | `ServerRuntime` dataclass + `get_runtime` |
 | `app.py` | `create_app` (CORS, `include_router` ×7, static mount last) and `start_server` |
-| `routers/jobs.py` | `/api/feedback`, `/applied`, `/interview`, `/interview/stopped`, `/interview/feedback`, `/viewed`, `/hidden` |
+| `routers/jobs.py` | `/api/feedback`, `/applied`, `/interview`, `/interview/stopped`, `/interview/feedback`, `/viewed`, `/hidden`, `/job/delete` |
 | `routers/jobs_applied_extras.py` | `/api/applied/raw-text`, `/api/applied/cover-letter/request`, `/api/applied/cover-letter` |
 | `routers/skills.py` | `/api/skill/user\|learn\|unwanted\|sync-from-cv` (profile exclusive-list toggles + CV→`user_skills` sync + `rescore_active_jobs` when the list changed) |
 | `routers/skills_block_delete.py` | `/api/skill/block\|delete\|forgive\|block-batch\|delete-batch\|forgive-batch` plus `_normalize_skill_batch`, `_run_skill_block`, `_run_skill_delete`, `_run_skill_forgive`, `_delete_skills_from_db`, `_merge_db_deleted` |
@@ -35,6 +35,7 @@ Pydantic request models live at module level on the router that uses them.
 - All interview endpoints queue dashboard rebuild like `/api/applied`
 - `POST /api/viewed` with `viewed=false` and `POST /api/feedback` with `signal=not relevant` clear interview fields in DB (same as unapply)
 - `POST /api/hidden` — `{ job_id, hidden: bool }` → `set_job_hidden` then `queue_dashboard_rebuild` with reason `"job {id} marked hidden"` / `"job {id} unhidden"`; hide clears applied/viewed/interview pipeline fields; apply/viewed-true also clear `hidden`
+- `POST /api/job/delete` — `{ job_id }`; non-positive `job_id` → 400; missing job → 404; otherwise `delete_jobs` (jobs row and its `job_skills` rows) then `queue_dashboard_rebuild` with reason `"job {id} deleted"`. Does not store the position link; a later ingest that still has that link can insert the position again
 - `POST /api/skill/user` — after profile persist, drops the skill from `unwanted_skills` when enabling **I have**; runs `rescore_active_jobs` then dashboard rebuild
 - `POST /api/skill/learn` — toggling **Want to learn**; when enabling, drops the skill from `unwanted_skills` and runs `rescore_active_jobs` **only if** that drop happened; always rebuilds when the profile changed
 - `POST /api/skill/unwanted` — `{ skill, unwanted }`; persist **Not for me**; when enabling, drops from `user_skills` and `missing_skills_suggestions`; then `rescore_active_jobs` and dashboard rebuild (mirrors `/api/skill/user`)

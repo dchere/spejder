@@ -65,6 +65,12 @@ class DashboardCardsTest(unittest.TestCase):
             "2024-05-10",
         )
 
+    def test_build_job_cards_includes_delete_button(self):
+        html = _build_job_cards([_applied_card_item(applied=0, viewed=0, hidden=0)])
+        self.assertIn('class="delete-job-btn"', html)
+        self.assertIn('onclick="deleteJob(1, this)"', html)
+        self.assertIn(">Delete</button>", html)
+
     def test_build_job_cards_includes_hidden_checkbox(self):
         html = _build_job_cards([_applied_card_item(applied=0, viewed=0, hidden=0)])
         self.assertIn('class="hidden-wrap"', html)

@@ -380,10 +380,63 @@ class DashboardTemplatesTest(unittest.TestCase):
                 self.assertIn("function setOnInterview", html)
                 self.assertIn("function setInterviewStopped", html)
                 self.assertIn("function saveCompanyFeedback", html)
+                self.assertIn("function deleteJob", html)
                 self.assertIn("function appendAppliedRawText", html)
                 self.assertIn("function setCoverLetterRequested", html)
                 self.assertIn("function saveCoverLetter", html)
                 self.assertIn("function removeAppliedOnlyUI", html)
+
+    def test_rendered_card_includes_delete_button_and_delete_job(self):
+        from spejder.managers.dashboard_cards import _build_job_cards
+
+        card = _build_job_cards(
+            [
+                {
+                    "id": 7,
+                    "source": "Test",
+                    "company": "Acme",
+                    "title": "Engineer",
+                    "place": "",
+                    "work_type": "Unknown",
+                    "description": "",
+                    "skills": "",
+                    "position_link": "https://example.com/job",
+                    "relevance_score": 0.5,
+                    "category": "relevant",
+                    "viewed": 0,
+                    "applied": 0,
+                    "hidden": 0,
+                }
+            ]
+        )
+        self.assertIn('class="delete-job-btn"', card)
+        self.assertIn('onclick="deleteJob(7, this)"', card)
+        self.assertIn(">Delete</button>", card)
+        for name in ("dashboard.html", "company_dashboard.html"):
+            with self.subTest(template=name):
+                context = (
+                    _minimal_dashboard_context()
+                    if name == "dashboard.html"
+                    else _minimal_company_context()
+                )
+                context["relevant_cards"] = card
+                html = jinja_env.get_template(name).render(**context)
+                self.assertIn('onclick="deleteJob(7, this)"', html)
+                self.assertIn(">Delete</button>", html)
+                self.assertIn("function deleteJob", html)
+                body = _extract_js_function_body(html, "deleteJob")
+                self.assertIn("window.confirm", body)
+                self.assertIn("/api/job/delete", body)
+                self.assertLess(
+                    body.index("window.confirm"), body.index("/api/job/delete")
+                )
+                self.assertIn('`[data-job-id="${jobId}"]`', body)
+                self.assertIn(".remove()", body)
+                self.assertIn("bumpPanelTotal", body)
+                self.assertIn("panelRelevant", body)
+                self.assertIn("panelNotRelevant", body)
+                self.assertIn("refreshCounts()", body)
+                self.assertIn(".feedback-status", body)
 
     def test_remove_applied_only_ui_strips_applied_chrome(self):
         for name in ("dashboard.html", "company_dashboard.html"):
