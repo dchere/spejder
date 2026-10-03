@@ -1,4 +1,4 @@
-            body { font-family: Arial, sans-serif; margin: 24px; background: #f7f7f7; color: #111; }
+            body { font-family: Arial, sans-serif; margin: 12px 24px 24px; background: #f7f7f7; color: #111; }
             h1 { margin-bottom: 8px; }
             .controls { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
             .mode-btn { border: 1px solid #bbb; background: #fff; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
