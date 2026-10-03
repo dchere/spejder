@@ -145,20 +145,33 @@
                 }
             }
 
-            function clearRegenerateBusy(btnEl, idleTitle) {
+            let regenerateIdleTitle = 'Regenerate report';
+            let regenerateBusyCount = 0;
+
+            function setRegenerateBusy(busy) {
+                const btnEl = document.getElementById('btn-regenerate');
+                if (!btnEl) return;
+                if (busy) {
+                    regenerateBusyCount += 1;
+                    if (regenerateBusyCount > 1) return;
+                    regenerateIdleTitle = btnEl.getAttribute('title') || 'Regenerate report';
+                    btnEl.disabled = true;
+                    btnEl.classList.add('is-busy');
+                    btnEl.setAttribute('aria-busy', 'true');
+                    btnEl.setAttribute('title', 'Regenerating…');
+                    return;
+                }
+                regenerateBusyCount = Math.max(0, regenerateBusyCount - 1);
+                if (regenerateBusyCount > 0) return;
                 btnEl.classList.remove('is-busy');
                 btnEl.removeAttribute('aria-busy');
-                btnEl.setAttribute('title', idleTitle);
+                btnEl.setAttribute('title', regenerateIdleTitle);
                 btnEl.disabled = false;
             }
 
             async function regenerateReport(btnEl) {
                 const statusEl = document.getElementById('regenerate-status');
-                const idleTitle = btnEl.getAttribute('title') || 'Regenerate report';
-                btnEl.disabled = true;
-                btnEl.classList.add('is-busy');
-                btnEl.setAttribute('aria-busy', 'true');
-                btnEl.setAttribute('title', 'Regenerating…');
+                setRegenerateBusy(true);
                 if (statusEl) statusEl.textContent = '';
                 try {
                     const beforeMtime = await reportLastModified();
@@ -182,12 +195,12 @@
                     if (statusEl) {
                         statusEl.textContent = 'Rebuild queued — refresh manually if the page does not update';
                     }
-                    clearRegenerateBusy(btnEl, idleTitle);
+                    setRegenerateBusy(false);
                 } catch (err) {
                     if (statusEl) {
                         statusEl.textContent = `Error: ${err.message}. Start: python -m spejder.cli serve-gui`;
                     }
-                    clearRegenerateBusy(btnEl, idleTitle);
+                    setRegenerateBusy(false);
                 }
             }
 
@@ -272,7 +285,8 @@
                     return;
                 }
                 tabRefreshInProgress = true;
-                if (tabRefreshStatus) tabRefreshStatus.textContent = 'Refreshing…';
+                setRegenerateBusy(true);
+                let reloading = false;
                 const deadline = Date.now() + 60000;
                 try {
                     while (Date.now() < deadline) {
@@ -283,12 +297,17 @@
                             continue;
                         }
                         if (status.ok && status.idle && status.last_modified && status.last_modified !== pageReportMtime) {
+                            reloading = true;
                             reloadWithTab(mode);
                             return;
                         }
                     }
+                    reloading = true;
                     reloadWithTab(mode);
                 } finally {
+                    if (!reloading) {
+                        setRegenerateBusy(false);
+                    }
                     tabRefreshInProgress = false;
                 }
             }
