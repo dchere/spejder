@@ -210,29 +210,43 @@ class DashboardTemplatesTest(unittest.TestCase):
         self.assertNotIn('id="btn-block-selected"', html)
         self.assertNotIn('id="btn-delete-selected"', html)
 
-    def test_dashboard_sync_status_is_own_right_aligned_row(self):
-        """Sync status sits below the toolbar so action buttons stay put."""
+    def test_dashboard_sync_status_shares_header_row_with_title(self):
+        """Sync status shares the page-header row with the title (not under the toolbar)."""
         html = jinja_env.get_template("dashboard.html").render(
             **_minimal_dashboard_context()
         )
-        actions_match = re.search(
-            r'class="controls-actions"[^>]*>(.*?)</div>\s*</div>\s*'
-            r'<div id="sync-inbox-status"',
+        header_match = re.search(
+            r'class="page-header"[^>]*>(.*?)</div>\s*<div class="controls-wrap"',
             html,
             re.DOTALL,
         )
-        self.assertIsNotNone(actions_match, "status should follow controls-actions + controls close")
+        self.assertIsNotNone(header_match, "page-header should wrap title + sync status before toolbar")
+        header_html = header_match.group(1)
+        self.assertIn("<h1>", header_html)
+        self.assertIn('id="sync-inbox-status"', header_html)
+        self.assertLess(header_html.index("<h1>"), header_html.index('id="sync-inbox-status"'))
+        self.assertNotIn("controls-actions", header_html)
+
+        actions_match = re.search(
+            r'class="controls-actions"[^>]*>(.*?)</div>\s*</div>\s*</div>',
+            html,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(actions_match)
         actions_html = actions_match.group(1)
         self.assertIn('id="btn-sync-inbox"', actions_html)
         self.assertIn('id="btn-profile"', actions_html)
         self.assertNotIn("sync-inbox-status", actions_html)
 
-        self.assertIn(".sync-inbox-status { display: block;", html)
+        self.assertIn(".page-header { display: flex;", html)
+        self.assertIn("align-items: flex-end", html)
+        self.assertIn("justify-content: space-between", html)
         self.assertIn("text-align: right", html)
         sync_css_start = html.index(".sync-inbox-status {")
         sync_css = html[sync_css_start : html.index("}", sync_css_start)]
         self.assertNotIn("text-overflow", sync_css)
         self.assertNotIn("ellipsis", sync_css)
+        self.assertIn(".sync-inbox-status:empty { display: none;", html)
         self.assertIn('id="sync-inbox-status" class="sync-inbox-status" aria-live="polite"', html)
 
     def test_company_dashboard_html_includes_corner_css_from_partial(self):
@@ -506,6 +520,24 @@ class DashboardTemplatesTest(unittest.TestCase):
         self.assertIn("reloadWithTab", body)
         self.assertIn("Refreshing…", body)
         self.assertIn("tabRefreshStatus.textContent = ''", body)
+
+    def test_regenerate_report_uses_busy_spin_not_status_text(self):
+        html = _render_template("dashboard.html")
+        self.assertIn(".toolbar-action-btn.is-busy svg", html)
+        self.assertIn("@keyframes toolbar-action-spin", html)
+        self.assertIn("prefers-reduced-motion: reduce", html)
+        self.assertIn(".regenerate-status:empty { display: none;", html)
+        body = _extract_js_function_body(html, "regenerateReport")
+        clear_body = _extract_js_function_body(html, "clearRegenerateBusy")
+        self.assertIn("classList.add('is-busy')", body)
+        self.assertIn("clearRegenerateBusy(btnEl, idleTitle)", body)
+        self.assertIn("classList.remove('is-busy')", clear_body)
+        self.assertIn("aria-busy", body)
+        self.assertIn("setAttribute('title', 'Regenerating…')", body)
+        self.assertIn("setAttribute('title', idleTitle)", clear_body)
+        self.assertIn("statusEl.textContent = ''", body)
+        self.assertNotIn("statusEl.textContent = 'Regenerating…'", body)
+        self.assertIn("Rebuild queued — refresh manually if the page does not update", body)
 
     def test_clean_skills_button_and_relevant_uncheck_confirm(self):
         import tempfile

@@ -12,17 +12,25 @@
             .pseudo-link:hover { color: #084298; }
             {% include "partials/dashboard_card_corners.css" %}
             {% include "partials/dashboard_skills.css" %}
+            .page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 8px; }
+            .page-header h1 { margin-top: 0; margin-bottom: 0; flex: 0 1 auto; min-width: 0; }
+            /* Same flex row as the title (right-aligned); keeps toolbar buttons from shifting. */
+            .sync-inbox-status { flex: 1 1 auto; min-width: 0; font-size: 12px; color: #555; text-align: right; line-height: 1.35; }
+            .sync-inbox-status:empty { display: none; }
             .controls-wrap { margin-bottom: 12px; }
             .controls-wrap > .controls { margin-bottom: 0; }
             .controls-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
             .toolbar-action-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 36px; min-height: 36px; padding: 8px; border: 1px solid #0a58ca; color: #0a58ca; background: #fff; border-radius: 8px; cursor: pointer; }
             .toolbar-action-btn.active { background: #eef4ff; box-shadow: inset 0 0 0 1px #0a58ca; }
             .toolbar-action-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+            .toolbar-action-btn.is-busy svg { animation: toolbar-action-spin 0.9s linear infinite; }
+            @keyframes toolbar-action-spin { to { transform: rotate(360deg); } }
+            @media (prefers-reduced-motion: reduce) {
+                .toolbar-action-btn.is-busy svg { animation: none; }
+            }
             .toolbar-action-group { display: inline-flex; align-items: center; gap: 6px; }
             .regenerate-status, .tab-refresh-status { font-size: 12px; color: #555; align-self: center; max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-            /* Own row under the toolbar so action buttons do not shift with message length. */
-            .sync-inbox-status { display: block; font-size: 12px; color: #555; text-align: right; line-height: 1.35; margin: 4px 0 0 0; }
-            .sync-inbox-status:empty { display: none; margin: 0; }
+            .regenerate-status:empty { display: none; }
             .portrait-wrap { background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 12px; }
             .portrait-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
             .portrait-btn { border: 1px solid #0a58ca; color: #0a58ca; background: #fff; border-radius: 6px; padding: 6px 10px; cursor: pointer; }
@@ -41,7 +49,10 @@
         </style>
     </head>
     <body>
-        <h1>{{title}}</h1>
+        <div class="page-header">
+            <h1>{{title}}</h1>
+            <div id="sync-inbox-status" class="sync-inbox-status" aria-live="polite"></div>
+        </div>
         <div class="controls-wrap">
             <div class="controls">
                 <button id="btn-relevant" class="mode-btn active" type="button" data-total="{{ relevant_total_count }}">Relevant ({{ len_relevant_items }}/{{ relevant_total_count }})</button>
@@ -71,7 +82,6 @@
                     </button>
                 </div>
             </div>
-            <div id="sync-inbox-status" class="sync-inbox-status" aria-live="polite"></div>
         </div>
         <section id="panel-relevant" class="grid">{{ relevant_cards }}</section>
         <section id="panel-not-relevant" class="grid hidden">{{ not_relevant_cards }}</section>

@@ -145,10 +145,21 @@
                 }
             }
 
+            function clearRegenerateBusy(btnEl, idleTitle) {
+                btnEl.classList.remove('is-busy');
+                btnEl.removeAttribute('aria-busy');
+                btnEl.setAttribute('title', idleTitle);
+                btnEl.disabled = false;
+            }
+
             async function regenerateReport(btnEl) {
                 const statusEl = document.getElementById('regenerate-status');
+                const idleTitle = btnEl.getAttribute('title') || 'Regenerate report';
                 btnEl.disabled = true;
-                if (statusEl) statusEl.textContent = 'Regenerating…';
+                btnEl.classList.add('is-busy');
+                btnEl.setAttribute('aria-busy', 'true');
+                btnEl.setAttribute('title', 'Regenerating…');
+                if (statusEl) statusEl.textContent = '';
                 try {
                     const beforeMtime = await reportLastModified();
                     const response = await fetch(apiUrl('/api/report/rebuild'), {
@@ -171,12 +182,12 @@
                     if (statusEl) {
                         statusEl.textContent = 'Rebuild queued — refresh manually if the page does not update';
                     }
-                    btnEl.disabled = false;
+                    clearRegenerateBusy(btnEl, idleTitle);
                 } catch (err) {
                     if (statusEl) {
                         statusEl.textContent = `Error: ${err.message}. Start: python -m spejder.cli serve-gui`;
                     }
-                    btnEl.disabled = false;
+                    clearRegenerateBusy(btnEl, idleTitle);
                 }
             }
 
