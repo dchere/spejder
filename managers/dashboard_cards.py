@@ -245,8 +245,10 @@ def _build_job_cards(
                     <label class="hidden-wrap"><input type="checkbox" {"checked" if int(item.get("hidden", 0) or 0) == 1 else ""} onchange="setHidden({job_id}, this.checked, this)"/> Hidden</label>
                     {interview_controls}
                     <span class="feedback-status"></span>
-                    <button type="button" class="clean-skills-btn" onclick="cleanJobSkills({job_id}, this)">Clean skills</button>
-                    <button type="button" class="delete-job-btn" onclick="deleteJob({job_id}, this)">Delete</button>
+                    <span class="feedback-actions">
+                        <button type="button" class="clean-skills-btn" onclick="cleanJobSkills({job_id}, this)">Clean skills</button>
+                        <button type="button" class="delete-job-btn" onclick="deleteJob({job_id}, this)">Delete</button>
+                    </span>
                 </div>
             </article>
             """.strip()

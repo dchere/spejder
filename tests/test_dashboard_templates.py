@@ -586,7 +586,14 @@ class DashboardTemplatesTest(unittest.TestCase):
         self.assertIn('class="clean-skills-btn"', card)
         self.assertIn('onclick="cleanJobSkills(7, this)"', card)
         self.assertIn(">Clean skills</button>", card)
+        self.assertIn('class="feedback-actions"', card)
+        self.assertLess(card.index("feedback-actions"), card.index("clean-skills-btn"))
         self.assertLess(card.index("clean-skills-btn"), card.index("delete-job-btn"))
+        actions_start = card.index('class="feedback-actions"')
+        actions_end = card.index("</span>", actions_start)
+        actions_html = card[actions_start:actions_end]
+        self.assertIn("clean-skills-btn", actions_html)
+        self.assertIn("delete-job-btn", actions_html)
         confirm = "Clear skills and re-extract them on the next sync?"
         for name in ("dashboard.html", "company_dashboard.html"):
             with self.subTest(template=name):
@@ -599,6 +606,7 @@ class DashboardTemplatesTest(unittest.TestCase):
                 html = jinja_env.get_template(name).render(**context)
                 self.assertIn('onclick="cleanJobSkills(7, this)"', html)
                 self.assertIn(">Clean skills</button>", html)
+                self.assertIn(".feedback-actions", html)
                 self.assertIn(".clean-skills-btn", html)
                 self.assertIn("function cleanJobSkills", html)
                 relevant = _extract_js_function_body(html, "setRelevant")
