@@ -8,7 +8,7 @@ from spejder.core import save_profile
 from spejder.db import (
     ensure_db,
     get_jobs_for_active_rescore,
-    get_jobs_for_description_refresh,
+    get_jobs_for_description_triage,
 )
 from spejder.extractors.skill_extractor import _learn_skill_patterns_from_positions
 from spejder.jobs import ingest_docs_to_db
@@ -100,8 +100,9 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
         if os.path.isdir(context.inbox_path):
             docs = email_parser.load_files(context.inbox_path)
 
-        missing_descriptions = get_jobs_for_description_refresh(
-            context.db_path, missing_only=True, limit=1
+        missing_descriptions = get_jobs_for_description_triage(
+            context.db_path,
+            limit=1,
         )
         has_missing_descriptions = bool(missing_descriptions)
 

@@ -21,8 +21,10 @@ from .queries_listings import (
 )
 from .queries_refresh import (
     get_job_for_rescoring,
+    get_job_scope_flags,
     get_jobs_for_active_rescore,
     get_jobs_for_description_refresh,
+    get_jobs_for_description_triage,
     get_jobs_for_scoring,
 )
 from .queries_signals import (
@@ -51,9 +53,11 @@ __all__ = [
     "get_applied_pipeline_company_keys",
     "get_viewed_jobs_count",
     "get_jobs_for_description_refresh",
+    "get_jobs_for_description_triage",
     "get_jobs_for_scoring",
     "get_jobs_for_active_rescore",
     "get_job_for_rescoring",
+    "get_job_scope_flags",
     "get_jobs_merge_candidates",
     "get_titles_for_labeled_jobs",
     "get_titles_for_missing_skills",

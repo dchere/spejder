@@ -77,7 +77,7 @@ class ProcessInboxSyncLogTest(unittest.TestCase):
             return handle.read()
 
     @patch(
-        "spejder.workflows.inbox_workflow.get_jobs_for_description_refresh",
+        "spejder.workflows.inbox_workflow.get_jobs_for_description_triage",
         return_value=[],
     )
     @patch(
@@ -90,7 +90,7 @@ class ProcessInboxSyncLogTest(unittest.TestCase):
         },
     )
     def test_skip_path_writes_source_pipeline_end_and_run_end(
-        self, _portal, _desc_refresh
+        self, _portal, mock_desc_refresh
     ):
         process_inbox(
             inbox=self.inbox,
@@ -99,6 +99,9 @@ class ProcessInboxSyncLogTest(unittest.TestCase):
             report_dir=self.report_dir,
             model="",
         )
+
+        kwargs = mock_desc_refresh.call_args.kwargs
+        self.assertEqual(kwargs.get("limit"), 1)
 
         text = self._read_log()
         self.assertIn("event=run_start", text)
@@ -159,7 +162,7 @@ class ProcessInboxSyncLogTest(unittest.TestCase):
     )
     @patch("spejder.workflows.inbox_workflow.LocalLLM")
     @patch(
-        "spejder.workflows.inbox_workflow.get_jobs_for_description_refresh",
+        "spejder.workflows.inbox_workflow.get_jobs_for_description_triage",
         return_value=[{"id": 1}],
     )
     @patch(
@@ -268,7 +271,7 @@ class ProcessInboxSyncLogTest(unittest.TestCase):
     )
     @patch("spejder.workflows.inbox_workflow.LocalLLM")
     @patch(
-        "spejder.workflows.inbox_workflow.get_jobs_for_description_refresh",
+        "spejder.workflows.inbox_workflow.get_jobs_for_description_triage",
         return_value=[],
     )
     @patch(
@@ -365,7 +368,7 @@ class ProcessInboxSyncLogTest(unittest.TestCase):
         return_value=[{"path": "/tmp/dup.eml", "html": ""}],
     )
     @patch(
-        "spejder.workflows.inbox_workflow.get_jobs_for_description_refresh",
+        "spejder.workflows.inbox_workflow.get_jobs_for_description_triage",
         return_value=[],
     )
     @patch(

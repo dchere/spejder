@@ -11,7 +11,7 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 
 from spejder.config import AppConfig
-from spejder.db import ensure_db, upsert_job
+from spejder.db import ensure_db, set_job_hidden, set_job_viewed, upsert_job
 from spejder.db.connection import _connect
 from spejder.parsers.itday_portal import (
     ITDAY_PORTAL_SOURCE,
@@ -238,19 +238,121 @@ class RunInboxSyncPortalTest(unittest.TestCase):
         "spejder.workflows.gui_sync.sync_itday_portal",
         return_value={"found": 0, "inserted_new": 0, "skipped_existing": 0, "processed": 0},
     )
-    @patch("spejder.workflows.gui_sync.get_jobs_for_description_refresh", return_value=[])
-    def test_skips_when_portal_and_inbox_have_nothing_new(self, *_mocks):
+    @patch("spejder.workflows.gui_sync.get_jobs_for_description_triage", return_value=[])
+    def test_skips_when_portal_and_inbox_have_nothing_new(
+        self, mock_desc_refresh, _portal
+    ):
         result = run_inbox_sync(self.context)
         self.assertEqual(result.status, "skipped")
+        self.assertEqual(mock_desc_refresh.call_args.kwargs.get("limit"), 1)
 
     @patch(
         "spejder.workflows.gui_sync.sync_itday_portal",
         return_value={"found": 5, "inserted_new": 0, "skipped_existing": 5, "processed": 5},
     )
-    @patch("spejder.workflows.gui_sync.get_jobs_for_description_refresh", return_value=[])
+    @patch("spejder.workflows.gui_sync.get_jobs_for_description_triage", return_value=[])
     def test_skips_when_portal_only_finds_existing_jobs(self, *_mocks):
         result = run_inbox_sync(self.context)
         self.assertEqual(result.status, "skipped")
+
+    @patch(
+        "spejder.workflows.gui_sync.sync_itday_portal",
+        return_value={"found": 0, "inserted_new": 0, "skipped_existing": 0, "processed": 0},
+    )
+    @patch(
+        "spejder.workflows.gui_sync.run_skill_hygiene_stages",
+        side_effect=_fake_hygiene,
+    )
+    @patch(
+        "spejder.workflows.gui_sync._learn_skill_patterns_from_positions",
+        return_value={
+            "considered_positions": 0,
+            "new_skill_patterns": 0,
+            "total_known_skill_patterns": 0,
+        },
+    )
+    @patch(
+        "spejder.workflows.gui_sync._generate_missing_descriptions_for_ingest",
+        return_value=(0, 0),
+    )
+    @patch("spejder.workflows.gui_sync.run_cross_source_dedupe", return_value={})
+    @patch("spejder.workflows.gui_sync.delete_processed_inbox_files", return_value={})
+    @patch("spejder.workflows.gui_sync.get_jobs_for_active_rescore", return_value=[])
+    def test_runs_pipeline_when_only_hidden_missing_descriptions(
+        self,
+        mock_active_rescore,
+        _delete_files,
+        _dedupe,
+        mock_gen_desc,
+        _learn,
+        _hygiene,
+        _portal,
+    ):
+        """Hidden empty-description rows keep sync alive (real triage query)."""
+        ensure_db(self.context.db_path)
+        upsert_job(
+            self.context.db_path,
+            {
+                "source": "Test",
+                "company": "HiddenCo",
+                "title": "Hidden Engineer",
+                "position_link": "https://example.com/hidden-empty-desc",
+                "raw_text": "Requires python.",
+            },
+        )
+        conn = _connect(self.context.db_path)
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT id FROM jobs WHERE position_link=?",
+                ("https://example.com/hidden-empty-desc",),
+            )
+            hidden_id = int(cur.fetchone()[0])
+        finally:
+            conn.close()
+        set_job_hidden(self.context.db_path, hidden_id, True)
+
+        result = run_inbox_sync(self.context)
+        self.assertEqual(result.status, "done")
+        mock_gen_desc.assert_called_once()
+        mock_active_rescore.assert_called()
+
+    @patch(
+        "spejder.workflows.gui_sync.sync_itday_portal",
+        return_value={"found": 0, "inserted_new": 0, "skipped_existing": 0, "processed": 0},
+    )
+    @patch("spejder.workflows.gui_sync._generate_missing_descriptions_for_ingest")
+    @patch("spejder.workflows.gui_sync.get_jobs_for_active_rescore")
+    def test_skips_when_only_viewed_non_pipeline_missing_descriptions(
+        self, mock_active_rescore, mock_gen_desc, _portal
+    ):
+        ensure_db(self.context.db_path)
+        upsert_job(
+            self.context.db_path,
+            {
+                "source": "Test",
+                "company": "ViewedCo",
+                "title": "Viewed Engineer",
+                "position_link": "https://example.com/viewed-empty-desc",
+                "raw_text": "Requires docker.",
+            },
+        )
+        conn = _connect(self.context.db_path)
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT id FROM jobs WHERE position_link=?",
+                ("https://example.com/viewed-empty-desc",),
+            )
+            viewed_id = int(cur.fetchone()[0])
+        finally:
+            conn.close()
+        set_job_viewed(self.context.db_path, viewed_id, True)
+
+        result = run_inbox_sync(self.context)
+        self.assertEqual(result.status, "skipped")
+        mock_gen_desc.assert_not_called()
+        mock_active_rescore.assert_not_called()
 
     @patch(
         "spejder.workflows.gui_sync.sync_itday_portal",
@@ -272,7 +374,7 @@ class RunInboxSyncPortalTest(unittest.TestCase):
     @patch("spejder.workflows.gui_sync.run_cross_source_dedupe", return_value={})
     @patch("spejder.workflows.gui_sync.delete_processed_inbox_files", return_value={})
     @patch("spejder.workflows.gui_sync.get_jobs_for_active_rescore", return_value=[])
-    @patch("spejder.workflows.gui_sync.get_jobs_for_description_refresh", return_value=[])
+    @patch("spejder.workflows.gui_sync.get_jobs_for_description_triage", return_value=[])
     def test_runs_pipeline_when_portal_inserts_new_jobs(
         self,
         _desc_refresh,
@@ -310,7 +412,7 @@ class RunInboxSyncPortalTest(unittest.TestCase):
     @patch("spejder.workflows.gui_sync.run_cross_source_dedupe", return_value={})
     @patch("spejder.workflows.gui_sync.delete_processed_inbox_files", return_value={})
     @patch("spejder.workflows.gui_sync.get_jobs_for_active_rescore", return_value=[])
-    @patch("spejder.workflows.gui_sync.get_jobs_for_description_refresh", return_value=[])
+    @patch("spejder.workflows.gui_sync.get_jobs_for_description_triage", return_value=[])
     def test_runs_post_portal_and_post_ingest_dedupe_when_portal_inserts(
         self,
         _desc_refresh,
@@ -351,7 +453,7 @@ class RunInboxSyncPortalTest(unittest.TestCase):
         "spejder.workflows.gui_sync.sync_itday_portal",
         return_value={"found": 5, "inserted_new": 0, "skipped_existing": 5, "processed": 5},
     )
-    @patch("spejder.workflows.gui_sync.get_jobs_for_description_refresh", return_value=[])
+    @patch("spejder.workflows.gui_sync.get_jobs_for_description_triage", return_value=[])
     @patch("spejder.workflows.gui_sync.run_cross_source_dedupe")
     def test_skips_post_portal_dedupe_when_portal_inserts_nothing(
         self, mock_dedupe, *_mocks
@@ -361,7 +463,7 @@ class RunInboxSyncPortalTest(unittest.TestCase):
         mock_dedupe.assert_not_called()
 
     @patch("spejder.workflows.portal_sync.fetch_itday_portal_entries")
-    @patch("spejder.workflows.gui_sync.get_jobs_for_description_refresh", return_value=[])
+    @patch("spejder.workflows.gui_sync.get_jobs_for_description_triage", return_value=[])
     def test_skips_portal_fetch_when_disabled(self, _desc_mock, mock_fetch):
         stages: list[str] = []
         self.context.runtime_profile.itday_portal_sync_enabled = False

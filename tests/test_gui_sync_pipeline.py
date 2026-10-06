@@ -82,7 +82,7 @@ class RunInboxSyncRebuildTest(unittest.TestCase):
     @patch("spejder.workflows.gui_sync.run_cross_source_dedupe", return_value={})
     @patch("spejder.workflows.gui_sync.delete_processed_inbox_files", return_value={})
     @patch("spejder.workflows.gui_sync.get_jobs_for_active_rescore", return_value=[])
-    @patch("spejder.workflows.gui_sync.get_jobs_for_description_refresh", return_value=[{"id": 1}])
+    @patch("spejder.workflows.gui_sync.get_jobs_for_description_triage", return_value=[{"id": 1}])
     def test_skips_skills_rebuild_when_nothing_updated(
         self,
         _desc_refresh,
@@ -124,7 +124,7 @@ class RunInboxSyncRebuildTest(unittest.TestCase):
     @patch("spejder.workflows.gui_sync.run_cross_source_dedupe", return_value={})
     @patch("spejder.workflows.gui_sync.delete_processed_inbox_files", return_value={})
     @patch("spejder.workflows.gui_sync.get_jobs_for_active_rescore", return_value=[{"id": 1}])
-    @patch("spejder.workflows.gui_sync.get_jobs_for_description_refresh", return_value=[{"id": 1}])
+    @patch("spejder.workflows.gui_sync.get_jobs_for_description_triage", return_value=[{"id": 1}])
     def test_queues_skills_rebuild_when_jobs_updated(
         self,
         _desc_refresh,

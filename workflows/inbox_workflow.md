@@ -19,14 +19,14 @@ Opens `SyncRunLog` at `default_sync_log_path(report_dir)` for the run (default `
 0. Sync IT-DAY job portal (`sync_itday_portal(..., enabled=profile.itday_portal_sync_enabled)`) — after `ensure_db` / entry transform; LLM is not required for fetch; skipped when the profile flag is false
 0b. When portal `inserted_new > 0`, run company+title dedupe (`run_cross_source_dedupe`) so portal duplicates of existing LinkedIn/Jobindex rows merge before inbox ingest
 1. Ingest docs + inbox cleanup (docs may be empty when continuing for portal/backfill)
-2. Generate missing descriptions
-3. Materialize skills (+ conditional rescore on skill change in active scope)
+2. Generate missing descriptions (triage SELECT + live mid-batch scope re-check before page/LLM)
+3. Materialize skills (+ live mid-batch scope re-check; conditional rescore on skill change in active scope)
 3b. Learn skill patterns from applied/relevant positions
 3c. Shared skill hygiene (`run_skill_hygiene_stages`): same contract as GUI sync — blocked DB cleanup + rescore → stale low-share cleanup + rescore → bad-cloud seed + threshold recalibrate; stages `blocked_skills` / `stale_skills` / `bad_cloud`; `save_profile` when `profile_dirty` (no dashboard queue)
 3d. `update_profile_from_db_signals` (learned keywords / missing skills)
 4. Summarize relevant jobs + write inbox report
 
-Portal sync runs (when enabled) even when the inbox is empty. Early return only when the inbox is empty, the portal inserted zero new rows, **and** there are no missing descriptions (`get_jobs_for_description_refresh`). If the portal inserted rows (or descriptions are missing), the enrichment/report pipeline continues and still requires a model (`SystemExit` without one — existing constraint).
+Portal sync runs (when enabled) even when the inbox is empty. Early return only when the inbox is empty, the portal inserted zero new rows, **and** there are no triage-scope missing descriptions (`get_jobs_for_description_triage(..., limit=1)` — same helper as ingest description generation). Viewed non-pipeline empty-description rows do not keep the pipeline alive; Hidden empty-description rows do. If the portal inserted rows (or triage-scope descriptions are missing), the enrichment/report pipeline continues and still requires a model (`SystemExit` without one — existing constraint).
 
 Scoring is change-driven: jobs are scored when skills are first materialized or change, not via a full-DB `apply_relevance` pass on each run.
 
