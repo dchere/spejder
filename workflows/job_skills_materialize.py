@@ -2,7 +2,7 @@ import time
 from typing import Callable, Optional, Union
 
 from spejder.config import AppConfig
-from spejder.db import get_jobs_for_active_rescore
+from spejder.db import get_job_scope_flags, get_jobs_for_active_rescore
 from spejder.extractors.skill_extractor import _get_or_extract_job_skills
 from spejder.jobs.scoring import job_in_active_rescore_scope, rescore_job_by_id
 from spejder.llm import LocalLLM
@@ -99,9 +99,14 @@ def materialize_jobs_skills(
 
     A classification pass drops missing ids and ``skip_cached`` hits before the
     timed loop. ``checked`` / ``total`` and the ETA sidecar count only those
-    slow rows. When progress, status, or ``eta_store_path`` is set, each slow
-    completion appends its duration to the versioned slow-sample store and
-    refreshes the stage line (base sentence, plus minutes left when a rate exists).
+    slow rows. Immediately before each expensive materialize, reloads live
+    scope flags via ``get_job_scope_flags`` and skips when
+    ``job_in_active_rescore_scope`` is false or the job is missing (still
+    advances ``checked`` / progress; does not append an ETA sample or
+    increment ``updated``). When progress, status, or ``eta_store_path`` is
+    set, each completed slow row appends its duration to the versioned
+    slow-sample store and refreshes the stage line (base sentence, plus
+    minutes left when a rate exists).
     """
     if not rows:
         return 0
@@ -154,6 +159,26 @@ def materialize_jobs_skills(
             format_skills_stage_message(eta_s=eta_s, base=SKILLS_STAGE_MESSAGE)
         )
     for idx, (row, first_materialize) in enumerate(slow_rows, start=1):
+        job_id = int(row.get("id", 0) or 0)
+        live_flags = get_job_scope_flags(db_path, job_id) if job_id else None
+        if live_flags is None or not job_in_active_rescore_scope(live_flags):
+            eta_s = None
+            if track_eta:
+                eta_s = estimate_remaining_seconds(
+                    remaining=max(0, total - idx),
+                    samples=run_samples,
+                    historical=historical,
+                )
+            if on_progress is not None or on_status_message is not None:
+                _notify_progress(on_progress, idx, total, updated, eta_s)
+                if on_status_message is not None:
+                    on_status_message(
+                        format_skills_stage_message(
+                            eta_s=eta_s, base=SKILLS_STAGE_MESSAGE
+                        )
+                    )
+            continue
+
         t0 = time.monotonic() if track_eta else 0.0
         try:
             skills_text, _, skills_changed = materialize_job_skills(

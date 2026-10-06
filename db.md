@@ -46,7 +46,10 @@ Extracted from `jobs.py`. The rest of the application (including business logic 
   - `get_applied_pipeline_company_keys(db_path) -> set[str]` — normalized company keys eligible for applied-company relevance bonus: keys with ≥1 `applied=1 AND interview_stopped=0` minus keys with any `applied=1 AND interview_stopped=1`; blank companies ignored; key = `_normalize_company_key(_canonicalize_company_for_dedupe(company))` (same as position dedupe)
   - Applied-stage listings sort by `(applied_at IS NULL), applied_at DESC, updated_at DESC` (dated rows first; null `applied_at` last)
 - `queries_refresh.py` — description refresh, scoring candidate rows, active rescore scope
-  - `get_jobs_for_active_rescore()` — jobs where `applied=1 OR on_interview=1 OR interview_stopped=1 OR viewed=0`
+  - `get_jobs_for_active_rescore()` — jobs where `applied=1 OR on_interview=1 OR interview_stopped=1 OR COALESCE(viewed,0)=0` (mirrors `job_in_active_rescore_scope`; Hidden stays in scope)
+  - `get_job_scope_flags(db_path, job_id) -> dict | None` — lightweight `{viewed, applied, on_interview, interview_stopped}` for live mid-batch scope re-checks; `None` when the job is missing
+  - `get_jobs_for_description_refresh(..., unviewed_only=False)` — always skips `applied=1`; optional `unviewed_only` (default False preserves CLI `refresh-descriptions`); Hidden is not filtered here
+  - `get_jobs_for_description_triage(db_path, *, limit=0)` — thin wrapper: `missing_only=True, unviewed_only=True` for ingest description generation and sync empty-inbox early-exit probes (Hidden included; viewed non-pipeline excluded)
 - `queries_signals.py` — dedupe, merge, and suggestion queries
 - `queries_rows.py` — shared SQL row → dict mappers
 

@@ -1,5 +1,5 @@
 from spejder.core import DEFAULT_PROFILE_PATH, load_runtime_profile, save_profile
-from spejder.db import ensure_db, get_jobs_for_description_refresh, get_relevant_jobs
+from spejder.db import ensure_db, get_jobs_for_description_triage, get_relevant_jobs
 from spejder.extractors.skill_extractor import (
     _ensure_skill_pattern_seed_migration,
     _learn_skill_patterns_from_positions,
@@ -76,8 +76,9 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
                 db_path,
                 log_prefix="process-inbox: post-portal dedupe",
             )
-        missing_descriptions = get_jobs_for_description_refresh(
-            db_path, missing_only=True, limit=1
+        missing_descriptions = get_jobs_for_description_triage(
+            db_path,
+            limit=1,
         )
         has_missing_descriptions = bool(missing_descriptions)
         if (

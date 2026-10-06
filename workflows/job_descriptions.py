@@ -3,7 +3,8 @@ import time
 from typing import Callable, Optional, Union
 
 from spejder.config import AppConfig
-from spejder.db import get_jobs_for_description_refresh, set_job_description
+from spejder.db import get_job_scope_flags, get_jobs_for_description_triage, set_job_description
+from spejder.jobs.scoring import job_in_active_rescore_scope
 from spejder.llm import LocalLLM
 from spejder.managers.language_manager import (
     get_title_english_for_row as _get_title_english_for_row,
@@ -58,21 +59,15 @@ def _generate_missing_descriptions_for_ingest(
     """Generate missing job descriptions.
 
     Selected missing-description rows are the slow population (including early
-    ``continue``). When progress, status, or ``eta_store_path`` is set, each
-    selected row appends its duration to the versioned slow-sample store and
-    refreshes progress / the stage line (base sentence, plus minutes left when
-    a rate exists).
+    empty-raw ``continue``). Immediately before page/LLM work, reloads live
+    scope flags via ``get_job_scope_flags`` and skips when
+    ``job_in_active_rescore_scope`` is false or the job is missing
+    (increments ``skipped``; does not append an ETA sample). When progress,
+    status, or ``eta_store_path`` is set, each completed slow attempt appends
+    its duration to the versioned slow-sample store and refreshes progress /
+    the stage line (base sentence, plus minutes left when a rate exists).
     """
-    rows = get_jobs_for_description_refresh(
-        db_path,
-        category="",
-        source="",
-        links=[],
-        job_ids=[],
-        limit=0,
-        missing_only=True,
-        unviewed_only=True,
-    )
+    rows = get_jobs_for_description_triage(db_path, limit=0)
 
     updated = 0
     skipped = 0
@@ -112,7 +107,6 @@ def _generate_missing_descriptions_for_ingest(
     page_context_cache: dict[str, str] = {}
     title_translation_cache: dict[str, str] = {}
     for idx, row in enumerate(rows, start=1):
-        t0 = time.monotonic()
         if progress:
             elapsed = time.monotonic() - started_at
             avg_per_item = elapsed / max(1, idx - 1)
@@ -124,6 +118,29 @@ def _generate_missing_descriptions_for_ingest(
                 f"elapsed={format_duration(elapsed)}, eta={format_duration(eta_sec)})"
             )
 
+        job_id = int(row.get("id", 0) or 0)
+        live_flags = get_job_scope_flags(db_path, job_id) if job_id else None
+        if live_flags is None or not job_in_active_rescore_scope(live_flags):
+            skipped += 1
+            if on_progress is not None or on_status_message is not None:
+                eta_s = None
+                if track_eta:
+                    eta_s = estimate_remaining_seconds(
+                        remaining=max(0, total_rows - idx),
+                        samples=run_samples,
+                        historical=historical,
+                    )
+                _notify_progress(on_progress, idx, total_rows, updated, eta_s)
+                if on_status_message is not None:
+                    on_status_message(
+                        format_descriptions_stage_message(
+                            eta_s=eta_s,
+                            base=DESCRIPTIONS_STAGE_MESSAGE,
+                        )
+                    )
+            continue
+
+        t0 = time.monotonic()
         try:
             source_raw = row.get("raw_text", "") or ""
             raw = _enrich_raw_text_with_position_page(

@@ -26,6 +26,13 @@ from spejder.workflows.progress_eta import (
     skills_eta_store_path,
 )
 
+_IN_SCOPE_FLAGS = {
+    "viewed": 0,
+    "applied": 0,
+    "on_interview": 0,
+    "interview_stopped": 0,
+}
+
 
 class RollingTimeAverageTest(unittest.TestCase):
     def test_average_and_record(self) -> None:
@@ -194,10 +201,14 @@ class FormatDurationAndEtaTest(unittest.TestCase):
 
 
 class MaterializeEtaIntegrationTest(unittest.TestCase):
+    @patch(
+        "spejder.workflows.job_skills_materialize.get_job_scope_flags",
+        return_value=_IN_SCOPE_FLAGS,
+    )
     @patch("spejder.workflows.job_skills_materialize.materialize_job_skills")
     @patch("spejder.db.get_job_skills_for_jobs", return_value={})
     def test_on_progress_receives_eta_and_persists_store(
-        self, _mock_get_skills, mock_materialize
+        self, _mock_get_skills, mock_materialize, _mock_flags
     ) -> None:
         rows = [{"id": i} for i in range(1, 4)]
         recorded: list[tuple] = []
@@ -238,10 +249,14 @@ class MaterializeEtaIntegrationTest(unittest.TestCase):
             self.assertNotIn("count", data)
             self.assertNotIn("total_seconds", data)
 
+    @patch(
+        "spejder.workflows.job_skills_materialize.get_job_scope_flags",
+        return_value=_IN_SCOPE_FLAGS,
+    )
     @patch("spejder.workflows.job_skills_materialize.materialize_job_skills")
     @patch("spejder.db.get_job_skills_for_jobs", return_value={})
     def test_old_aggregate_does_not_open_skills_eta(
-        self, _mock_get_skills, mock_materialize
+        self, _mock_get_skills, mock_materialize, _mock_flags
     ) -> None:
         mock_materialize.return_value = ("Python", "raw", True)
         status_msgs: list[str] = []
@@ -266,10 +281,14 @@ class MaterializeEtaIntegrationTest(unittest.TestCase):
             self.assertEqual(len(data["samples"]), 1)
             self.assertNotIn("count", data)
 
+    @patch(
+        "spejder.workflows.job_skills_materialize.get_job_scope_flags",
+        return_value=_IN_SCOPE_FLAGS,
+    )
     @patch("spejder.workflows.job_skills_materialize.materialize_job_skills")
     @patch("spejder.db.get_job_skills_for_jobs", return_value={})
     def test_versioned_samples_open_skills_eta(
-        self, _mock_get_skills, mock_materialize
+        self, _mock_get_skills, mock_materialize, _mock_flags
     ) -> None:
         mock_materialize.return_value = ("Python", "raw", True)
         status_msgs: list[str] = []
@@ -286,10 +305,14 @@ class MaterializeEtaIntegrationTest(unittest.TestCase):
             self.assertIn("Estimated time left:", status_msgs[0])
             self.assertNotIn("%", status_msgs[0])
 
+    @patch(
+        "spejder.workflows.job_skills_materialize.get_job_scope_flags",
+        return_value=_IN_SCOPE_FLAGS,
+    )
     @patch("spejder.workflows.job_skills_materialize.materialize_job_skills")
     @patch("spejder.db.get_job_skills_for_jobs")
     def test_mixed_batch_counts_only_slow_rows(
-        self, mock_get_skills, mock_materialize
+        self, mock_get_skills, mock_materialize, _mock_flags
     ) -> None:
         def skills_for(_db_path: str, job_ids: list[int]) -> dict[int, list[str]]:
             return {int(job_id): (["Python"] if int(job_id) <= 2 else []) for job_id in job_ids}
@@ -355,10 +378,14 @@ class MaterializeEtaIntegrationTest(unittest.TestCase):
         mock_materialize.assert_not_called()
         self.assertEqual(recorded, [])
 
+    @patch(
+        "spejder.workflows.job_skills_materialize.get_job_scope_flags",
+        return_value=_IN_SCOPE_FLAGS,
+    )
     @patch("spejder.workflows.job_skills_materialize.materialize_job_skills")
     @patch("spejder.db.get_job_skills_for_jobs", return_value={})
     def test_legacy_three_arg_on_progress_once_per_slow_job(
-        self, _mock_get_skills, mock_materialize
+        self, _mock_get_skills, mock_materialize, _mock_flags
     ) -> None:
         mock_materialize.return_value = ("Python", "raw", True)
         recorded: list[tuple[int, int, int]] = []
@@ -373,12 +400,16 @@ class MaterializeEtaIntegrationTest(unittest.TestCase):
 
 class DescriptionsEtaIntegrationTest(unittest.TestCase):
     @patch(
+        "spejder.workflows.job_descriptions.get_job_scope_flags",
+        return_value=_IN_SCOPE_FLAGS,
+    )
+    @patch(
         "spejder.workflows.job_descriptions._enrich_raw_text_with_position_page",
         return_value="",
     )
-    @patch("spejder.workflows.job_descriptions.get_jobs_for_description_refresh")
+    @patch("spejder.workflows.job_descriptions.get_jobs_for_description_triage")
     def test_on_progress_receives_eta_and_persists_store(
-        self, mock_refresh, _mock_enrich
+        self, mock_refresh, _mock_enrich, _mock_flags
     ) -> None:
         mock_refresh.return_value = [
             {"id": 1, "raw_text": ""},
@@ -420,12 +451,16 @@ class DescriptionsEtaIntegrationTest(unittest.TestCase):
             self.assertNotIn("total_seconds", data)
 
     @patch(
+        "spejder.workflows.job_descriptions.get_job_scope_flags",
+        return_value=_IN_SCOPE_FLAGS,
+    )
+    @patch(
         "spejder.workflows.job_descriptions._enrich_raw_text_with_position_page",
         return_value="",
     )
-    @patch("spejder.workflows.job_descriptions.get_jobs_for_description_refresh")
+    @patch("spejder.workflows.job_descriptions.get_jobs_for_description_triage")
     def test_old_aggregate_does_not_open_descriptions_eta(
-        self, mock_refresh, _mock_enrich
+        self, mock_refresh, _mock_enrich, _mock_flags
     ) -> None:
         mock_refresh.return_value = [{"id": 1, "raw_text": ""}]
         status_msgs: list[str] = []
@@ -449,12 +484,16 @@ class DescriptionsEtaIntegrationTest(unittest.TestCase):
             self.assertNotIn("count", data)
 
     @patch(
+        "spejder.workflows.job_descriptions.get_job_scope_flags",
+        return_value=_IN_SCOPE_FLAGS,
+    )
+    @patch(
         "spejder.workflows.job_descriptions._enrich_raw_text_with_position_page",
         return_value="",
     )
-    @patch("spejder.workflows.job_descriptions.get_jobs_for_description_refresh")
+    @patch("spejder.workflows.job_descriptions.get_jobs_for_description_triage")
     def test_versioned_samples_open_descriptions_eta(
-        self, mock_refresh, _mock_enrich
+        self, mock_refresh, _mock_enrich, _mock_flags
     ) -> None:
         mock_refresh.return_value = [
             {"id": 1, "raw_text": ""},
@@ -475,12 +514,16 @@ class DescriptionsEtaIntegrationTest(unittest.TestCase):
             self.assertNotIn("%", status_msgs[0])
 
     @patch(
+        "spejder.workflows.job_descriptions.get_job_scope_flags",
+        return_value=_IN_SCOPE_FLAGS,
+    )
+    @patch(
         "spejder.workflows.job_descriptions._enrich_raw_text_with_position_page",
         return_value="",
     )
-    @patch("spejder.workflows.job_descriptions.get_jobs_for_description_refresh")
+    @patch("spejder.workflows.job_descriptions.get_jobs_for_description_triage")
     def test_legacy_three_arg_on_progress_still_works(
-        self, mock_refresh, _mock_enrich
+        self, mock_refresh, _mock_enrich, _mock_flags
     ) -> None:
         mock_refresh.return_value = [
             {"id": 1, "raw_text": ""},

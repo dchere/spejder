@@ -6,7 +6,7 @@ Contains the core business domain logic for processing, scoring, classifying, an
 **API:**
 - `score_relevance(...)` — optional `company` and `applied_company_keys` for applied-company bonus; omit/`None`/empty → no bonus
 - `apply_relevance(...)` 
-- `job_in_active_rescore_scope(row) -> bool` — `applied OR on_interview OR interview_stopped OR viewed==0` (Hidden jobs stay `viewed=0`, so they remain in active rescore scope)
+- `job_in_active_rescore_scope(row) -> bool` — `applied OR on_interview OR interview_stopped OR viewed==0` (null viewed as 0; Hidden is not a factor — it parks UI listing only; viewed non-pipeline jobs are out). Enrichment batch loops re-check this live via `get_job_scope_flags` before page/LLM work.
 - `rescore_jobs_if_active(db_path, profile, job_ids) -> int` — rescore scoped jobs; skips `manual_feedback` rows
 - `rescore_active_jobs(db_path, profile) -> int` — rescore all jobs in active scope
 - `merge_duplicate_positions(...)` — company+title dedup across all sources; oldest row kept; also invoked from GUI background sync via `workflows.deduplication.run_cross_source_dedupe`. Title trailing-city stripping and allowlist semantics are defined in `db/deduplication_utils.py` (see `db.md`).

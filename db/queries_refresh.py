@@ -69,13 +69,34 @@ def get_jobs_for_description_refresh(
         conn.close()
 
 
+def get_jobs_for_description_triage(
+    db_path: str,
+    *,
+    limit: int = 0,
+) -> list[dict]:
+    """Missing-description rows in sync/ingest triage scope.
+
+    Shared filter for ingest description generation and empty-inbox early-exit
+    probes: ``missing_only`` and ``unviewed_only`` (Hidden stays in scope).
+    CLI ``refresh-descriptions`` keeps calling ``get_jobs_for_description_refresh``
+    with defaults instead.
+    """
+    return get_jobs_for_description_refresh(
+        db_path,
+        missing_only=True,
+        unviewed_only=True,
+        limit=limit,
+    )
+
+
 def get_jobs_for_active_rescore(db_path: str) -> list[dict]:
     conn = _connect(db_path)
     try:
         cur = conn.cursor()
         cur.execute(
             f"SELECT {_JOB_SELECT_COLS}, category FROM jobs WHERE "
-            "applied=1 OR on_interview=1 OR interview_stopped=1 OR COALESCE(viewed, 0)=0"
+            "applied=1 OR on_interview=1 OR interview_stopped=1 OR "
+            "COALESCE(viewed, 0)=0"
         )
         rows = cur.fetchall()
         return [_map_full_job_row(r[:-1], r[-1] or "") for r in rows]
@@ -110,6 +131,34 @@ def get_job_for_rescoring(db_path: str, job_id: int) -> Optional[dict]:
         if not row:
             return None
         return {"id": row[0], "source": row[1], "title": row[2], "company": row[3], "position_link": row[4], "raw_text": row[5], "applied": row[6]}
+    finally:
+        conn.close()
+
+
+def get_job_scope_flags(db_path: str, job_id: int) -> Optional[dict]:
+    """Lightweight pipeline flags for live active-rescore scope checks.
+
+    Returns ``None`` when the job is missing. Keys: ``viewed``, ``applied``,
+    ``on_interview``, ``interview_stopped`` (raw SQLite values; callers treat
+    null viewed as 0 via ``job_in_active_rescore_scope``).
+    """
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT viewed, applied, on_interview, interview_stopped "
+            "FROM jobs WHERE id=?",
+            (int(job_id),),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        return {
+            "viewed": row[0],
+            "applied": row[1],
+            "on_interview": row[2],
+            "interview_stopped": row[3],
+        }
     finally:
         conn.close()
 

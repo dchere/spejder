@@ -352,7 +352,7 @@ class ProcessInboxStaleCleanupOrderTest(unittest.TestCase):
     )
     @patch("spejder.workflows.inbox_workflow.LocalLLM")
     @patch(
-        "spejder.workflows.inbox_workflow.get_jobs_for_description_refresh",
+        "spejder.workflows.inbox_workflow.get_jobs_for_description_triage",
         return_value=[{"id": 1}],
     )
     @patch(

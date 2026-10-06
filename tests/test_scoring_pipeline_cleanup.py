@@ -9,14 +9,19 @@ from spejder.config import AppConfig
 from spejder.db import (
     ensure_db,
     get_job_skills,
+    get_jobs_for_active_rescore,
+    get_jobs_for_description_refresh,
+    get_jobs_for_description_triage,
     replace_job_skills,
     set_job_applied,
+    set_job_hidden,
     set_job_viewed,
     upsert_job,
     upsert_skill_pattern,
 )
 from spejder.db.connection import _connect
 from spejder.jobs.scoring import job_in_active_rescore_scope, rescore_jobs_if_active
+from spejder.workflows.job_descriptions import _generate_missing_descriptions_for_ingest
 from spejder.workflows.job_skills_materialize import materialize_job_skills
 
 
@@ -94,6 +99,97 @@ class JobInActiveRescoreScopeTest(unittest.TestCase):
         self.assertTrue(job_in_active_rescore_scope({"viewed": 1, "applied": 1}))
         self.assertTrue(job_in_active_rescore_scope({"viewed": 1, "on_interview": 1}))
         self.assertTrue(job_in_active_rescore_scope({"viewed": 1, "interview_stopped": 1}))
+        self.assertTrue(job_in_active_rescore_scope({"viewed": 0, "hidden": 1}))
+        self.assertTrue(
+            job_in_active_rescore_scope({"viewed": 0, "hidden": 1, "applied": 1})
+        )
+
+
+class GetJobScopeFlagsTest(unittest.TestCase):
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self._tmpdir.name, "jobs.db")
+        ensure_db(self.db_path)
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def test_returns_flags_or_none(self):
+        from spejder.db import get_job_scope_flags
+
+        self.assertIsNone(get_job_scope_flags(self.db_path, 99999))
+        job_id = _insert_job(self.db_path, "https://example.com/flags")
+        flags = get_job_scope_flags(self.db_path, job_id)
+        self.assertIsNotNone(flags)
+        assert flags is not None
+        self.assertEqual(int(flags["viewed"] or 0), 0)
+        self.assertEqual(int(flags["applied"] or 0), 0)
+        set_job_viewed(self.db_path, job_id, True)
+        flags = get_job_scope_flags(self.db_path, job_id)
+        assert flags is not None
+        self.assertEqual(int(flags["viewed"] or 0), 1)
+
+
+class ActiveRescoreAndDescriptionScopeDbTest(unittest.TestCase):
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self._tmpdir.name, "jobs.db")
+        ensure_db(self.db_path)
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def test_hidden_included_in_active_rescore_and_ingest_descriptions(self):
+        unviewed = _insert_job(
+            self.db_path, "https://example.com/unviewed", title="Unviewed Engineer"
+        )
+        hidden = _insert_job(
+            self.db_path, "https://example.com/hidden", title="Hidden Engineer"
+        )
+        set_job_hidden(self.db_path, hidden, True)
+        viewed_applied = _insert_job(
+            self.db_path,
+            "https://example.com/applied",
+            title="Applied Engineer",
+            viewed=1,
+            applied=1,
+        )
+        viewed_only = _insert_job(
+            self.db_path,
+            "https://example.com/viewed",
+            title="Viewed Engineer",
+            viewed=1,
+        )
+
+        active_ids = {int(r["id"]) for r in get_jobs_for_active_rescore(self.db_path)}
+        self.assertIn(unviewed, active_ids)
+        self.assertIn(hidden, active_ids)
+        self.assertIn(viewed_applied, active_ids)
+        self.assertNotIn(viewed_only, active_ids)
+
+        ingest_ids = {
+            int(r["id"])
+            for r in get_jobs_for_description_triage(self.db_path)
+        }
+        self.assertIn(unviewed, ingest_ids)
+        self.assertIn(hidden, ingest_ids)
+        self.assertNotIn(viewed_applied, ingest_ids)
+        self.assertNotIn(viewed_only, ingest_ids)
+
+        # CLI refresh-descriptions default still includes Hidden (no permanent Hidden filter).
+        default_ids = {
+            int(r["id"])
+            for r in get_jobs_for_description_refresh(
+                self.db_path, missing_only=True
+            )
+        }
+        self.assertIn(hidden, default_ids)
+
+    @patch("spejder.workflows.job_descriptions.get_jobs_for_description_triage")
+    def test_ingest_descriptions_use_triage_helper(self, mock_triage):
+        mock_triage.return_value = []
+        _generate_missing_descriptions_for_ingest(self.db_path)
+        mock_triage.assert_called_once_with(self.db_path, limit=0)
 
 
 class MaterializeRescoreGuardTest(unittest.TestCase):
