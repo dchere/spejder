@@ -138,7 +138,7 @@ _MANUAL_FEEDBACK_REASONS = frozenset({
 
 
 def clean_job_skills(db_path: str, job_id: int) -> Optional[dict]:
-    """Delete one job's skill links so a later sync can re-extract them.
+    """Delete one job's skill links so rematerialize can re-extract them.
 
     Leaves ``skill_patterns`` and the job row in place. A viewed job that is
     not applied, on interview, or stopped gets ``viewed=0`` only (does not

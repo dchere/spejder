@@ -20,6 +20,7 @@ from .queries_listings import (
     local_day_start_utc_iso,
 )
 from .queries_refresh import (
+    get_job_by_id,
     get_job_for_rescoring,
     get_job_scope_flags,
     get_jobs_for_active_rescore,
@@ -56,6 +57,7 @@ __all__ = [
     "get_jobs_for_description_triage",
     "get_jobs_for_scoring",
     "get_jobs_for_active_rescore",
+    "get_job_by_id",
     "get_job_for_rescoring",
     "get_job_scope_flags",
     "get_jobs_merge_candidates",

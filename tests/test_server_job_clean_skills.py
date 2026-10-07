@@ -2,7 +2,9 @@
 
 import os
 import tempfile
+import time
 import unittest
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -123,8 +125,16 @@ class ServerJobCleanSkillsApiTest(unittest.TestCase):
         ensure_db(self.db_path)
         self.app, self.rebuild_calls = create_test_app(self.db_path, self.report_dir)
         self.client = TestClient(self.app)
+        # Default: do not start a real rematerialize worker against a temp DB.
+        self._ensure_patcher = patch.object(
+            self.app.state.runtime.skills_rematerialize,
+            "ensure",
+            return_value="started",
+        )
+        self._ensure_patcher.start()
 
     def tearDown(self):
+        self._ensure_patcher.stop()
         self._tmpdir.cleanup()
 
     def test_api_clean_skills_unviews_non_applied_and_clears_manual_reason(self):
@@ -228,6 +238,55 @@ class ServerJobCleanSkillsApiTest(unittest.TestCase):
                 self.assertEqual(response.status_code, 400)
                 self.assertFalse(response.json()["ok"])
         self.assertEqual(self.rebuild_calls, [])
+
+    def test_api_clean_skills_queues_rematerialize(self):
+        job_id = _insert_job(self.db_path, "https://example.com/clean-remat")
+        set_job_skills(self.db_path, job_id, ["Python"])
+        ensure_calls = []
+
+        def fake_ensure(jid):
+            ensure_calls.append(int(jid))
+            return "started"
+
+        self._ensure_patcher.stop()
+        runtime = self.app.state.runtime
+        with patch.object(runtime.skills_rematerialize, "ensure", side_effect=fake_ensure):
+            response = self.client.post("/api/job/clean-skills", json={"job_id": job_id})
+        self._ensure_patcher = patch.object(
+            runtime.skills_rematerialize, "ensure", return_value="started"
+        )
+        self._ensure_patcher.start()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(ensure_calls, [job_id])
+        self.assertEqual(get_job_skills(self.db_path, job_id), [])
+        self.assertIn(f"job {job_id} skills cleaned", self.rebuild_calls)
+
+    def test_api_clean_skills_dedicated_worker_rebuilds(self):
+        job_id = _insert_job(self.db_path, "https://example.com/clean-worker")
+        set_job_skills(self.db_path, job_id, ["Go"])
+        self._ensure_patcher.stop()
+        with patch.object(
+            self.app.state.runtime.skills_rematerialize,
+            "_materialize_one",
+            return_value=True,
+        ) as mock_one:
+            response = self.client.post("/api/job/clean-skills", json={"job_id": job_id})
+            self.assertEqual(response.status_code, 200)
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline:
+                if any("skills rematerialized" in reason for reason in self.rebuild_calls):
+                    break
+                time.sleep(0.02)
+            self.assertTrue(mock_one.called)
+        self._ensure_patcher = patch.object(
+            self.app.state.runtime.skills_rematerialize,
+            "ensure",
+            return_value="started",
+        )
+        self._ensure_patcher.start()
+        self.assertTrue(
+            any("skills rematerialized" in reason for reason in self.rebuild_calls)
+        )
 
 
 if __name__ == "__main__":

@@ -48,6 +48,7 @@ _EXPORTS = {
     "get_jobs_for_description_triage": "queries",
     "get_jobs_for_scoring": "queries",
     "get_jobs_for_active_rescore": "queries",
+    "get_job_by_id": "queries",
     "get_job_for_rescoring": "queries",
     "get_job_scope_flags": "queries",
     "get_jobs_merge_candidates": "queries",

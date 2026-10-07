@@ -54,8 +54,9 @@ def populate_missing_dashboard_skills(
     on_progress: Optional[Callable[..., None]] = None,
     on_status_message: Optional[Callable[[str], None]] = None,
     eta_store_path: Optional[str] = None,
+    rematerialize=None,
 ) -> int:
-    if not rows:
+    if not rows and rematerialize is None:
         return 0
 
     updated = materialize_jobs_skills(
@@ -69,6 +70,7 @@ def populate_missing_dashboard_skills(
         on_progress=on_progress,
         on_status_message=on_status_message,
         eta_store_path=eta_store_path,
+        rematerialize=rematerialize,
     )
     return updated
 

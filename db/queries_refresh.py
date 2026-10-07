@@ -135,6 +135,23 @@ def get_job_for_rescoring(db_path: str, job_id: int) -> Optional[dict]:
         conn.close()
 
 
+def get_job_by_id(db_path: str, job_id: int) -> Optional[dict]:
+    """Full job row by id for materialize/rematerialize, or None if missing."""
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            f"SELECT {_JOB_SELECT_COLS}, category FROM jobs WHERE id=?",
+            (int(job_id),),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return _map_full_job_row(row[:-1], row[-1] or "")
+    finally:
+        conn.close()
+
+
 def get_job_scope_flags(db_path: str, job_id: int) -> Optional[dict]:
     """Lightweight pipeline flags for live active-rescore scope checks.
 

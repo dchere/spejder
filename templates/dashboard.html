@@ -291,8 +291,8 @@
                         if (card.parentElement !== panelEditedToday) panelEditedToday.prepend(card);
                     }
                     refreshCounts();
-                    if (signal === 'not relevant' && window.confirm('Clear skills and re-extract them on the next sync?')) {
-                        await cleanJobSkills(jobId, inputEl, { skipConfirm: true });
+                    if (signal === 'not relevant') {
+                        await cleanJobSkills(jobId, inputEl);
                     }
                 } catch (err) {
                     if (statusEl) statusEl.textContent = `Error: ${err.message}. Start: python -m spejder.cli serve-gui`;

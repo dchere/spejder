@@ -555,7 +555,7 @@ class DashboardTemplatesTest(unittest.TestCase):
         self.assertIn("Rebuild queued — refresh manually if the page does not update", body)
         self.assertIn("/api/report/rebuild", body)
 
-    def test_clean_skills_button_and_relevant_uncheck_confirm(self):
+    def test_clean_skills_button_and_relevant_uncheck_auto_clean(self):
         import tempfile
 
         from spejder.managers.dashboard_cards import (
@@ -594,7 +594,6 @@ class DashboardTemplatesTest(unittest.TestCase):
         actions_html = card[actions_start:actions_end]
         self.assertIn("clean-skills-btn", actions_html)
         self.assertIn("delete-job-btn", actions_html)
-        confirm = "Clear skills and re-extract them on the next sync?"
         for name in ("dashboard.html", "company_dashboard.html"):
             with self.subTest(template=name):
                 context = (
@@ -610,15 +609,21 @@ class DashboardTemplatesTest(unittest.TestCase):
                 self.assertIn(".clean-skills-btn", html)
                 self.assertIn("function cleanJobSkills", html)
                 relevant = _extract_js_function_body(html, "setRelevant")
-                self.assertIn(confirm, relevant)
-                self.assertIn("signal === 'not relevant' && window.confirm", relevant)
-                self.assertIn("cleanJobSkills(jobId, inputEl, { skipConfirm: true })", relevant)
-                self.assertLess(relevant.index("/api/feedback"), relevant.index("window.confirm"))
+                self.assertIn("signal === 'not relevant'", relevant)
+                self.assertIn("await cleanJobSkills(jobId, inputEl)", relevant)
+                self.assertNotIn("skipConfirm", relevant)
+                self.assertNotIn(
+                    "Clear skills and re-extract them on the next sync?",
+                    relevant,
+                )
+                self.assertLess(
+                    relevant.index("/api/feedback"),
+                    relevant.index("cleanJobSkills(jobId, inputEl)"),
+                )
                 cleaner = _extract_js_function_body(html, "cleanJobSkills")
-                self.assertIn(confirm, cleaner)
                 self.assertIn("/api/job/clean-skills", cleaner)
-                self.assertLess(cleaner.index("window.confirm"), cleaner.index("/api/job/clean-skills"))
-                self.assertIn("skipConfirm", cleaner)
+                self.assertNotIn("window.confirm", cleaner)
+                self.assertNotIn("skipConfirm", cleaner)
                 self.assertIn("viewed_cleared", cleaner)
                 self.assertIn(".skill-tags", cleaner)
                 self.assertIn("skills-empty", cleaner)
