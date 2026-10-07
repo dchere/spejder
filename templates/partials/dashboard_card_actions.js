@@ -178,11 +178,9 @@
                 }
             }
 
-            async function cleanJobSkills(jobId, triggerEl, options) {
+            async function cleanJobSkills(jobId, triggerEl) {
                 const card = triggerEl ? triggerEl.closest('.card') : null;
                 const statusEl = card ? card.querySelector('.feedback-status') : null;
-                const skipConfirm = Boolean(options && options.skipConfirm);
-                if (!skipConfirm && !window.confirm('Clear skills and re-extract them on the next sync?')) return;
                 try {
                     const response = await fetch(apiUrl('/api/job/clean-skills'), {
                         method: 'POST',

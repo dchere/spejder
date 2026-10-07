@@ -30,7 +30,19 @@ def create_app(
     get_report_rebuild_idle=lambda: True,
     trigger_inbox_sync=None,
     get_inbox_sync_status=None,
+    skills_rematerialize=None,
 ) -> FastAPI:
+    from spejder.workflows.skills_rematerialize import SkillsRematerializeCoordinator
+
+    if skills_rematerialize is None:
+        skills_rematerialize = SkillsRematerializeCoordinator(
+            db_path=db_path,
+            runtime_profile=runtime_profile,
+            model_path=model_path,
+            cli_verbose=cli_verbose,
+            queue_dashboard_rebuild=queue_dashboard_rebuild,
+        )
+
     app = FastAPI(title="Spejder GUI Server")
     app.state.runtime = ServerRuntime(
         db_path=db_path,
@@ -48,6 +60,7 @@ def create_app(
         get_title_translation_llm=get_title_translation_llm,
         portrait_generate_lock=threading.Lock(),
         cv_skills_sync_lock=threading.Lock(),
+        skills_rematerialize=skills_rematerialize,
     )
 
     app.add_middleware(

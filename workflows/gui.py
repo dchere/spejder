@@ -13,6 +13,7 @@ from spejder.workflows.dashboard import (
     populate_missing_dashboard_skills,
 )
 from spejder.workflows.gui_sync import GuiSyncContext, InboxSyncRunner
+from spejder.workflows.skills_rematerialize import SkillsRematerializeCoordinator
 
 
 def serve_gui(
@@ -63,6 +64,14 @@ def serve_gui(
         for key, value in fresh.model_dump().items():
             setattr(runtime_profile, key, value)
 
+    skills_rematerialize = SkillsRematerializeCoordinator(
+        db_path=db_path,
+        runtime_profile=runtime_profile,
+        model_path=model_path,
+        cli_verbose=cli_verbose,
+        queue_dashboard_rebuild=rebuild_queue.queue,
+    )
+
     def _populate_missing_dashboard_skills(
         rows: list[dict],
         *,
@@ -81,6 +90,7 @@ def serve_gui(
             on_progress=on_progress,
             on_status_message=on_status_message,
             eta_store_path=eta_store_path,
+            rematerialize=skills_rematerialize,
         )
 
     sync_context = GuiSyncContext(
@@ -110,6 +120,7 @@ def serve_gui(
         "get_report_rebuild_idle": rebuild_queue.is_idle,
         "trigger_inbox_sync": inbox_sync_runner.trigger,
         "get_inbox_sync_status": inbox_sync_runner.get_status,
+        "skills_rematerialize": skills_rematerialize,
     }
 
     print("Serve GUI: rebuilding startup dashboard snapshot")

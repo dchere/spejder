@@ -2,9 +2,12 @@
 
 from dataclasses import dataclass
 from threading import Lock
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from fastapi import Request
+
+if TYPE_CHECKING:
+    from spejder.workflows.skills_rematerialize import SkillsRematerializeCoordinator
 
 
 @dataclass
@@ -24,6 +27,7 @@ class ServerRuntime:
     get_title_translation_llm: Any
     portrait_generate_lock: Lock
     cv_skills_sync_lock: Lock
+    skills_rematerialize: Optional["SkillsRematerializeCoordinator"] = None
 
 
 def get_runtime(request: Request) -> ServerRuntime:

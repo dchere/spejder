@@ -31,7 +31,8 @@ Core orchestration for CLI commands, GUI background sync, and heavy multi-step p
 | `job_translation.py` | Ingest entry translation factory |
 | `job_text_enrichment.py` | Raw-text enrichment (title, optional summary, page context); skill path drops summary and prefers substantial page scrape |
 | `job_descriptions.py` | LLM description generation + quality heuristics |
-| `job_skills_materialize.py` | Skill extraction materialization batches |
+| `job_skills_materialize.py` | Skill extraction materialization batches (optional rematerialize coordinator drain) |
+| `skills_rematerialize.py` | Post-clean-skills rematerialize coordinator: append to active batch or dedicated worker |
 | `progress_eta.py` | Rolling slow-sample ETA + skills/descriptions stage lines (base sentence, optional minutes left) |
 | `job_easy_apply.py` | LinkedIn easy-apply detection |
 | `report_workflow.py` | CLI link reports + JSONL HTML export |

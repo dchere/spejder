@@ -192,6 +192,8 @@ def api_job_clean_skills(req: CleanSkillsRequest, runtime: ServerRuntime = Depen
         )
     print(f"API: Cleaned skills for job_id={req.job_id}")
     runtime.queue_dashboard_rebuild(reason=f"job {req.job_id} skills cleaned")
+    if runtime.skills_rematerialize is not None:
+        runtime.skills_rematerialize.ensure(req.job_id)
     return {
         "ok": True,
         "job_id": req.job_id,
