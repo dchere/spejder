@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from spejder.workflows.inbox_workflow import process_inbox
+from spejder.workflows.progress_eta import ingest_eta_store_path
 from spejder.workflows.skill_hygiene import SkillHygieneResult
 from spejder.workflows.sync_log import SyncRunLog
 
@@ -432,6 +433,132 @@ class ProcessInboxSyncLogTest(unittest.TestCase):
             any("checked=10/0" in line for line in progress_lines),
             msg=f"expected final processed=10 in {progress_lines!r}",
         )
+
+    @patch(
+        "spejder.workflows.inbox_workflow.write_inbox_dashboard_report",
+        return_value=None,
+    )
+    @patch(
+        "spejder.workflows.inbox_workflow.summarize_relevant_jobs_for_inbox",
+        return_value=[],
+    )
+    @patch(
+        "spejder.workflows.inbox_workflow.update_profile_from_db_signals",
+        return_value={
+            "labeled_count": 0,
+            "learned_include_count": 0,
+            "learned_exclude_count": 0,
+            "missing_skills_count": 0,
+        },
+    )
+    @patch(
+        "spejder.workflows.inbox_workflow.run_skill_hygiene_stages",
+        side_effect=_fake_hygiene,
+    )
+    @patch(
+        "spejder.workflows.inbox_workflow._learn_skill_patterns_from_positions",
+        return_value={
+            "considered_positions": 0,
+            "new_skill_patterns": 0,
+            "total_known_skill_patterns": 0,
+        },
+    )
+    @patch("spejder.workflows.inbox_workflow.get_relevant_jobs", return_value=[])
+    @patch("spejder.workflows.inbox_workflow.materialize_relevant_and_applied_skills")
+    @patch(
+        "spejder.workflows.inbox_workflow._generate_missing_descriptions_for_ingest",
+        return_value=(0, 0),
+    )
+    @patch(
+        "spejder.workflows.inbox_workflow.delete_processed_inbox_files",
+        return_value={"eligible": 0, "deleted": 0, "missing": 0, "failed": 0},
+    )
+    @patch("spejder.workflows.inbox_workflow.print_ingest_file_stats")
+    @patch("spejder.workflows.inbox_workflow.ingest_docs_to_db")
+    @patch("spejder.workflows.inbox_workflow.LocalLLM")
+    @patch(
+        "spejder.workflows.inbox_workflow.email_parser.load_files",
+        return_value=[{"path": "/tmp/one.eml", "html": ""}],
+    )
+    @patch(
+        "spejder.workflows.inbox_workflow.get_jobs_for_description_triage",
+        return_value=[],
+    )
+    @patch(
+        "spejder.workflows.inbox_workflow.sync_itday_portal",
+        return_value={
+            "found": 0,
+            "inserted_new": 0,
+            "skipped_existing": 0,
+            "processed": 0,
+        },
+    )
+    def test_ingest_eta_store_and_clears_gated_eta(
+        self,
+        _portal,
+        _desc_refresh,
+        _load_files,
+        mock_llm,
+        mock_ingest,
+        _print_stats,
+        _delete_files,
+        _gen_desc,
+        _materialize,
+        _relevant,
+        _learn,
+        _hygiene,
+        _signals,
+        _summarize,
+        _report,
+    ):
+        """process_inbox wires eta_store_path; same-counts eta clear still emits."""
+        mock_llm.return_value = object()
+
+        def _ingest(_db, _docs, **kwargs):
+            self.assertEqual(
+                kwargs.get("eta_store_path"),
+                ingest_eta_store_path(self.db_path),
+            )
+            on_progress = kwargs["on_progress"]
+            self.assertIsNotNone(on_progress)
+            # Mid-run ETA, then same-counts clear (tracker would gate without bypass).
+            on_progress(1, 1, 0, 90.0)
+            on_progress(1, 1, 0, None)
+            return {
+                "processed": 1,
+                "inserted_new": 1,
+                "skipped_existing": 0,
+                "positions_by_file": [],
+            }
+
+        mock_ingest.side_effect = _ingest
+
+        process_inbox(
+            inbox=self.inbox,
+            db=self.db_path,
+            profile=self.profile_path,
+            report_dir=self.report_dir,
+            model="/fake/model.gguf",
+        )
+
+        text = self._read_log()
+        progress_lines = [
+            line for line in text.splitlines() if "event=progress stage=ingest" in line
+        ]
+        with_eta = [line for line in progress_lines if "eta_s=" in line]
+        self.assertTrue(with_eta, msg=f"expected mid-run eta_s in {progress_lines!r}")
+        self.assertIn("eta_s=90.0", with_eta[0])
+        # Exactly one clear tick after mid-run ETA (no needs_final duplicate).
+        self.assertEqual(
+            len(progress_lines),
+            2,
+            msg=f"expected mid-run + clear only, got {progress_lines!r}",
+        )
+        after_clear = progress_lines[progress_lines.index(with_eta[0]) + 1 :]
+        self.assertEqual(len(after_clear), 1)
+        for line in after_clear:
+            self.assertNotIn("eta_s=", line, msg=f"stale eta after clear: {line!r}")
+            self.assertNotIn("eta=", line, msg=f"stale eta after clear: {line!r}")
 
 
 if __name__ == "__main__":

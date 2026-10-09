@@ -12,8 +12,9 @@ Contains the core business domain logic for processing, scoring, classifying, an
 - `merge_duplicate_positions(...)` — company+title dedup across all sources; oldest row kept; also invoked from GUI background sync via `workflows.deduplication.run_cross_source_dedupe`. Title trailing-city stripping and allowlist semantics are defined in `db/deduplication_utils.py` (see `db.md`).
 - `merge_cross_source_duplicates(...)` — deprecated alias for `merge_duplicate_positions`
 - `rescore_job_by_id(...)`
-- `ingest_docs_to_db(...)` — `on_progress` reports running totals across files (`processed` + current file, and the same for inserted/skipped)
-- `ingest_entries_to_db(...)` — upsert pre-built job entry dicts (portal sync, tests)
+- `ingest_docs_to_db(...)` — extract/synth pre-pass builds a strong-position worklist, then upserts via shared `_upsert_one_entry` (same transform + `upsert_job` + `on_new_record` as portal ingest); ETA samples wrap that helper call (transform is typically cheap). `on_progress` reports running totals across upserts (`processed` / inserted/skipped); optional 4th `eta_s` with TypeError fallback for 3-arg callbacks. Optional `on_status_message` / `eta_store_path` enable per-position ETA (sidecar `{db}.ingest_eta.json`, `kind == "position"`; remaining = upsertable positions not yet finished; stage base stays `Ingesting {n} inbox file(s)`; empty docs skip ETA; parse/synth untimed).
+- `ingest_entries_to_db(...)` — upsert pre-built job entry dicts (portal sync, tests) via the same `_upsert_one_entry` helper (skips rows without `position_link` before upsert)
+- `_upsert_one_entry(...)` — internal: optional `entry_transform`, `upsert_job`, optional `on_new_record`; returns whether the row was new
 
 **Scoring bonuses (`jobs/scoring.py`):**
 - Skill membership uses `db.utils._normalize_skill_name_key` (same strip/lower/collapse as the config sanitizer and profile toggle), so `"foo  bar"` in `user_skills` matches a cached job skill `"foo bar"`.
@@ -28,6 +29,7 @@ Originally a monolith mixing SQL execution and logic, `jobs.py` now adheres to t
 
 **Dependencies:**
 - `spejder.config`, `spejder.db`
+- `spejder.workflows.progress_eta` — lazy import inside `ingest_docs_to_db` when ETA tracking is enabled (avoids jobs ↔ workflows package init cycle)
 
 **Position deduplication (`jobs/deduplication.py`):**
 - `merge_duplicate_positions(db_path)` — batch pass groups by key, keeps oldest `created_at` (then lowest `id`), merges fields, deletes duplicate rows

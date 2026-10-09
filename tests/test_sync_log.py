@@ -11,7 +11,12 @@ from unittest.mock import MagicMock
 
 from spejder.config import AppConfig
 from spejder.workflows.gui_sync import GuiSyncContext, _emit_stage
-from spejder.workflows.sync_log import IngestProgressTracker, SyncRunLog, _NullSyncRunLog
+from spejder.workflows.sync_log import (
+    IngestProgressTracker,
+    SyncRunLog,
+    _NullSyncRunLog,
+    should_emit_ingest_progress,
+)
 
 
 _TS_RE = re.compile(r"^ts=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\b")
@@ -313,6 +318,20 @@ class IngestProgressTrackerTest(unittest.TestCase):
         tracker = IngestProgressTracker()
         tracker.note(1, 0)
         self.assertTrue(tracker.note(2, 1))
+
+    def test_eta_clear_advances_tracker_so_needs_final_is_false(self) -> None:
+        """Skip + clear after a mid-run ETA tick must not need a duplicate final."""
+        tracker = IngestProgressTracker()
+        self.assertTrue(
+            should_emit_ingest_progress(tracker, 1, 1, None, 90.0)
+        )
+        self.assertTrue(
+            should_emit_ingest_progress(tracker, 2, 1, 90.0, None)
+        )
+        self.assertFalse(tracker.needs_final(2))
+        self.assertFalse(
+            should_emit_ingest_progress(tracker, 2, 1, None, None)
+        )
 
 
 if __name__ == "__main__":

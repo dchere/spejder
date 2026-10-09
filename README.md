@@ -199,7 +199,7 @@ Defaults live in `default_profile.json`; runtime merges `profile.json` over them
 
 - Open `report.html` only via `serve-gui`; `file://` feedback falls back to `http://127.0.0.1:8765`.
 - Inbox accepts `.eml` only. Processed files are removed after successful ingest (`process-inbox` / Sync). Files that yield no usable positions (empty or all-weak titles such as “Apply here”) stay out of the DB and move to `{report_dir}/parse_quarantine` with a JSON sidecar; see `sync.log` `event=parse_file` / `parse_quarantine`.
-- Sync progress: `{report_dir}/sync.log` (also `/sync.log` while serving) and terminal lines starting with `sync `.
+- Sync progress: `{report_dir}/sync.log` (also `/sync.log` while serving) and terminal lines starting with `sync `. During inbox ingest the GUI may show estimated minutes left (per-position upsert timing; no percent); skills/descriptions ETA works the same way for their stages.
 - Card skill tags use `get_job_skills_filtered` (may rewrite dropped names out of `job_skills`). Re-extract via paste-description or `refresh-descriptions` if tags look wrong after an upgrade.
 - Sync / `process-inbox` skip skill materialize and missing-description generation for viewed non-pipeline jobs (not applied/interview/stopped). **Hidden** stays in enrichment scope. Batch enrichment re-checks scope live before each page/LLM call so mid-sync view/dismiss skips expensive work. CLI `refresh-descriptions` is unchanged and can still target Hidden.
 - Module memory for agents/maintainers: see companion `*.md` files next to each package (not duplicated here).

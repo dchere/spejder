@@ -65,12 +65,19 @@ def descriptions_eta_store_path(db_path: str) -> str:
     return f"{os.path.abspath(db_path)}.descriptions_eta.json"
 
 
-def load_slow_samples(path: str) -> list[float]:
-    """Load a versioned slow-sample sidecar.
+def ingest_eta_store_path(db_path: str) -> str:
+    """Sidecar JSON for per-position ingest upsert wall times (kind ``position``)."""
+    return f"{os.path.abspath(db_path)}.ingest_eta.json"
+
+
+def load_slow_samples(path: str, *, kind: str = _SLOW_STORE_KIND) -> list[float]:
+    """Load a versioned sample sidecar.
 
     Returns ``[]`` when the file is missing, corrupt, or is not
-    ``version == 2`` and ``kind == "slow"`` (including an old
-    ``{total_seconds, count}`` aggregate).
+    ``version == 2`` with the expected ``kind`` (default ``"slow"``;
+    ingest uses ``kind="position"``; legacy ``kind="file"`` loads as
+    empty when requesting ``position``). Old ``{total_seconds, count}``
+    aggregates are ignored.
     """
     if not path or not os.path.isfile(path):
         return []
@@ -81,7 +88,7 @@ def load_slow_samples(path: str) -> list[float]:
         return []
     if not isinstance(data, dict):
         return []
-    if data.get("version") != _SLOW_STORE_VERSION or data.get("kind") != _SLOW_STORE_KIND:
+    if data.get("version") != _SLOW_STORE_VERSION or data.get("kind") != kind:
         return []
     raw = data.get("samples")
     if not isinstance(raw, list):
@@ -95,14 +102,19 @@ def load_slow_samples(path: str) -> list[float]:
     return samples[-_SLOW_HISTORY_CAP:]
 
 
-def save_slow_samples(path: str, samples: list[float]) -> None:
-    """Persist up to the last 32 slow-work durations. Replaces any older aggregate."""
+def save_slow_samples(
+    path: str,
+    samples: list[float],
+    *,
+    kind: str = _SLOW_STORE_KIND,
+) -> None:
+    """Persist up to the last 32 sample durations. Replaces any older aggregate."""
     if not path:
         return
     trimmed = [float(sample) for sample in samples[-_SLOW_HISTORY_CAP:]]
     payload = {
         "version": _SLOW_STORE_VERSION,
-        "kind": _SLOW_STORE_KIND,
+        "kind": kind,
         "samples": trimmed,
     }
     abs_path = os.path.abspath(path)
@@ -197,4 +209,19 @@ def format_descriptions_stage_message(
     base: str = DESCRIPTIONS_STAGE_MESSAGE,
 ) -> str:
     """GUI / stage status line for description generation (same shape as skills)."""
+    return format_skills_stage_message(eta_s=eta_s, base=base)
+
+
+def format_ingest_stage_message(
+    *,
+    file_count: int,
+    eta_s: Optional[float],
+) -> str:
+    """GUI / stage status line for inbox ingest (dynamic file count, no percent).
+
+    Examples:
+    - ``Ingesting 3 inbox file(s). Estimated time left: 2 minutes.``
+    - No usable ETA: ``Ingesting 3 inbox file(s)``
+    """
+    base = f"Ingesting {max(0, int(file_count))} inbox file(s)"
     return format_skills_stage_message(eta_s=eta_s, base=base)

@@ -33,7 +33,7 @@ Core orchestration for CLI commands, GUI background sync, and heavy multi-step p
 | `job_descriptions.py` | LLM description generation + quality heuristics |
 | `job_skills_materialize.py` | Skill extraction materialization batches (optional rematerialize coordinator drain) |
 | `skills_rematerialize.py` | Post-clean-skills rematerialize coordinator: append to active batch or dedicated worker |
-| `progress_eta.py` | Rolling slow-sample ETA + skills/descriptions stage lines (base sentence, optional minutes left) |
+| `progress_eta.py` | Rolling sample ETA + skills/descriptions/ingest stage lines (base sentence, optional minutes left; ingest uses `{db}.ingest_eta.json`, `kind == "position"`) |
 | `job_easy_apply.py` | LinkedIn easy-apply detection |
 | `report_workflow.py` | CLI link reports + JSONL HTML export |
 | `deduplication.py` | Company+title position dedupe wrapper |

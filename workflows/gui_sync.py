@@ -33,10 +33,16 @@ from spejder.workflows.progress_eta import (
     SKILLS_STAGE_MESSAGE,
     descriptions_eta_store_path,
     format_duration,
+    ingest_eta_store_path,
     skills_eta_store_path,
 )
 from spejder.workflows.skill_hygiene import run_skill_hygiene_stages
-from spejder.workflows.sync_log import IngestProgressTracker, SyncRunLog, SyncRunLogLike
+from spejder.workflows.sync_log import (
+    IngestProgressTracker,
+    SyncRunLog,
+    SyncRunLogLike,
+    should_emit_ingest_progress,
+)
 
 if TYPE_CHECKING:
     from spejder.llm import LocalLLM
@@ -167,29 +173,63 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
 
         ingest_file_count = len(docs)
         ingest_progress = IngestProgressTracker()
+        # Last ETA from ingest_docs_to_db (per-position); used on gated progress ticks.
+        _ingest_last_eta_s: dict[str, Optional[float]] = {"eta_s": None}
 
         def _emit_ingest_progress(
             processed: int,
             inserted_new: int,
             skipped_existing: int,
+            eta_s: Optional[float] = None,
         ) -> None:
             if context.sync_log is not None:
+                metrics: dict = {
+                    "inserted": inserted_new,
+                    "skipped_existing": skipped_existing,
+                    "files": ingest_file_count,
+                }
+                if eta_s is not None:
+                    metrics["eta_s"] = float(eta_s)
+                    metrics["eta"] = format_duration(eta_s)
                 context.sync_log.progress(
                     "ingest",
                     checked=processed,
                     total=0,
-                    inserted=inserted_new,
-                    skipped_existing=skipped_existing,
-                    files=ingest_file_count,
+                    **metrics,
                 )
 
-        def _on_progress(processed: int, inserted_new: int, skipped_existing: int):
-            # Job counts (not files); total=0 skips pct. Emit on insert/milestone;
-            # console mirrors via sync_log.
-            if not ingest_progress.note(processed, inserted_new):
-                return
-            _emit_ingest_progress(processed, inserted_new, skipped_existing)
+        def _on_ingest_status(message: str) -> None:
+            # Refresh GUI stage text only — do not re-open sync_log stage timing.
+            if context.on_stage is not None:
+                context.on_stage("ingest", message)
 
+        def _on_progress(
+            processed: int,
+            inserted_new: int,
+            skipped_existing: int,
+            eta_s: Optional[float] = None,
+        ):
+            # Job counts (not files); total=0 skips pct. Emit on insert/milestone;
+            # console mirrors via sync_log. ETA is independent (per-position samples).
+            # Always assign (incl. None) so completion clears a stale pre-finish ETA.
+            # Clear-only ticks (same counts, eta→None) also emit and advance the
+            # tracker so needs_final does not duplicate the clear line.
+            prev_eta = _ingest_last_eta_s["eta_s"]
+            _ingest_last_eta_s["eta_s"] = eta_s
+            if not should_emit_ingest_progress(
+                ingest_progress, processed, inserted_new, prev_eta, eta_s
+            ):
+                return
+            _emit_ingest_progress(
+                processed,
+                inserted_new,
+                skipped_existing,
+                eta_s=_ingest_last_eta_s["eta_s"],
+            )
+
+        want_ingest_eta = docs and (
+            context.sync_log is not None or context.on_stage is not None
+        )
         if docs:
             ingest_stats = ingest_docs_to_db(
                 context.db_path,
@@ -199,6 +239,12 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
                 on_progress=_on_progress,
                 llm=llm_for_sync,
                 runtime_profile=context.runtime_profile,
+                on_status_message=(
+                    _on_ingest_status if context.on_stage is not None else None
+                ),
+                eta_store_path=(
+                    ingest_eta_store_path(context.db_path) if want_ingest_eta else None
+                ),
             )
         else:
             ingest_stats = {
@@ -214,6 +260,7 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
                 final_processed,
                 int(ingest_stats.get("inserted_new", 0) or 0),
                 int(ingest_stats.get("skipped_existing", 0) or 0),
+                eta_s=_ingest_last_eta_s["eta_s"],
             )
             ingest_progress.last_processed = final_processed
 
