@@ -20,7 +20,9 @@ from spejder.workflows.progress_eta import (
     format_descriptions_stage_message,
     format_duration,
     format_eta_minutes_left,
+    format_ingest_stage_message,
     format_skills_stage_message,
+    ingest_eta_store_path,
     load_slow_samples,
     save_slow_samples,
     skills_eta_store_path,
@@ -103,6 +105,34 @@ class RollingTimeAverageTest(unittest.TestCase):
     def test_descriptions_eta_store_path(self) -> None:
         path = descriptions_eta_store_path("/tmp/jobs.db")
         self.assertTrue(path.endswith("jobs.db.descriptions_eta.json"))
+
+    def test_ingest_eta_store_path(self) -> None:
+        path = ingest_eta_store_path("/tmp/jobs.db")
+        self.assertTrue(path.endswith("jobs.db.ingest_eta.json"))
+
+    def test_load_save_position_kind_roundtrip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "jobs.db.ingest_eta.json")
+            save_slow_samples(path, [10.0, 12.0, 11.0], kind="position")
+            self.assertEqual(
+                load_slow_samples(path, kind="position"),
+                [10.0, 12.0, 11.0],
+            )
+            # Default kind=slow must not load position samples.
+            self.assertEqual(load_slow_samples(path), [])
+            with open(path, encoding="utf-8") as handle:
+                data = json.load(handle)
+            self.assertEqual(data["version"], 2)
+            self.assertEqual(data["kind"], "position")
+            # Legacy kind=file loads as empty when requesting position.
+            save_slow_samples(path, [9.0, 9.0, 9.0], kind="file")
+            self.assertEqual(load_slow_samples(path, kind="position"), [])
+
+    def test_load_wrong_kind_returns_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "jobs.db.skills_eta.json")
+            save_slow_samples(path, [1.0, 2.0, 3.0], kind="slow")
+            self.assertEqual(load_slow_samples(path, kind="position"), [])
 
 
 class FormatDurationAndEtaTest(unittest.TestCase):
@@ -197,6 +227,25 @@ class FormatDurationAndEtaTest(unittest.TestCase):
         self.assertNotIn("%", msg)
         short_eta = format_descriptions_stage_message(eta_s=40)
         self.assertIn("Estimated time left: less than a minute.", short_eta)
+        self.assertNotIn("%", short_eta)
+
+    def test_format_ingest_stage_message(self) -> None:
+        base = "Ingesting 3 inbox file(s)"
+        for eta_s in (None, 0):
+            text = format_ingest_stage_message(file_count=3, eta_s=eta_s)
+            self.assertEqual(text, base)
+            self.assertNotIn("%", text)
+        msg = format_ingest_stage_message(file_count=3, eta_s=180)
+        self.assertEqual(
+            msg,
+            f"{base}. Estimated time left: 3 minutes.",
+        )
+        self.assertNotIn("%", msg)
+        short_eta = format_ingest_stage_message(file_count=1, eta_s=40)
+        self.assertEqual(
+            short_eta,
+            "Ingesting 1 inbox file(s). Estimated time left: less than a minute.",
+        )
         self.assertNotIn("%", short_eta)
 
 

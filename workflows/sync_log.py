@@ -39,8 +39,9 @@ def default_sync_log_path(report_dir: str) -> str:
 class IngestProgressTracker:
     """Gate ingest sync-log ticks: insert changes, every ``milestone`` jobs, and a final line.
 
-    Callers emit via ``sync_log.progress`` when :meth:`note` returns True (or
-    :meth:`needs_final` for a closing tick). Console mirrors the same events.
+    Callers emit via ``sync_log.progress`` when :func:`should_emit_ingest_progress`
+    (or :meth:`note`) returns True, or :meth:`needs_final` for a closing tick.
+    Console mirrors the same events.
     """
 
     __slots__ = ("last_inserted", "last_processed", "milestone")
@@ -50,18 +51,44 @@ class IngestProgressTracker:
         self.last_processed = 0
         self.milestone = milestone
 
+    def record_emitted(self, processed: int, inserted_new: int) -> None:
+        """Advance gate state after a progress line was written."""
+        self.last_inserted = int(inserted_new)
+        self.last_processed = int(processed)
+
     def note(self, processed: int, inserted_new: int) -> bool:
         """Return True when callers should emit progress (insert change or milestone)."""
         inserted_changed = inserted_new != self.last_inserted
         at_milestone = processed > 0 and processed % self.milestone == 0
         if not inserted_changed and not at_milestone:
             return False
-        self.last_inserted = inserted_new
-        self.last_processed = processed
+        self.record_emitted(processed, inserted_new)
         return True
 
     def needs_final(self, processed: int) -> bool:
         return int(processed) != self.last_processed
+
+
+def should_emit_ingest_progress(
+    tracker: IngestProgressTracker,
+    processed: int,
+    inserted: int,
+    prev_eta: float | None,
+    eta_s: float | None,
+) -> bool:
+    """Return True when callers should write an ingest progress line.
+
+    Emits on insert/milestone via :meth:`IngestProgressTracker.note`, or when
+    ``eta_s`` clears to ``None`` with unchanged counts. Clear-force also advances
+    the tracker so :meth:`~IngestProgressTracker.needs_final` does not emit a
+    duplicate closing line with the same counts.
+    """
+    if tracker.note(processed, inserted):
+        return True
+    if prev_eta is not None and eta_s is None:
+        tracker.record_emitted(processed, inserted)
+        return True
+    return False
 
 
 def _utc_ts() -> str:

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from spejder.core import DEFAULT_PROFILE_PATH, load_runtime_profile, save_profile
 from spejder.db import ensure_db, get_jobs_for_description_triage, get_relevant_jobs
 from spejder.extractors.skill_extractor import (
@@ -30,6 +32,7 @@ from spejder.workflows.sync_log import (
     IngestProgressTracker,
     SyncRunLog,
     default_sync_log_path,
+    should_emit_ingest_progress,
 )
 
 
@@ -98,24 +101,61 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
         sync_log.stage_start("ingest", f"Ingesting {len(docs)} inbox file(s)")
         ingest_file_count = len(docs)
         ingest_progress = IngestProgressTracker()
+        _ingest_last_eta_s: dict[str, float | None] = {"eta_s": None}
+
+        from spejder.workflows.progress_eta import (
+            DESCRIPTIONS_STAGE_MESSAGE,
+            SKILLS_STAGE_MESSAGE,
+            descriptions_eta_store_path,
+            format_duration,
+            ingest_eta_store_path,
+            skills_eta_store_path,
+        )
 
         def _emit_ingest_progress(
-            processed: int, inserted_new: int, skipped_existing: int
+            processed: int,
+            inserted_new: int,
+            skipped_existing: int,
+            eta_s: float | None = None,
         ) -> None:
+            metrics: dict = {
+                "inserted": inserted_new,
+                "skipped_existing": skipped_existing,
+                "files": ingest_file_count,
+            }
+            if eta_s is not None:
+                metrics["eta_s"] = float(eta_s)
+                metrics["eta"] = format_duration(eta_s)
             sync_log.progress(
                 "ingest",
                 checked=processed,
                 total=0,
-                inserted=inserted_new,
-                skipped_existing=skipped_existing,
-                files=ingest_file_count,
+                **metrics,
             )
 
-        def _on_ingest_progress(processed: int, inserted_new: int, skipped_existing: int):
+        def _on_ingest_progress(
+            processed: int,
+            inserted_new: int,
+            skipped_existing: int,
+            eta_s: float | None = None,
+        ):
             # Job counts (not files); total=0 skips pct. Tick on insert change or milestone.
-            if not ingest_progress.note(processed, inserted_new):
+            # ETA is independent (per-position upsert samples).
+            # Always assign (incl. None) so completion clears a stale pre-finish ETA.
+            # Clear-only ticks (same counts, eta→None) also emit and advance the
+            # tracker so needs_final does not duplicate the clear line.
+            prev_eta = _ingest_last_eta_s["eta_s"]
+            _ingest_last_eta_s["eta_s"] = eta_s
+            if not should_emit_ingest_progress(
+                ingest_progress, processed, inserted_new, prev_eta, eta_s
+            ):
                 return
-            _emit_ingest_progress(processed, inserted_new, skipped_existing)
+            _emit_ingest_progress(
+                processed,
+                inserted_new,
+                skipped_existing,
+                eta_s=_ingest_last_eta_s["eta_s"],
+            )
 
         ingest_stats = ingest_docs_to_db(
             db_path,
@@ -124,6 +164,7 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
             runtime_profile=profile,
             llm=llm,
             on_progress=_on_ingest_progress if docs else None,
+            eta_store_path=ingest_eta_store_path(db_path) if docs else None,
         )
         final_processed = int(ingest_stats.get("processed", 0) or 0)
         if docs and ingest_progress.needs_final(final_processed):
@@ -131,6 +172,7 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
                 final_processed,
                 int(ingest_stats.get("inserted_new", 0) or 0),
                 int(ingest_stats.get("skipped_existing", 0) or 0),
+                eta_s=_ingest_last_eta_s["eta_s"],
             )
             ingest_progress.last_processed = final_processed
         print(
@@ -175,14 +217,6 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
                 eligible=int(quarantine_stats.get("eligible", 0) or 0),
                 dir=quarantine_dir,
             )
-
-        from spejder.workflows.progress_eta import (
-            DESCRIPTIONS_STAGE_MESSAGE,
-            SKILLS_STAGE_MESSAGE,
-            descriptions_eta_store_path,
-            format_duration,
-            skills_eta_store_path,
-        )
 
         sync_log.stage_start("descriptions", DESCRIPTIONS_STAGE_MESSAGE)
 

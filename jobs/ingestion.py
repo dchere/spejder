@@ -1,5 +1,6 @@
+import time
 from collections.abc import Callable
-from typing import Optional
+from typing import Optional, Union
 
 from spejder.config import AppConfig
 from spejder.db import upsert_job
@@ -9,6 +10,14 @@ from spejder.jobs.parsing.artifact_synth import try_synthesize_artifact
 from spejder.jobs.parsing.core import extract_job_entries
 from spejder.jobs.parsing.extract_quality import partition_entries, weak_reason_summary
 from spejder.llm import LocalLLM
+
+_INGEST_ETA_KIND = "position"
+
+# Legacy: (processed, inserted_new, skipped_existing). Extended: same + optional eta_s.
+ProgressCallback = Union[
+    Callable[[int, int, int], None],
+    Callable[[int, int, int, Optional[float]], None],
+]
 
 
 def _extract_for_doc(
@@ -59,6 +68,26 @@ def _file_parse_status(
     return "empty"
 
 
+def _upsert_one_entry(
+    db_path: str,
+    entry: dict,
+    *,
+    entry_transform: Optional[Callable[[dict], dict]] = None,
+    on_new_record: Optional[Callable[[], None]] = None,
+) -> bool:
+    """Transform (optional) and upsert one job entry; return whether it was new.
+
+    Shared by :func:`ingest_entries_to_db` and :func:`ingest_docs_to_db` pass-2 so
+    link-bearing upsert + ``on_new_record`` stay behavior-identical.
+    """
+    if entry_transform is not None:
+        entry = entry_transform(dict(entry))
+    is_new_record = upsert_job(db_path, entry)
+    if is_new_record and on_new_record is not None:
+        on_new_record()
+    return bool(is_new_record)
+
+
 def ingest_entries_to_db(
     db_path: str,
     entries: list[dict],
@@ -73,11 +102,12 @@ def ingest_entries_to_db(
     for entry in entries:
         if not entry.get("position_link"):
             continue
-        if entry_transform is not None:
-            entry = entry_transform(dict(entry))
-        is_new_record = upsert_job(db_path, entry)
-        if is_new_record and on_new_record:
-            on_new_record()
+        is_new_record = _upsert_one_entry(
+            db_path,
+            entry,
+            entry_transform=entry_transform,
+            on_new_record=on_new_record,
+        )
         if is_new_record:
             inserted_new += 1
         else:
@@ -93,36 +123,77 @@ def ingest_entries_to_db(
     }
 
 
+def _notify_ingest_progress(
+    on_progress: Optional[ProgressCallback],
+    processed: int,
+    inserted_new: int,
+    skipped_existing: int,
+    eta_s: Optional[float],
+) -> None:
+    if on_progress is None:
+        return
+    try:
+        on_progress(processed, inserted_new, skipped_existing, eta_s)  # type: ignore[call-arg, misc]
+    except TypeError:
+        on_progress(processed, inserted_new, skipped_existing)  # type: ignore[call-arg]
+
+
 def ingest_docs_to_db(
     db_path: str,
     docs: list[dict],
     entry_transform: Optional[Callable[[dict], dict]] = None,
     on_new_record: Optional[Callable[[], None]] = None,
-    on_progress: Optional[Callable[[int, int, int], None]] = None,
+    on_progress: Optional[ProgressCallback] = None,
     *,
     llm: Optional[LocalLLM] = None,
     runtime_profile: Optional[AppConfig] = None,
+    on_status_message: Optional[Callable[[str], None]] = None,
+    eta_store_path: Optional[str] = None,
 ) -> dict[str, object]:
     processed = 0
     inserted_new = 0
     skipped_existing = 0
     positions_by_file: list[dict[str, object]] = []
+    # (file_index, entry) — strong rows with position_link, after extract/synth.
+    worklist: list[tuple[int, dict]] = []
     synth_llm = llm
     # Load once per ingest run; reload after a successful synth overlay write.
     artifact_cache: Optional[list[CareerAlertArtifact]] = (
         _load_run_artifacts(runtime_profile) if runtime_profile is not None else None
     )
 
-    def _cumulative_progress(
-        file_processed: int, file_inserted: int, file_skipped: int
-    ) -> None:
-        if on_progress:
-            on_progress(
-                processed + file_processed,
-                inserted_new + file_inserted,
-                skipped_existing + file_skipped,
+    file_count = len(docs)
+    # ETA is opt-in via status/store (job-count on_progress exists independently).
+    # Lazy import: jobs ↔ workflows cycle via workflows.__init__ → inbox → jobs.
+    track_eta = (
+        on_status_message is not None or eta_store_path is not None
+    ) and file_count > 0
+    # Bound only when track_eta; referenced only inside matching branches below.
+    store_path = ""
+    loaded: list[float] = []
+    historical = None
+    run_samples: list[float] = []
+    last_eta_s: Optional[float] = None
+    if track_eta:
+        from spejder.workflows.progress_eta import (
+            estimate_remaining_seconds,
+            format_ingest_stage_message,
+            historical_from_slow_samples,
+            ingest_eta_store_path,
+            load_slow_samples,
+            save_slow_samples,
+        )
+
+        store_path = eta_store_path or ingest_eta_store_path(db_path)
+        loaded = load_slow_samples(store_path, kind=_INGEST_ETA_KIND)
+        historical = historical_from_slow_samples(loaded)
+        # Position total unknown until extract/synth finishes — no ETA yet.
+        if on_status_message is not None:
+            on_status_message(
+                format_ingest_stage_message(file_count=file_count, eta_s=None)
             )
 
+    # Pass 1: extract / optional synth (untimed). Build upsert worklist.
     for doc in docs:
         file_path = str(doc.get("path") or doc.get("id") or "")
         extract_meta: dict = {}
@@ -182,30 +253,21 @@ def ingest_docs_to_db(
             weak_count=len(weak),
             synth_reason=synth_reason,
         )
-        file_stats = ingest_entries_to_db(
-            db_path,
-            strong,
-            entry_transform=entry_transform,
-            on_new_record=on_new_record,
-            on_progress=_cumulative_progress if on_progress else None,
-        )
-        file_found = int(file_stats.get("processed", 0))
-        file_inserted = int(file_stats.get("inserted_new", 0))
-        file_skipped = int(file_stats.get("skipped_existing", 0))
-        processed += file_found
-        inserted_new += file_inserted
-        skipped_existing += file_skipped
         artifact_ids = [
             str(item)
             for item in (extract_meta.get("artifact_ids") or [])
             if str(item).strip()
         ]
+        file_index = len(positions_by_file)
+        upsertable = [entry for entry in strong if entry.get("position_link")]
+        for entry in upsertable:
+            worklist.append((file_index, entry))
         positions_by_file.append(
             {
                 "file": file_path,
-                "found": int(file_found),
-                "inserted_new": int(file_inserted),
-                "skipped_existing": int(file_skipped),
+                "found": int(len(upsertable)),
+                "inserted_new": 0,
+                "skipped_existing": 0,
                 "weak_dropped": int(len(weak)),
                 "quality": quality,
                 "synth_reason": synth_reason,
@@ -213,6 +275,66 @@ def ingest_docs_to_db(
                 "artifact_ids": artifact_ids,
             }
         )
+
+    position_total = len(worklist)
+    if track_eta:
+        last_eta_s = estimate_remaining_seconds(
+            remaining=position_total,
+            samples=run_samples,
+            historical=historical,
+        )
+        if on_status_message is not None:
+            on_status_message(
+                format_ingest_stage_message(file_count=file_count, eta_s=last_eta_s)
+            )
+
+    # Pass 2: upsert each strong position; wall time of upsert is the slow unit.
+    for positions_done, (file_index, entry) in enumerate(worklist, start=1):
+        t0 = time.monotonic() if track_eta else 0.0
+        is_new_record = _upsert_one_entry(
+            db_path,
+            entry,
+            entry_transform=entry_transform,
+            on_new_record=on_new_record,
+        )
+        if track_eta:
+            run_samples.append(time.monotonic() - t0)
+            if store_path:
+                try:
+                    save_slow_samples(
+                        store_path,
+                        loaded + run_samples,
+                        kind=_INGEST_ETA_KIND,
+                    )
+                except OSError:
+                    pass
+            last_eta_s = estimate_remaining_seconds(
+                remaining=max(0, position_total - positions_done),
+                samples=run_samples,
+                historical=historical,
+            )
+            if on_status_message is not None:
+                on_status_message(
+                    format_ingest_stage_message(
+                        file_count=file_count, eta_s=last_eta_s
+                    )
+                )
+        file_row = positions_by_file[file_index]
+        if is_new_record:
+            inserted_new += 1
+            file_row["inserted_new"] = int(file_row["inserted_new"]) + 1
+        else:
+            skipped_existing += 1
+            file_row["skipped_existing"] = int(file_row["skipped_existing"]) + 1
+        processed += 1
+        _notify_ingest_progress(
+            on_progress,
+            processed,
+            inserted_new,
+            skipped_existing,
+            last_eta_s,
+        )
+
     return {
         "processed": int(processed),
         "inserted_new": int(inserted_new),
