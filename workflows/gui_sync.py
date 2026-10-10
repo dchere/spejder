@@ -11,7 +11,7 @@ from spejder.db import (
     get_jobs_for_description_triage,
 )
 from spejder.extractors.skill_extractor import _learn_skill_patterns_from_positions
-from spejder.jobs import ingest_docs_to_db
+from spejder.jobs import ingest_docs_to_db, rescore_active_jobs
 from spejder.llm import LocalLLM
 from spejder.parsers import email_parser
 from spejder.workflows.dashboard import DashboardRebuildQueue
@@ -36,6 +36,7 @@ from spejder.workflows.progress_eta import (
     ingest_eta_store_path,
     skills_eta_store_path,
 )
+from spejder.workflows.profile_learning import run_profile_keyword_learning
 from spejder.workflows.skill_hygiene import run_skill_hygiene_stages
 from spejder.workflows.sync_log import (
     IngestProgressTracker,
@@ -486,6 +487,33 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
                 context.queue_dashboard_rebuild(reason="bad cloud prune")
             elif hygiene.threshold_changed:
                 context.queue_dashboard_rebuild(reason="bad cloud threshold recalibrated")
+
+        learning = run_profile_keyword_learning(
+            context.db_path,
+            context.profile_path,
+            on_stage=lambda stage_id, message: _emit_stage(context, stage_id, message),
+        )
+        learning_info = learning.learning_info
+        print(
+            "Background sync: Profile learning: "
+            f"labeled={learning_info.get('labeled_count', 0)}, "
+            f"include={learning_info.get('learned_include_count', 0)}, "
+            f"exclude={learning_info.get('learned_exclude_count', 0)}, "
+            f"missing_skills={learning_info.get('missing_skills_count', 0)}"
+        )
+        context.reload_runtime_profile()
+        # Keyword lists affect score_relevance; suggestions only need Skills UI rebuild.
+        if learning.keywords_changed:
+            rescored = rescore_active_jobs(
+                context.db_path, context.runtime_profile
+            )
+            if rescored:
+                print(
+                    "Background sync: rescored after profile learning "
+                    f"({rescored})"
+                )
+        if learning.profile_changed:
+            context.queue_dashboard_rebuild(reason="profile keywords learned")
 
         print(
             f"Background sync done: input_files={len(docs)}, processed={ingest_stats.get('processed', 0)}, "

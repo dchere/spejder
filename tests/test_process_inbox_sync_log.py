@@ -7,12 +7,31 @@ import unittest
 from unittest.mock import patch
 
 from spejder.workflows.inbox_workflow import process_inbox
+from spejder.workflows.profile_learning import ProfileLearningResult
 from spejder.workflows.progress_eta import ingest_eta_store_path
 from spejder.workflows.skill_hygiene import SkillHygieneResult
 from spejder.workflows.sync_log import SyncRunLog
 
 # Capture before any test patches replace SyncRunLog.open on the shared class.
 _REAL_SYNC_RUN_LOG_OPEN = SyncRunLog.open.__func__
+
+_PROFILE_LEARNING_EMPTY = ProfileLearningResult(
+    learning_info={
+        "labeled_count": 0,
+        "learned_include_count": 0,
+        "learned_exclude_count": 0,
+        "missing_skills_count": 0,
+    },
+    keywords_changed=False,
+    suggestions_changed=False,
+)
+
+
+def _fake_profile_learning(db_path, profile_path, *, on_stage=None):
+    if on_stage is not None:
+        on_stage("profile_learning", "Learning profile keywords")
+    return _PROFILE_LEARNING_EMPTY
+
 
 _HYGIENE_EMPTY = SkillHygieneResult(
     blocked_cleanup={
@@ -78,6 +97,10 @@ class ProcessInboxSyncLogTest(unittest.TestCase):
             return handle.read()
 
     @patch(
+        "spejder.workflows.inbox_workflow.run_profile_keyword_learning",
+        side_effect=_fake_profile_learning,
+    )
+    @patch(
         "spejder.workflows.inbox_workflow.get_jobs_for_description_triage",
         return_value=[],
     )
@@ -91,7 +114,7 @@ class ProcessInboxSyncLogTest(unittest.TestCase):
         },
     )
     def test_skip_path_writes_source_pipeline_end_and_run_end(
-        self, _portal, mock_desc_refresh
+        self, _portal, mock_desc_refresh, mock_profile_learning
     ):
         process_inbox(
             inbox=self.inbox,
@@ -103,6 +126,7 @@ class ProcessInboxSyncLogTest(unittest.TestCase):
 
         kwargs = mock_desc_refresh.call_args.kwargs
         self.assertEqual(kwargs.get("limit"), 1)
+        mock_profile_learning.assert_not_called()
 
         text = self._read_log()
         self.assertIn("event=run_start", text)
@@ -121,13 +145,8 @@ class ProcessInboxSyncLogTest(unittest.TestCase):
         return_value=[],
     )
     @patch(
-        "spejder.workflows.inbox_workflow.update_profile_from_db_signals",
-        return_value={
-            "labeled_count": 0,
-            "learned_include_count": 0,
-            "learned_exclude_count": 0,
-            "missing_skills_count": 0,
-        },
+        "spejder.workflows.inbox_workflow.run_profile_keyword_learning",
+        side_effect=_fake_profile_learning,
     )
     @patch(
         "spejder.workflows.inbox_workflow.run_skill_hygiene_stages",
@@ -214,6 +233,7 @@ class ProcessInboxSyncLogTest(unittest.TestCase):
             "blocked_skills",
             "stale_skills",
             "bad_cloud",
+            "profile_learning",
         ):
             self.assertIn(f"event=stage_start stage={stage}", text)
         self.assertIn("event=pipeline_end", text)
@@ -230,13 +250,8 @@ class ProcessInboxSyncLogTest(unittest.TestCase):
         return_value=[],
     )
     @patch(
-        "spejder.workflows.inbox_workflow.update_profile_from_db_signals",
-        return_value={
-            "labeled_count": 0,
-            "learned_include_count": 0,
-            "learned_exclude_count": 0,
-            "missing_skills_count": 0,
-        },
+        "spejder.workflows.inbox_workflow.run_profile_keyword_learning",
+        side_effect=_fake_profile_learning,
     )
     @patch(
         "spejder.workflows.inbox_workflow.run_skill_hygiene_stages",
@@ -331,13 +346,8 @@ class ProcessInboxSyncLogTest(unittest.TestCase):
         return_value=[],
     )
     @patch(
-        "spejder.workflows.inbox_workflow.update_profile_from_db_signals",
-        return_value={
-            "labeled_count": 0,
-            "learned_include_count": 0,
-            "learned_exclude_count": 0,
-            "missing_skills_count": 0,
-        },
+        "spejder.workflows.inbox_workflow.run_profile_keyword_learning",
+        side_effect=_fake_profile_learning,
     )
     @patch(
         "spejder.workflows.inbox_workflow.run_skill_hygiene_stages",
@@ -443,13 +453,8 @@ class ProcessInboxSyncLogTest(unittest.TestCase):
         return_value=[],
     )
     @patch(
-        "spejder.workflows.inbox_workflow.update_profile_from_db_signals",
-        return_value={
-            "labeled_count": 0,
-            "learned_include_count": 0,
-            "learned_exclude_count": 0,
-            "missing_skills_count": 0,
-        },
+        "spejder.workflows.inbox_workflow.run_profile_keyword_learning",
+        side_effect=_fake_profile_learning,
     )
     @patch(
         "spejder.workflows.inbox_workflow.run_skill_hygiene_stages",

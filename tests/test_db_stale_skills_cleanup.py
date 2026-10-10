@@ -22,7 +22,19 @@ from spejder.db.connection import _connect
 from spejder.db.skills_cleanup import SKILL_STALE_JOB_SHARE_PCT_THRESHOLD
 from spejder.tests.skill_test_utils import stamp_skill_patterns_created_at
 from spejder.workflows.inbox_workflow import process_inbox
+from spejder.workflows.profile_learning import ProfileLearningResult
 from spejder.workflows.skill_hygiene import SkillHygieneResult, run_stale_skill_cleanup
+
+_PROFILE_LEARNING_EMPTY = ProfileLearningResult(
+    learning_info={
+        "labeled_count": 0,
+        "learned_include_count": 0,
+        "learned_exclude_count": 0,
+        "missing_skills_count": 0,
+    },
+    keywords_changed=False,
+    suggestions_changed=False,
+)
 
 
 def _insert_job(db_path: str, link: str, title: str = "Engineer") -> int:
@@ -289,13 +301,8 @@ class ProcessInboxStaleCleanupOrderTest(unittest.TestCase):
         return_value=[],
     )
     @patch(
-        "spejder.workflows.inbox_workflow.update_profile_from_db_signals",
-        return_value={
-            "labeled_count": 0,
-            "learned_include_count": 0,
-            "learned_exclude_count": 0,
-            "missing_skills_count": 0,
-        },
+        "spejder.workflows.inbox_workflow.run_profile_keyword_learning",
+        return_value=_PROFILE_LEARNING_EMPTY,
     )
     @patch(
         "spejder.workflows.inbox_workflow.run_skill_hygiene_stages",
@@ -413,12 +420,7 @@ class ProcessInboxStaleCleanupOrderTest(unittest.TestCase):
         )[1]
         mock_signals.side_effect = lambda *a, **k: (
             order.append("signals"),
-            {
-                "labeled_count": 0,
-                "learned_include_count": 0,
-                "learned_exclude_count": 0,
-                "missing_skills_count": 0,
-            },
+            _PROFILE_LEARNING_EMPTY,
         )[1]
 
         process_inbox(

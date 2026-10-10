@@ -7,6 +7,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 from spejder.config import AppConfig
 from spejder.workflows.gui_sync import GuiSyncContext, run_inbox_sync
+from spejder.workflows.profile_learning import ProfileLearningResult
 from spejder.workflows.progress_eta import ingest_eta_store_path
 from spejder.workflows.skill_hygiene import SkillHygieneResult
 
@@ -15,6 +16,24 @@ _LEARN_EMPTY = {
     "new_skill_patterns": 0,
     "total_known_skill_patterns": 0,
 }
+
+_PROFILE_LEARNING_EMPTY = ProfileLearningResult(
+    learning_info={
+        "labeled_count": 0,
+        "learned_include_count": 0,
+        "learned_exclude_count": 0,
+        "missing_skills_count": 0,
+    },
+    keywords_changed=False,
+    suggestions_changed=False,
+)
+
+
+def _fake_profile_learning(db_path, profile_path, *, on_stage=None):
+    if on_stage is not None:
+        on_stage("profile_learning", "Learning profile keywords")
+    return _PROFILE_LEARNING_EMPTY
+
 
 _HYGIENE_EMPTY = SkillHygieneResult(
     blocked_cleanup={
@@ -71,6 +90,11 @@ class RunInboxSyncRebuildTest(unittest.TestCase):
         "spejder.workflows.gui_sync.sync_itday_portal",
         return_value={"found": 0, "inserted_new": 0, "skipped_existing": 0, "processed": 0},
     )
+    @patch("spejder.workflows.gui_sync.rescore_active_jobs", return_value=0)
+    @patch(
+        "spejder.workflows.gui_sync.run_profile_keyword_learning",
+        side_effect=_fake_profile_learning,
+    )
     @patch(
         "spejder.workflows.gui_sync.run_skill_hygiene_stages",
         side_effect=_fake_hygiene,
@@ -93,21 +117,51 @@ class RunInboxSyncRebuildTest(unittest.TestCase):
         _gen_desc,
         _learn,
         mock_hygiene,
+        mock_profile_learning,
+        mock_rescore,
         _portal,
     ):
-        result = run_inbox_sync(self.context)
+        reloads: list[int] = []
+        context = GuiSyncContext(
+            db_path=self.context.db_path,
+            inbox_path=self.context.inbox_path,
+            model_path="",
+            profile_path=self.context.profile_path,
+            runtime_profile=AppConfig(),
+            cli_verbose=False,
+            queue_dashboard_rebuild=lambda *, reason="": self.rebuild_reasons.append(reason),
+            reload_runtime_profile=lambda: reloads.append(1),
+            populate_missing_dashboard_skills=lambda *args, **kwargs: 0,
+        )
+        result = run_inbox_sync(context)
         self.assertEqual(result.status, "done")
         mock_hygiene.assert_called_once()
-        self.assertEqual(mock_hygiene.call_args.args[0], self.context.db_path)
-        self.assertIs(mock_hygiene.call_args.args[1], self.context.runtime_profile)
+        self.assertEqual(mock_hygiene.call_args.args[0], context.db_path)
+        self.assertIs(mock_hygiene.call_args.args[1], context.runtime_profile)
+        mock_profile_learning.assert_called_once_with(
+            context.db_path,
+            context.profile_path,
+            on_stage=ANY,
+        )
+        # Always reload after learning write, even when lists did not change.
+        self.assertEqual(len(reloads), 1)
+        mock_rescore.assert_not_called()
         self.assertFalse(
             any("skills materialized" in reason for reason in self.rebuild_reasons),
+            msg=f"unexpected rebuild reasons: {self.rebuild_reasons}",
+        )
+        self.assertFalse(
+            any("profile keywords learned" in reason for reason in self.rebuild_reasons),
             msg=f"unexpected rebuild reasons: {self.rebuild_reasons}",
         )
 
     @patch(
         "spejder.workflows.gui_sync.sync_itday_portal",
         return_value={"found": 0, "inserted_new": 0, "skipped_existing": 0, "processed": 0},
+    )
+    @patch(
+        "spejder.workflows.gui_sync.run_profile_keyword_learning",
+        side_effect=_fake_profile_learning,
     )
     @patch(
         "spejder.workflows.gui_sync.run_skill_hygiene_stages",
@@ -135,6 +189,7 @@ class RunInboxSyncRebuildTest(unittest.TestCase):
         _gen_desc,
         _learn,
         mock_hygiene,
+        mock_profile_learning,
         _portal,
     ):
         context = GuiSyncContext(
@@ -155,7 +210,201 @@ class RunInboxSyncRebuildTest(unittest.TestCase):
             context.runtime_profile,
             on_stage=ANY,
         )
+        mock_profile_learning.assert_called_once()
         self.assertIn("skills materialized=3", self.rebuild_reasons)
+
+    @patch(
+        "spejder.workflows.gui_sync.sync_itday_portal",
+        return_value={"found": 0, "inserted_new": 0, "skipped_existing": 0, "processed": 0},
+    )
+    @patch("spejder.workflows.gui_sync.run_profile_keyword_learning")
+    @patch("spejder.workflows.gui_sync.get_jobs_for_description_triage", return_value=[])
+    def test_skips_profile_learning_when_sync_skipped(
+        self,
+        _desc_refresh,
+        mock_profile_learning,
+        _portal,
+    ):
+        result = run_inbox_sync(self.context)
+        self.assertEqual(result.status, "skipped")
+        mock_profile_learning.assert_not_called()
+
+    @patch(
+        "spejder.workflows.gui_sync.sync_itday_portal",
+        return_value={"found": 0, "inserted_new": 0, "skipped_existing": 0, "processed": 0},
+    )
+    @patch("spejder.workflows.gui_sync.rescore_active_jobs")
+    @patch(
+        "spejder.workflows.gui_sync.run_profile_keyword_learning",
+        return_value=ProfileLearningResult(
+            learning_info={
+                "labeled_count": 2,
+                "learned_include_count": 1,
+                "learned_exclude_count": 0,
+                "missing_skills_count": 0,
+            },
+            keywords_changed=True,
+            suggestions_changed=False,
+        ),
+    )
+    @patch(
+        "spejder.workflows.gui_sync.run_skill_hygiene_stages",
+        side_effect=_fake_hygiene,
+    )
+    @patch(
+        "spejder.workflows.gui_sync._learn_skill_patterns_from_positions",
+        return_value=_LEARN_EMPTY,
+    )
+    @patch("spejder.workflows.gui_sync._generate_missing_descriptions_for_ingest", return_value=(0, 0))
+    @patch("spejder.workflows.gui_sync.run_cross_source_dedupe", return_value={})
+    @patch("spejder.workflows.gui_sync.delete_processed_inbox_files", return_value={})
+    @patch("spejder.workflows.gui_sync.get_jobs_for_active_rescore", return_value=[])
+    @patch("spejder.workflows.gui_sync.get_jobs_for_description_triage", return_value=[{"id": 1}])
+    def test_queues_rebuild_when_profile_learning_changes_lists(
+        self,
+        _desc_refresh,
+        _active_rescore,
+        _delete_files,
+        _dedupe,
+        _gen_desc,
+        _learn,
+        _hygiene,
+        mock_profile_learning,
+        mock_rescore,
+        _portal,
+    ):
+        # Spy: reload mutates runtime_profile in place (like gui.py setattr);
+        # rescore must see those attrs — proves reload-then-rescore order.
+        runtime_profile = AppConfig()
+        self.assertEqual(runtime_profile.learned_include_keywords, [])
+
+        def _reload() -> None:
+            runtime_profile.learned_include_keywords = ["from-reload"]
+            runtime_profile.learned_exclude_keywords = ["exclude-from-reload"]
+
+        def _rescore(db_path, profile):
+            self.assertIs(profile, runtime_profile)
+            self.assertEqual(profile.learned_include_keywords, ["from-reload"])
+            self.assertEqual(profile.learned_exclude_keywords, ["exclude-from-reload"])
+            return 2
+
+        mock_rescore.side_effect = _rescore
+        context = GuiSyncContext(
+            db_path=self.context.db_path,
+            inbox_path=self.context.inbox_path,
+            model_path="",
+            profile_path=self.context.profile_path,
+            runtime_profile=runtime_profile,
+            cli_verbose=False,
+            queue_dashboard_rebuild=lambda *, reason="": self.rebuild_reasons.append(reason),
+            reload_runtime_profile=_reload,
+            populate_missing_dashboard_skills=lambda *args, **kwargs: 0,
+        )
+        result = run_inbox_sync(context)
+        self.assertEqual(result.status, "done")
+        mock_profile_learning.assert_called_once()
+        mock_rescore.assert_called_once_with(context.db_path, runtime_profile)
+        self.assertIn("profile keywords learned", self.rebuild_reasons)
+
+    @patch(
+        "spejder.workflows.gui_sync.sync_itday_portal",
+        return_value={"found": 0, "inserted_new": 0, "skipped_existing": 0, "processed": 0},
+    )
+    @patch("spejder.workflows.gui_sync.rescore_active_jobs", return_value=0)
+    @patch(
+        "spejder.workflows.gui_sync.run_profile_keyword_learning",
+        return_value=ProfileLearningResult(
+            learning_info={
+                "labeled_count": 1,
+                "learned_include_count": 0,
+                "learned_exclude_count": 0,
+                "missing_skills_count": 2,
+            },
+            keywords_changed=False,
+            suggestions_changed=True,
+        ),
+    )
+    @patch(
+        "spejder.workflows.gui_sync.run_skill_hygiene_stages",
+        side_effect=_fake_hygiene,
+    )
+    @patch(
+        "spejder.workflows.gui_sync._learn_skill_patterns_from_positions",
+        return_value=_LEARN_EMPTY,
+    )
+    @patch("spejder.workflows.gui_sync._generate_missing_descriptions_for_ingest", return_value=(0, 0))
+    @patch("spejder.workflows.gui_sync.run_cross_source_dedupe", return_value={})
+    @patch("spejder.workflows.gui_sync.delete_processed_inbox_files", return_value={})
+    @patch("spejder.workflows.gui_sync.get_jobs_for_active_rescore", return_value=[])
+    @patch("spejder.workflows.gui_sync.get_jobs_for_description_triage", return_value=[{"id": 1}])
+    def test_rebuild_without_rescore_when_only_suggestions_change(
+        self,
+        _desc_refresh,
+        _active_rescore,
+        _delete_files,
+        _dedupe,
+        _gen_desc,
+        _learn,
+        _hygiene,
+        mock_profile_learning,
+        mock_rescore,
+        _portal,
+    ):
+        result = run_inbox_sync(self.context)
+        self.assertEqual(result.status, "done")
+        mock_profile_learning.assert_called_once()
+        mock_rescore.assert_not_called()
+        self.assertIn("profile keywords learned", self.rebuild_reasons)
+
+    @patch(
+        "spejder.workflows.gui_sync.sync_itday_portal",
+        return_value={"found": 0, "inserted_new": 0, "skipped_existing": 0, "processed": 0},
+    )
+    @patch(
+        "spejder.workflows.gui_sync.run_profile_keyword_learning",
+        side_effect=_fake_profile_learning,
+    )
+    @patch(
+        "spejder.workflows.gui_sync.run_skill_hygiene_stages",
+        side_effect=_fake_hygiene,
+    )
+    @patch(
+        "spejder.workflows.gui_sync._learn_skill_patterns_from_positions",
+        return_value=_LEARN_EMPTY,
+    )
+    @patch("spejder.workflows.gui_sync._generate_missing_descriptions_for_ingest", return_value=(0, 0))
+    @patch("spejder.workflows.gui_sync.run_cross_source_dedupe", return_value={})
+    @patch("spejder.workflows.gui_sync.delete_processed_inbox_files", return_value={})
+    @patch("spejder.workflows.gui_sync.get_jobs_for_active_rescore", return_value=[])
+    @patch("spejder.workflows.gui_sync.get_jobs_for_description_triage", return_value=[{"id": 1}])
+    def test_patterns_hygiene_profile_learning_order(
+        self,
+        _desc_refresh,
+        _active_rescore,
+        _delete_files,
+        _dedupe,
+        _gen_desc,
+        mock_learn,
+        mock_hygiene,
+        mock_profile_learning,
+        _portal,
+    ):
+        order: list[str] = []
+        mock_learn.side_effect = lambda *a, **k: (
+            order.append("patterns"),
+            _LEARN_EMPTY,
+        )[1]
+        mock_hygiene.side_effect = lambda *a, **k: (
+            order.append("hygiene"),
+            _HYGIENE_EMPTY,
+        )[1]
+        mock_profile_learning.side_effect = lambda *a, **k: (
+            order.append("profile_learning"),
+            _PROFILE_LEARNING_EMPTY,
+        )[1]
+        result = run_inbox_sync(self.context)
+        self.assertEqual(result.status, "done")
+        self.assertEqual(order, ["patterns", "hygiene", "profile_learning"])
 
 
 class RunInboxSyncIngestEtaWiringTest(unittest.TestCase):
@@ -204,6 +453,10 @@ class RunInboxSyncIngestEtaWiringTest(unittest.TestCase):
         },
     )
     @patch(
+        "spejder.workflows.gui_sync.run_profile_keyword_learning",
+        side_effect=_fake_profile_learning,
+    )
+    @patch(
         "spejder.workflows.gui_sync.run_skill_hygiene_stages",
         side_effect=_fake_hygiene,
     )
@@ -235,6 +488,7 @@ class RunInboxSyncIngestEtaWiringTest(unittest.TestCase):
         _gen_desc,
         _learn,
         _hygiene,
+        _profile_learning,
         _portal,
     ):
         def _ingest(_db, _docs, **kwargs):

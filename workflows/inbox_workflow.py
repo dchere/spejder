@@ -6,7 +6,7 @@ from spejder.extractors.skill_extractor import (
     _ensure_skill_pattern_seed_migration,
     _learn_skill_patterns_from_positions,
 )
-from spejder.jobs import ingest_docs_to_db, update_profile_from_db_signals
+from spejder.jobs import ingest_docs_to_db
 from spejder.llm import LocalLLM
 from spejder.parsers import email_parser
 from spejder.workflows.ingest_utils import (
@@ -27,6 +27,7 @@ from spejder.workflows.job_enrichment import (
 )
 from spejder.workflows.portal_sync import sync_itday_portal
 from spejder.workflows.deduplication import run_cross_source_dedupe
+from spejder.workflows.profile_learning import run_profile_keyword_learning
 from spejder.workflows.skill_hygiene import run_skill_hygiene_stages
 from spejder.workflows.sync_log import (
     IngestProgressTracker,
@@ -336,7 +337,12 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
         if hygiene.profile_dirty:
             save_profile(profile, profile_path)
 
-        learning_info = update_profile_from_db_signals(db_path, profile_path)
+        learning = run_profile_keyword_learning(
+            db_path,
+            profile_path,
+            on_stage=sync_log.stage_start,
+        )
+        learning_info = learning.learning_info
         print(
             "Profile learning: "
             f"labeled={learning_info.get('labeled_count', 0)}, "
