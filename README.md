@@ -94,7 +94,7 @@ Requires `serve-gui`. Deep UI wiring lives in [`workflows/dashboard.md`](workflo
 
 **Tabs:** Relevant and Not relevant show unviewed jobs only. Viewed jobs move to **Edited today** (local calendar day). **Applied** / **Interview** / **Stopped** are the apply pipeline (mutually exclusive Interview/Stopped). **Hidden** parks a card in the Hidden tab without changing category; sync still updates skills/scores/descriptions for Hidden (viewed non-pipeline jobs are the enrichment skip). Applied and Hidden do not auto-switch tabs. Delete removes the position from the database; a later email with the same link can add it again. **Clean skills** drops that card's extracted skills and re-extracts them in the background (no confirm; no Sync inbox click needed). Unchecking Relevant still marks the job viewed, then cleans skills the same way (unviews non-pipeline jobs so rematerialize can run).
 
-**Toolbar** (right of the tab bar): Portrait, Regenerate report, Profile (gear), Sync inbox. Sync runs the same pipeline as startup background sync (inbox ingest, optional IT-DAY portal, dedupe, skills, descriptions). Reload manually when sync finishes.
+**Toolbar** (right of the tab bar): Portrait, Regenerate report, Profile (gear), Sync inbox. Sync runs the same pipeline as startup background sync (inbox ingest, optional IT-DAY portal, dedupe, skills, descriptions, skill-pattern learning, skill hygiene, profile keyword learning). Reload manually when sync finishes.
 
 **Skills tab** (top → bottom): action bar with Block/Delete selected and right-aligned **Sync from CV**; skills table; **bad cloud** status (ngrams, threshold, remaining blocked list with **Forgive**). Columns: Skill → Action (Block / Delete) → Added → Source → Job share → Learned (current applied × `skill_learning_applied_weight` [default 3] + relevant×1 learning score from the latest pass, not a lifetime sum; optional `skill_learning_score_cap`, default 0 = uncapped) → I have / Want to learn / Not for me (default sort: Added newest first). **Block** hides and teaches the bad cloud; **Delete** removes without teaching; **Forgive** unblocks and decrements cloud weights; **Not for me** is a score penalty (`skill_unwanted_penalty`), not Block.
 
@@ -104,7 +104,7 @@ Requires `serve-gui`. Deep UI wiring lives in [`workflows/dashboard.md`](workflo
 
 ### `process-inbox`
 
-Parse inbox, ingest, score, descriptions, skill learning/hygiene, optional IT-DAY portal, write dashboard.
+Parse inbox, ingest, score, descriptions, skill-pattern learning, skill hygiene, profile keyword learning, optional IT-DAY portal, write dashboard.
 
 ```bash
 python3 -m spejder.cli process-inbox --profile ./profile.json --model ./models/model.gguf

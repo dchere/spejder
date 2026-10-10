@@ -16,7 +16,12 @@ Contains the core business domain logic for processing, scoring, classifying, an
 - `ingest_entries_to_db(...)` — upsert pre-built job entry dicts (portal sync, tests) via the same `_upsert_one_entry` helper (skips rows without `position_link` before upsert)
 - `_upsert_one_entry(...)` — internal: optional `entry_transform`, `upsert_job`, optional `on_new_record`; returns whether the row was new
 
+**Profile keyword learning (`jobs/profile.py`):**
+- `update_profile_from_db_signals(db_path, profile_path)` writes `learned_include_keywords` / `learned_exclude_keywords` / `missing_skills_suggestions` from labeled jobs (called via `workflows.profile_learning.run_profile_keyword_learning` on GUI sync and `process-inbox` after skill hygiene). GUI sync runs `rescore_active_jobs` when learned include/exclude change (`keywords_changed`); missing-skills suggestions alone queue a dashboard rebuild without rescore.
+- `jobs.profile.load_profile` also merges learned→include/exclude in memory; runtime `config.load_profile` does **not**. Scoring does not depend on that merge path.
+
 **Scoring bonuses (`jobs/scoring.py`):**
+- `score_relevance` merges `include_keywords`+`learned_include_keywords` and `exclude_keywords`+`learned_exclude_keywords` at score time (unique, case-insensitive) without mutating the profile — so learned keywords affect relevance even when the runtime profile was loaded via `config.load_profile`.
 - Skill membership uses `db.utils._normalize_skill_name_key` (same strip/lower/collapse as the config sanitizer and profile toggle), so `"foo  bar"` in `user_skills` matches a cached job skill `"foo bar"`.
 - `rescore.py` holds `job_in_active_rescore_scope`, `_rescore_row`, `rescore_jobs_if_active`, `rescore_active_jobs`, `apply_relevance`, and `rescore_job_by_id`. `scoring.py` keeps `score_relevance` and `_skill_to_regex_simple` and re-exports the rescore names via `__getattr__` and `__dir__` so `jobs/__init__.py` still imports from `.scoring`.
 - `easy_apply_bonus` (profile, default `0.75`) — LinkedIn Easy Apply signal; additive; `0` disables; recorded in `relevance_reason`; may show as dashboard badge via `_is_easy_apply_item`

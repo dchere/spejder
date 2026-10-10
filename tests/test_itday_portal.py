@@ -23,7 +23,26 @@ from spejder.parsers.itday_portal import (
 from spejder.workflows.gui_sync import GuiSyncContext, run_inbox_sync
 from spejder.workflows.inbox_workflow import process_inbox
 from spejder.workflows.portal_sync import sync_itday_portal
+from spejder.workflows.profile_learning import ProfileLearningResult
 from spejder.workflows.skill_hygiene import SkillHygieneResult
+
+
+_PROFILE_LEARNING_EMPTY = ProfileLearningResult(
+    learning_info={
+        "labeled_count": 0,
+        "learned_include_count": 0,
+        "learned_exclude_count": 0,
+        "missing_skills_count": 0,
+    },
+    keywords_changed=False,
+    suggestions_changed=False,
+)
+
+
+def _fake_profile_learning(db_path, profile_path, *, on_stage=None):
+    if on_stage is not None:
+        on_stage("profile_learning", "Learning profile keywords")
+    return _PROFILE_LEARNING_EMPTY
 
 
 _HYGIENE_EMPTY = SkillHygieneResult(
@@ -260,6 +279,10 @@ class RunInboxSyncPortalTest(unittest.TestCase):
         return_value={"found": 0, "inserted_new": 0, "skipped_existing": 0, "processed": 0},
     )
     @patch(
+        "spejder.workflows.gui_sync.run_profile_keyword_learning",
+        side_effect=_fake_profile_learning,
+    )
+    @patch(
         "spejder.workflows.gui_sync.run_skill_hygiene_stages",
         side_effect=_fake_hygiene,
     )
@@ -286,6 +309,7 @@ class RunInboxSyncPortalTest(unittest.TestCase):
         mock_gen_desc,
         _learn,
         _hygiene,
+        _profile_learning,
         _portal,
     ):
         """Hidden empty-description rows keep sync alive (real triage query)."""
@@ -359,6 +383,10 @@ class RunInboxSyncPortalTest(unittest.TestCase):
         return_value={"found": 1, "inserted_new": 1, "skipped_existing": 0, "processed": 1},
     )
     @patch(
+        "spejder.workflows.gui_sync.run_profile_keyword_learning",
+        side_effect=_fake_profile_learning,
+    )
+    @patch(
         "spejder.workflows.gui_sync.run_skill_hygiene_stages",
         side_effect=_fake_hygiene,
     )
@@ -384,6 +412,7 @@ class RunInboxSyncPortalTest(unittest.TestCase):
         _gen_desc,
         _learn,
         mock_hygiene,
+        _profile_learning,
         _portal,
     ):
         result = run_inbox_sync(self.context)
@@ -395,6 +424,10 @@ class RunInboxSyncPortalTest(unittest.TestCase):
     @patch(
         "spejder.workflows.gui_sync.sync_itday_portal",
         return_value={"found": 1, "inserted_new": 1, "skipped_existing": 0, "processed": 1},
+    )
+    @patch(
+        "spejder.workflows.gui_sync.run_profile_keyword_learning",
+        side_effect=_fake_profile_learning,
     )
     @patch(
         "spejder.workflows.gui_sync.run_skill_hygiene_stages",
@@ -422,6 +455,7 @@ class RunInboxSyncPortalTest(unittest.TestCase):
         _gen_desc,
         _learn,
         mock_hygiene,
+        _profile_learning,
         _portal,
     ):
         stages: list[str] = []
@@ -448,6 +482,7 @@ class RunInboxSyncPortalTest(unittest.TestCase):
         self.assertIn("blocked_skills", stages)
         self.assertIn("stale_skills", stages)
         self.assertIn("bad_cloud", stages)
+        self.assertIn("profile_learning", stages)
 
     @patch(
         "spejder.workflows.gui_sync.sync_itday_portal",

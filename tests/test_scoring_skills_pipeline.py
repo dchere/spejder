@@ -12,6 +12,8 @@ class ScoreRelevanceCachedSkillsTest(unittest.TestCase):
         profile = MagicMock(spec=AppConfig)
         profile.include_keywords = []
         profile.exclude_keywords = []
+        profile.learned_include_keywords = []
+        profile.learned_exclude_keywords = []
         profile.min_score = 0.0
         profile.user_skills = ["python", "docker"]
         profile.unwanted_skills = []
@@ -21,6 +23,43 @@ class ScoreRelevanceCachedSkillsTest(unittest.TestCase):
         profile.easy_apply_bonus = 0.0
         profile.applied_company_bonus = 0.0
         return profile
+
+    def test_learned_include_keywords_affect_score(self):
+        profile = self._profile()
+        profile.learned_include_keywords = ["kubernetes"]
+        score, reason, _, _ = score_relevance(
+            "Looking for kubernetes experience",
+            profile,
+            skill_patterns=[],
+            cached_required_skills=[],
+        )
+        self.assertGreater(score, 0.0)
+        self.assertIn("kubernetes", reason)
+
+    def test_learned_exclude_keywords_affect_score(self):
+        profile = self._profile()
+        profile.learned_exclude_keywords = ["cobol"]
+        score, reason, _, _ = score_relevance(
+            "Legacy cobol mainframe role",
+            profile,
+            skill_patterns=[],
+            cached_required_skills=[],
+        )
+        self.assertLess(score, 0.0)
+        self.assertIn("cobol", reason)
+
+    def test_include_and_learned_include_same_token_single_credit(self):
+        profile = self._profile()
+        profile.include_keywords = ["kubernetes"]
+        profile.learned_include_keywords = ["kubernetes"]
+        score, reason, _, _ = score_relevance(
+            "Looking for kubernetes experience",
+            profile,
+            skill_patterns=[],
+            cached_required_skills=[],
+        )
+        self.assertAlmostEqual(score, 1.5)
+        self.assertEqual(reason.count("kubernetes"), 1)
 
     def test_uses_cached_skills_when_provided(self):
         profile = self._profile()
@@ -74,6 +113,8 @@ class ScoreRelevanceUnwantedSkillsTest(unittest.TestCase):
         profile = MagicMock(spec=AppConfig)
         profile.include_keywords = []
         profile.exclude_keywords = []
+        profile.learned_include_keywords = []
+        profile.learned_exclude_keywords = []
         profile.min_score = 0.0
         profile.user_skills = ["python"]
         profile.unwanted_skills = ["sales"]

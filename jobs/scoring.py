@@ -10,6 +10,7 @@ from spejder.db.utils import _normalize_skill_name_key
 from spejder.extractors.skill_extractor.extraction_fallback import _extract_skills_fallback
 from spejder.extractors.skill_extractor.patterns import _get_skill_patterns
 from spejder.jobs.parsing import _has_easy_apply_signal, _has_linkedin_public_easy_apply
+from spejder.jobs.suggestions import _unique_keywords
 
 EASY_APPLY_PATTERN = re.compile(r"\beasy\s*apply\b", flags=re.IGNORECASE)
 
@@ -25,11 +26,22 @@ def score_relevance(
     company: str = "",
     applied_company_keys: Optional[set[str]] = None,
 ) -> tuple[float, str, int, str]:
+    # Merge learned lists at score time (do not mutate profile / bake into save).
     include = [
-        k.lower().strip() for k in profile.include_keywords if k.strip()
+        k.lower().strip()
+        for k in _unique_keywords(
+            list(profile.include_keywords or [])
+            + list(profile.learned_include_keywords or [])
+        )
+        if k.strip()
     ]
     exclude = [
-        k.lower().strip() for k in profile.exclude_keywords if k.strip()
+        k.lower().strip()
+        for k in _unique_keywords(
+            list(profile.exclude_keywords or [])
+            + list(profile.learned_exclude_keywords or [])
+        )
+        if k.strip()
     ]
     min_score = profile.min_score
 

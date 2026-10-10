@@ -85,6 +85,8 @@ class ScorerSkillKeyTest(unittest.TestCase):
         profile = MagicMock(spec=AppConfig)
         profile.include_keywords = []
         profile.exclude_keywords = []
+        profile.learned_include_keywords = []
+        profile.learned_exclude_keywords = []
         profile.min_score = 0.0
         profile.user_skills = []
         profile.unwanted_skills = []
