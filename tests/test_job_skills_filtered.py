@@ -94,6 +94,18 @@ class GetJobSkillsFilteredTest(unittest.TestCase):
         self.assertIn("python", keys)
         self.assertNotIn("sql", keys)
 
+    def test_drops_malformed_punctuation_and_rewrites(self):
+        replace_job_skills(
+            self.db_path, self.job_id, ["python", "sql?", "docker"]
+        )
+        profile = AppConfig()
+        filtered = get_job_skills_filtered(self.db_path, self.job_id, profile)
+        self.assertEqual(sorted(s.lower() for s in filtered), ["docker", "python"])
+        self.assertEqual(
+            sorted(s.lower() for s in get_job_skills(self.db_path, self.job_id)),
+            ["docker", "python"],
+        )
+
 
 class FilteredSkillsConsumersTest(unittest.TestCase):
     def test_dashboard_record_uses_filtered_helper(self):

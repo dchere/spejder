@@ -14,13 +14,62 @@ from spejder.extractors.skill_extractor.extraction_prompt import (
     KNOWN_SKILLS_PROMPT_LIMIT,
     _build_job_skill_extraction_prompt,
 )
+from spejder.extractors.skill_extractor.bad_cloud import _tokenize_for_cloud
 from spejder.extractors.skill_extractor.filtering import (
     _filter_blocked_skill_names,
+    _has_malformed_skill_punctuation,
     _passes_phrase_quality,
     _protected_skill_keys,
     _skill_cleanup_reason,
 )
+from spejder.extractors.skill_extractor.normalization import _normalize_skill_name
 from spejder.extractors.skill_extractor.utils import _format_skills, _profile_skill_pattern_fields
+
+_MALFORMED_REJECT = (
+    "sql?",
+    "wow!",
+    "foo[bar]",
+    "{skill}",
+    "a{b}",
+    "skills: java",
+    "java; spring",
+    "python, django",
+    "what?!",
+)
+_MALFORMED_ALLOW = (
+    "python",
+    "c#",
+    "c++",
+    "node.js",
+    "asp.net",
+    "ci/cd",
+)
+
+
+class HasMalformedSkillPunctuationTest(unittest.TestCase):
+    def test_rejects_forbidden_and_separators(self):
+        for raw in _MALFORMED_REJECT:
+            with self.subTest(raw=raw):
+                skill = _normalize_skill_name(raw)
+                self.assertTrue(
+                    skill and _has_malformed_skill_punctuation(skill),
+                    msg=f"expected malformed after normalize: {raw!r} -> {skill!r}",
+                )
+
+    def test_allows_tech_tokens(self):
+        for raw in _MALFORMED_ALLOW:
+            with self.subTest(raw=raw):
+                skill = _normalize_skill_name(raw)
+                self.assertFalse(
+                    _has_malformed_skill_punctuation(skill),
+                    msg=f"unexpected malformed: {raw!r} -> {skill!r}",
+                )
+
+    def test_trailing_strip_then_allow(self):
+        self.assertEqual(_normalize_skill_name("sql:"), "sql")
+        self.assertFalse(_has_malformed_skill_punctuation("sql"))
+        self.assertEqual(_normalize_skill_name("docker."), "docker")
+        self.assertFalse(_has_malformed_skill_punctuation("docker"))
 
 
 class SkillCleanupReasonTest(unittest.TestCase):
@@ -35,6 +84,23 @@ class SkillCleanupReasonTest(unittest.TestCase):
 
     def test_malformed_punctuation(self):
         self.assertEqual(_skill_cleanup_reason("sql?", "learned", set()), "malformed text")
+
+    def test_malformed_reject_matrix(self):
+        for raw in _MALFORMED_REJECT:
+            with self.subTest(raw=raw):
+                self.assertEqual(
+                    _skill_cleanup_reason(raw, "learned", set()),
+                    "malformed text",
+                )
+
+    def test_malformed_allow_matrix(self):
+        for raw in _MALFORMED_ALLOW:
+            with self.subTest(raw=raw):
+                self.assertEqual(_skill_cleanup_reason(raw, "learned", set()), "")
+
+    def test_trailing_punct_normalize_allows_cleanup(self):
+        self.assertEqual(_skill_cleanup_reason("sql:", "learned", set()), "")
+        self.assertEqual(_skill_cleanup_reason("docker.", "learned", set()), "")
 
     def test_pronoun_sentence_fragment(self):
         self.assertEqual(
@@ -71,6 +137,23 @@ class PassesPhraseQualityTest(unittest.TestCase):
     def test_rejects_stopword_only_phrase(self):
         self.assertFalse(_passes_phrase_quality("team and company"))
 
+    def test_malformed_reject_matrix(self):
+        for raw in _MALFORMED_REJECT:
+            with self.subTest(raw=raw):
+                self.assertFalse(_passes_phrase_quality(raw))
+
+    def test_malformed_allow_matrix(self):
+        for raw in _MALFORMED_ALLOW:
+            with self.subTest(raw=raw):
+                self.assertTrue(_passes_phrase_quality(raw))
+
+    def test_short_token_override_does_not_win_on_malformed(self):
+        self.assertFalse(_passes_phrase_quality("it?"))
+
+    def test_trailing_punct_normalize_allows(self):
+        self.assertTrue(_passes_phrase_quality("sql:"))
+        self.assertTrue(_passes_phrase_quality("docker."))
+
 
 class ExtractSkillsFallbackTest(unittest.TestCase):
     def test_matches_known_pattern(self):
@@ -85,6 +168,15 @@ class ExtractSkillsFallbackTest(unittest.TestCase):
         skills = _extract_skills_fallback(text, patterns)
         self.assertIn("kubernetes", skills)
         self.assertIn("docker", skills)
+
+    def test_drops_malformed_phrase_chunk(self):
+        patterns = []
+        text = "Qualifications: kubernetes?, docker, and terraform."
+        skills = _extract_skills_fallback(text, patterns)
+        self.assertNotIn("kubernetes?", skills)
+        self.assertTrue(all("?" not in s for s in skills))
+        self.assertIn("docker", skills)
+        self.assertIn("terraform", skills)
 
     def test_empty_text_returns_empty(self):
         self.assertEqual(_extract_skills_fallback("", []), [])
@@ -130,6 +222,46 @@ class ExtractJobSkillsLlmPathTest(unittest.TestCase):
             )
 
         self.assertEqual(len([s for s in result.split(", ") if s.strip()]), 4)
+
+    def test_malformed_junk_never_becomes_skill(self):
+        # Literal junk in the job text so _is_candidate_strong can pass; phrase
+        # quality must still drop residual punctuation / separators.
+        raw = (
+            "Requirements: sql? and wow! and python, django "
+            "and kubernetes required."
+        )
+        payload = {
+            "matched_known": [],
+            "new_candidates": [
+                {"name": "sql?", "confidence": 0.99, "evidence": "sql?"},
+                {"name": "wow!", "confidence": 0.99, "evidence": "wow!"},
+                {
+                    "name": "python, django",
+                    "confidence": 0.99,
+                    "evidence": "python, django",
+                },
+                {"name": "kubernetes", "confidence": 0.99, "evidence": "kubernetes"},
+            ],
+        }
+        llm = MagicMock()
+        llm.generate.return_value = json.dumps(payload)
+
+        with patch(
+            "spejder.extractors.skill_extractor.extraction_llm._get_skill_patterns",
+            return_value=[],
+        ), patch(
+            "spejder.extractors.skill_extractor.extraction_llm._filter_extracted_skills",
+            side_effect=lambda skills, *_a, **_k: skills,
+        ):
+            result = _extract_job_skills_llm_path(
+                "jobs.db",
+                raw,
+                llm=llm,
+                profile=AppConfig(),
+            )
+
+        skills = [s.strip() for s in (result or "").split(", ") if s.strip()]
+        self.assertEqual([s.lower() for s in skills], ["kubernetes"])
 
     def test_prompt_uses_weight_order_and_text_hit_preference(self):
         # Weight order: zebra first (late alphabet), then apple, then mango.
@@ -254,6 +386,12 @@ class ProtectedSkillKeysTest(unittest.TestCase):
     def test_includes_unwanted_skill_name(self):
         profile = AppConfig(unwanted_skills=["Sales"])
         self.assertIn("sales", _protected_skill_keys(profile))
+
+
+class TokenizeForCloudRegressionTest(unittest.TestCase):
+    def test_sql_question_still_tokenizes_to_sql(self):
+        # Bad-cloud tokenizer is unchanged; residual ? is not taught as cloud noise.
+        self.assertEqual(_tokenize_for_cloud("sql?"), ["sql"])
 
 
 if __name__ == "__main__":
