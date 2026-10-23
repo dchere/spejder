@@ -292,7 +292,7 @@
                     }
                     refreshCounts();
                     if (signal === 'not relevant') {
-                        await cleanJobSkills(jobId, inputEl);
+                        await cleanJobSkills(jobId, inputEl, { preserveViewed: true });
                     }
                 } catch (err) {
                     if (statusEl) statusEl.textContent = `Error: ${err.message}. Start: python -m spejder.cli serve-gui`;

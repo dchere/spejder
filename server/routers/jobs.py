@@ -62,6 +62,7 @@ class DeleteJobRequest(BaseModel):
 
 class CleanSkillsRequest(BaseModel):
     job_id: int = 0
+    preserve_viewed: bool = False
 
 
 @router.post("/api/feedback")
@@ -184,7 +185,11 @@ def api_job_clean_skills(req: CleanSkillsRequest, runtime: ServerRuntime = Depen
             status_code=400,
             content={"ok": False, "error": "job_id must be a positive integer"},
         )
-    result = clean_job_skills(runtime.db_path, req.job_id)
+    result = clean_job_skills(
+        runtime.db_path,
+        req.job_id,
+        preserve_viewed=bool(req.preserve_viewed),
+    )
     if result is None:
         return JSONResponse(
             status_code=404,

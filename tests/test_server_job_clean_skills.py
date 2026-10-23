@@ -170,6 +170,44 @@ class ServerJobCleanSkillsApiTest(unittest.TestCase):
         self.assertEqual(flags["relevant"], 0)
         self.assertIn(f"job {job_id} skills cleaned", self.rebuild_calls)
 
+    def test_api_clean_skills_preserve_viewed_keeps_triage_state(self):
+        job_id = _insert_job(self.db_path, "https://example.com/clean-preserve")
+        set_job_skills(self.db_path, job_id, ["Python"])
+        set_job_viewed(self.db_path, job_id, True)
+        set_job_feedback(self.db_path, job_id, "not relevant")
+        before = _job_flags(self.db_path, job_id)
+        self.assertEqual(before["viewed"], 1)
+        self.assertEqual(before["relevance_reason"], "manual_feedback=not relevant")
+        ensure_calls = []
+
+        def fake_ensure(jid):
+            ensure_calls.append(int(jid))
+            return "started"
+
+        self._ensure_patcher.stop()
+        runtime = self.app.state.runtime
+        with patch.object(runtime.skills_rematerialize, "ensure", side_effect=fake_ensure):
+            response = self.client.post(
+                "/api/job/clean-skills",
+                json={"job_id": job_id, "preserve_viewed": True},
+            )
+        self._ensure_patcher = patch.object(
+            runtime.skills_rematerialize, "ensure", return_value="started"
+        )
+        self._ensure_patcher.start()
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertFalse(body["viewed_cleared"])
+        self.assertEqual(ensure_calls, [job_id])
+        self.assertEqual(get_job_skills(self.db_path, job_id), [])
+        flags = _job_flags(self.db_path, job_id)
+        self.assertEqual(flags["viewed"], 1)
+        self.assertEqual(flags["relevance_reason"], "manual_feedback=not relevant")
+        self.assertEqual(flags["category"], "not relevant")
+        self.assertEqual(flags["relevant"], 0)
+        self.assertIn(f"job {job_id} skills cleaned", self.rebuild_calls)
+
     def test_api_clean_skills_leaves_non_manual_reason(self):
         job_id = _insert_job(self.db_path, "https://example.com/clean-scored")
         set_job_skills(self.db_path, job_id, ["Go"])

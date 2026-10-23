@@ -137,13 +137,21 @@ _MANUAL_FEEDBACK_REASONS = frozenset({
 })
 
 
-def clean_job_skills(db_path: str, job_id: int) -> Optional[dict]:
+def clean_job_skills(
+    db_path: str,
+    job_id: int,
+    *,
+    preserve_viewed: bool = False,
+) -> Optional[dict]:
     """Delete one job's skill links so rematerialize can re-extract them.
 
-    Leaves ``skill_patterns`` and the job row in place. A viewed job that is
-    not applied, on interview, or stopped gets ``viewed=0`` only (does not
-    clear applied or interview fields). A manual-feedback ``relevance_reason``
-    is cleared; ``category`` and ``relevant`` stay until the next rescore.
+    Leaves ``skill_patterns`` and the job row in place. Unless
+    ``preserve_viewed`` is true, a viewed job that is not applied, on
+    interview, or stopped gets ``viewed=0`` only (does not clear applied or
+    interview fields), and a manual-feedback ``relevance_reason`` is cleared;
+    ``category`` and ``relevant`` stay until the next rescore. When
+    ``preserve_viewed`` is true, triage state (``viewed`` and manual-feedback
+    reason) is left intact and ``viewed_cleared`` is false.
     Returns None when the job does not exist, else ``{viewed_cleared: bool}``.
     """
     conn = _connect(db_path)
@@ -162,8 +170,16 @@ def clean_job_skills(db_path: str, job_id: int) -> Optional[dict]:
             return None
         viewed, applied, on_interview, stopped, reason = row
         in_pipeline = applied == 1 or on_interview == 1 or stopped == 1
-        viewed_cleared = viewed == 1 and not in_pipeline
-        clear_reason = (reason or "").strip().lower() in _MANUAL_FEEDBACK_REASONS
+        viewed_cleared = (
+            False
+            if preserve_viewed
+            else (viewed == 1 and not in_pipeline)
+        )
+        clear_reason = (
+            False
+            if preserve_viewed
+            else ((reason or "").strip().lower() in _MANUAL_FEEDBACK_REASONS)
+        )
         cur.execute("DELETE FROM job_skills WHERE job_id=?", (int(job_id),))
         assignments: list[str] = []
         params: list = []
