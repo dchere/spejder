@@ -1,4 +1,4 @@
-"""Filtered job_skills read path (whitelist → blocked → bad cloud)."""
+"""Filtered job_skills read path (whitelist → blocked → malformed → bad cloud)."""
 
 from typing import Optional
 
@@ -18,7 +18,7 @@ def get_job_skills_filtered(
 ) -> list[str]:
     """Return cached job skills after the extraction filter.
 
-    Applies the same whitelist → blocked → bad-cloud gate used on extract.
+    Applies the same whitelist → blocked → malformed → bad-cloud gate used on extract.
     When ``rewrite_cache`` is true and the filter drops names, rewrite
     ``job_skills`` so the DB stays aligned with what display/scoring see.
     """

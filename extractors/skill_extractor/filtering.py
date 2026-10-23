@@ -75,6 +75,8 @@ def _filter_extracted_skills(
             continue
         if key in blocked:
             continue
+        if _has_malformed_skill_punctuation(normalized):
+            continue
         pending_cloud.append(normalized)
         seen.add(key)
 
@@ -122,6 +124,16 @@ def _protected_skill_keys(profile: AppConfig) -> set[str]:
     return protected
 
 
+def _has_malformed_skill_punctuation(skill: str) -> bool:
+    """True when post-normalize text still has junk punctuation.
+
+    Always-forbidden: ? ! [ ] { }
+    Residual sentence separators: , ; :
+    Expects already-normalized skill text (does not re-normalize).
+    """
+    return any(char in skill for char in "?![]{},;:")
+
+
 def _skill_cleanup_reason(name: str, source: str, protected_keys: set[str]) -> str:
     skill = _normalize_skill_name(name)
     key = skill.lower()
@@ -134,10 +146,9 @@ def _skill_cleanup_reason(name: str, source: str, protected_keys: set[str]) -> s
 
     # Structural heuristics only — no curated phrase/stopword/prefix lists.
     # Intentional noise control is block → bad cloud + stale low-share hygiene.
-    tokens = re.findall(r"[a-z0-9+#./-]+", key)
-
-    if any(char in key for char in "?[]{}"):
+    if _has_malformed_skill_punctuation(key):
         return "malformed text"
+    tokens = re.findall(r"[a-z0-9+#./-]+", key)
     if re.search(r"\b(?:we|our|you|your|they|them|their)\b", key):
         return "sentence fragment"
     if not tokens:
@@ -184,6 +195,8 @@ def _is_candidate_strong(
 def _passes_phrase_quality(skill_name: str) -> bool:
     skill = _normalize_skill_name(skill_name)
     if not skill:
+        return False
+    if _has_malformed_skill_punctuation(skill):
         return False
     # Exact allowlisted short tokens (e.g. IT→it) are gated by evidence elsewhere.
     if skill in SHORT_AMBIGUOUS_SKILL_KEYS:

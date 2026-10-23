@@ -171,6 +171,28 @@ class FilterExtractedSkillsTest(unittest.TestCase):
         )
         self.assertEqual(result, [])
 
+    def test_malformed_pending_rejected_without_cloud(self):
+        """Legacy junk like sql? must drop even when toxicity would keep 'sql'."""
+        profile = AppConfig()
+        result = _filter_extracted_skills(
+            ["python", "sql?", "wow!", "java; spring"],
+            profile,
+            self.db_path,
+            {"python"},
+        )
+        self.assertEqual(result, ["python"])
+
+    def test_malformed_whitelist_still_passes(self):
+        """Only pending names are gated; whitelist short-circuits first."""
+        profile = AppConfig()
+        result = _filter_extracted_skills(
+            ["sql?"],
+            profile,
+            self.db_path,
+            {"sql?"},
+        )
+        self.assertEqual(result, ["sql?"])
+
 
 class EnsureBadCloudInitializedTest(unittest.TestCase):
     def setUp(self):

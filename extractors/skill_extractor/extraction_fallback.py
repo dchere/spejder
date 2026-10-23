@@ -6,7 +6,7 @@ from typing import Optional
 from spejder.config import AppConfig
 
 from .constants import SKILL_CUE_PATTERN
-from .filtering import _filter_extracted_skills
+from .filtering import _filter_extracted_skills, _passes_phrase_quality
 from .normalization import _normalize_skill_name
 from .short_token_gates import _short_token_evidence_ok
 
@@ -54,7 +54,7 @@ def _extract_skills_fallback(
         chunks = re.split(r",|\band\b|\bor\b", cleaned_sentence, flags=re.IGNORECASE)
         for chunk in chunks:
             chunk = _normalize_skill_name(chunk)
-            if chunk:
+            if chunk and _passes_phrase_quality(chunk):
                 phrase_candidates.append(chunk)
 
     for skill in phrase_candidates:
