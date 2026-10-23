@@ -178,14 +178,17 @@
                 }
             }
 
-            async function cleanJobSkills(jobId, triggerEl) {
+            async function cleanJobSkills(jobId, triggerEl, options) {
                 const card = triggerEl ? triggerEl.closest('.card') : null;
                 const statusEl = card ? card.querySelector('.feedback-status') : null;
+                const preserveViewed = Boolean(options && options.preserveViewed);
                 try {
+                    const payload = { job_id: jobId };
+                    if (preserveViewed) payload.preserve_viewed = true;
                     const response = await fetch(apiUrl('/api/job/clean-skills'), {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ job_id: jobId })
+                        body: JSON.stringify(payload)
                     });
                     const data = await response.json();
                     if (!response.ok || !data.ok) {

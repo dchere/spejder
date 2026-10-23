@@ -610,7 +610,10 @@ class DashboardTemplatesTest(unittest.TestCase):
                 self.assertIn("function cleanJobSkills", html)
                 relevant = _extract_js_function_body(html, "setRelevant")
                 self.assertIn("signal === 'not relevant'", relevant)
-                self.assertIn("await cleanJobSkills(jobId, inputEl)", relevant)
+                self.assertIn(
+                    "await cleanJobSkills(jobId, inputEl, { preserveViewed: true })",
+                    relevant,
+                )
                 self.assertNotIn("skipConfirm", relevant)
                 self.assertNotIn(
                     "Clear skills and re-extract them on the next sync?",
@@ -618,12 +621,16 @@ class DashboardTemplatesTest(unittest.TestCase):
                 )
                 self.assertLess(
                     relevant.index("/api/feedback"),
-                    relevant.index("cleanJobSkills(jobId, inputEl)"),
+                    relevant.index(
+                        "cleanJobSkills(jobId, inputEl, { preserveViewed: true })"
+                    ),
                 )
                 cleaner = _extract_js_function_body(html, "cleanJobSkills")
                 self.assertIn("/api/job/clean-skills", cleaner)
                 self.assertNotIn("window.confirm", cleaner)
                 self.assertNotIn("skipConfirm", cleaner)
+                self.assertIn("preserveViewed", cleaner)
+                self.assertIn("preserve_viewed", cleaner)
                 self.assertIn("viewed_cleared", cleaner)
                 self.assertIn(".skill-tags", cleaner)
                 self.assertIn("skills-empty", cleaner)
