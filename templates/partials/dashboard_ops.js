@@ -255,6 +255,47 @@
                 ensureEmptyState(panelHidden);
             }
 
+            async function waitForRebuildThenReload(mode) {
+                if (tabRefreshInProgress) return;
+                if (window.location.protocol === 'file:') {
+                    setMode(mode);
+                    return;
+                }
+                try {
+                    await fetchReportStatus();
+                } catch (_err) {
+                    setMode(mode);
+                    return;
+                }
+                tabRefreshInProgress = true;
+                setRegenerateBusy(true);
+                let reloading = false;
+                const deadline = Date.now() + 60000;
+                try {
+                    while (Date.now() < deadline) {
+                        await sleep(500);
+                        let status;
+                        try {
+                            status = await fetchReportStatus();
+                        } catch (_err) {
+                            continue;
+                        }
+                        if (status.ok && status.idle && status.last_modified && status.last_modified !== pageReportMtime) {
+                            reloading = true;
+                            reloadWithTab(mode);
+                            return;
+                        }
+                    }
+                    reloading = true;
+                    reloadWithTab(mode);
+                } finally {
+                    if (!reloading) {
+                        setRegenerateBusy(false);
+                    }
+                    tabRefreshInProgress = false;
+                }
+            }
+
             async function switchTab(mode) {
                 if (mode === currentMode) return;
                 if (tabRefreshInProgress) return;
@@ -284,30 +325,5 @@
                     reloadWithTab(mode);
                     return;
                 }
-                tabRefreshInProgress = true;
-                setRegenerateBusy(true);
-                let reloading = false;
-                const deadline = Date.now() + 60000;
-                try {
-                    while (Date.now() < deadline) {
-                        await sleep(500);
-                        try {
-                            status = await fetchReportStatus();
-                        } catch (_err) {
-                            continue;
-                        }
-                        if (status.ok && status.idle && status.last_modified && status.last_modified !== pageReportMtime) {
-                            reloading = true;
-                            reloadWithTab(mode);
-                            return;
-                        }
-                    }
-                    reloading = true;
-                    reloadWithTab(mode);
-                } finally {
-                    if (!reloading) {
-                        setRegenerateBusy(false);
-                    }
-                    tabRefreshInProgress = false;
-                }
+                await waitForRebuildThenReload(mode);
             }
