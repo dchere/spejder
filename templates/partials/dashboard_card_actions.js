@@ -28,6 +28,11 @@
                                 bumpPanelTotal(card.parentElement, -1);
                                 moveCardToAppliedStage(card);
                             }
+                            if (typeof waitForRebuildThenReload === 'function') {
+                                if (statusEl) statusEl.textContent = 'Saved: applied';
+                                refreshCounts();
+                                await waitForRebuildThenReload('applied');
+                            }
                         } else {
                             if (interviewCheckbox) interviewCheckbox.checked = false;
                             if (stoppedCheckbox) stoppedCheckbox.checked = false;
@@ -39,7 +44,6 @@
                             } else {
                                 const targetPanel = relevantCheckbox && relevantCheckbox.checked ? panelRelevant : panelNotRelevant;
                                 if (card.parentElement !== targetPanel) targetPanel.prepend(card);
-                                setMode(relevantCheckbox && relevantCheckbox.checked ? 'relevant' : 'not relevant');
                             }
                         }
                     }
@@ -69,7 +73,15 @@
                         const stoppedCheckbox = card.querySelector('.stopped-wrap input');
                         if (onInterview && stoppedCheckbox) stoppedCheckbox.checked = false;
                         moveCardToAppliedStage(card);
-                        setMode(resolveAppliedStage(card).mode);
+                        if (onInterview) {
+                            if (typeof waitForRebuildThenReload === 'function') {
+                                if (statusEl) statusEl.textContent = 'Saved: on interview';
+                                refreshCounts();
+                                await waitForRebuildThenReload(resolveAppliedStage(card).mode);
+                            } else {
+                                setMode(resolveAppliedStage(card).mode);
+                            }
+                        }
                     }
                     if (statusEl) statusEl.textContent = `Saved: ${onInterview ? 'on interview' : 'not on interview'}`;
                     refreshCounts();
@@ -97,7 +109,15 @@
                         const interviewCheckbox = card.querySelector('.interview-wrap input');
                         if (stopped && interviewCheckbox) interviewCheckbox.checked = false;
                         moveCardToAppliedStage(card);
-                        setMode(resolveAppliedStage(card).mode);
+                        if (stopped) {
+                            if (typeof waitForRebuildThenReload === 'function') {
+                                if (statusEl) statusEl.textContent = 'Saved: stopped';
+                                refreshCounts();
+                                await waitForRebuildThenReload(resolveAppliedStage(card).mode);
+                            } else {
+                                setMode(resolveAppliedStage(card).mode);
+                            }
+                        }
                     }
                     if (statusEl) statusEl.textContent = `Saved: ${stopped ? 'stopped' : 'not stopped'}`;
                     refreshCounts();

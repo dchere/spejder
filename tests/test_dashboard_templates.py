@@ -255,13 +255,41 @@ class DashboardTemplatesTest(unittest.TestCase):
         self.assertIn(".applied-date { bottom: 8px; }", html)
         self.assertIn(".card.has-applied-date .feedback", html)
 
-    def test_set_applied_true_branch_does_not_call_set_mode(self):
+    def test_set_applied_true_branch_waits_reload_when_helper_exists(self):
         for name in ("dashboard.html", "company_dashboard.html"):
             with self.subTest(template=name):
-                text = _render_template(name)
-                body = _extract_js_function_body(text, "setApplied")
-                applied_branch = _extract_if_block(body, "applied")
+                applied_branch = _extract_if_block(
+                    _extract_js_function_body(_render_template(name), "setApplied"),
+                    "applied",
+                )
+                self.assertIn(
+                    "typeof waitForRebuildThenReload === 'function'", applied_branch
+                )
+                self.assertIn("waitForRebuildThenReload('applied')", applied_branch)
                 self.assertNotIn("setMode", applied_branch)
+                self.assertNotIn("switchTab", applied_branch)
+                self.assertIn("Saved: applied", applied_branch)
+                self.assertLess(
+                    applied_branch.index("Saved: applied"),
+                    applied_branch.index("waitForRebuildThenReload('applied')"),
+                )
+        main_html = _render_template("dashboard.html")
+        company_html = _render_template("company_dashboard.html")
+        self.assertIn("function waitForRebuildThenReload", main_html)
+        self.assertNotIn("function waitForRebuildThenReload", company_html)
+
+    def test_set_applied_false_branch_does_not_navigate(self):
+        for name in ("dashboard.html", "company_dashboard.html"):
+            with self.subTest(template=name):
+                body = _extract_js_function_body(_render_template(name), "setApplied")
+                marker = "removeCardFromAppliedStages(card)"
+                self.assertIn(marker, body)
+                false_branch = body.split(marker, 1)[1]
+                # Uncheck: card placement only — no tab focus change.
+                self.assertNotIn("setMode", false_branch)
+                self.assertNotIn("waitForRebuildThenReload", false_branch)
+                self.assertIn("stillViewed", false_branch)
+                self.assertIn("panelEditedToday", false_branch)
 
     def test_set_hidden_does_not_call_set_mode(self):
         for name in ("dashboard.html", "company_dashboard.html"):
@@ -488,14 +516,59 @@ class DashboardTemplatesTest(unittest.TestCase):
                 self.assertIn(".stopped-wrap", body)
                 self.assertIn("has-applied-date", body)
 
-    def test_interview_handlers_still_call_set_mode(self):
+    def test_interview_handlers_check_true_navigates_uncheck_does_not(self):
         for name in ("dashboard.html", "company_dashboard.html"):
             with self.subTest(template=name):
                 text = _render_template(name)
-                for fn in ("setOnInterview", "setInterviewStopped"):
+                for fn, flag in (
+                    ("setOnInterview", "onInterview"),
+                    ("setInterviewStopped", "stopped"),
+                ):
                     with self.subTest(function=fn):
                         body = _extract_js_function_body(text, fn)
-                        self.assertIn("setMode", body)
+                        # Navigation is gated on check-true only (shared helper or setMode).
+                        self.assertIn(f"if ({flag}) {{", body)
+                        gate = body.split(f"if ({flag}) {{", 1)[1]
+                        self.assertIn(
+                            "typeof waitForRebuildThenReload === 'function'", gate
+                        )
+                        self.assertIn(
+                            "waitForRebuildThenReload(resolveAppliedStage(card).mode)",
+                            gate,
+                        )
+                        self.assertIn(
+                            "setMode(resolveAppliedStage(card).mode)", gate
+                        )
+                        self.assertNotIn("switchTab", gate)
+                        self.assertEqual(body.count("waitForRebuildThenReload"), 2)
+                        self.assertEqual(
+                            body.count("setMode(resolveAppliedStage(card).mode)"), 1
+                        )
+                        saved_label = (
+                            "Saved: on interview"
+                            if flag == "onInterview"
+                            else "Saved: stopped"
+                        )
+                        self.assertIn(saved_label, gate)
+                        self.assertLess(
+                            gate.index(saved_label),
+                            gate.index(
+                                "waitForRebuildThenReload(resolveAppliedStage(card).mode)"
+                            ),
+                        )
+                        # moveCard always; focus change only inside the true gate.
+                        self.assertLess(
+                            body.index("moveCardToAppliedStage(card)"),
+                            body.index(f"if ({flag}) {{"),
+                        )
+        self.assertIn(
+            "function waitForRebuildThenReload",
+            _render_template("dashboard.html"),
+        )
+        self.assertNotIn(
+            "function waitForRebuildThenReload",
+            _render_template("company_dashboard.html"),
+        )
 
     def test_dashboard_html_embeds_report_mtime_meta(self):
         template = jinja_env.get_template("dashboard.html")
@@ -516,21 +589,47 @@ class DashboardTemplatesTest(unittest.TestCase):
     def test_dashboard_switch_tab_checks_stale_report(self):
         html = _render_template("dashboard.html")
         body = _extract_js_function_body(html, "switchTab")
+        wait_body = _extract_js_function_body(html, "waitForRebuildThenReload")
         busy_body = _extract_js_function_body(html, "setRegenerateBusy")
         self.assertIn("fetchReportStatus", body)
         self.assertIn("pageReportMtime", body)
         self.assertIn("reloadWithTab", body)
-        self.assertIn("setRegenerateBusy(true)", body)
+        self.assertIn("await waitForRebuildThenReload(mode)", body)
+        self.assertNotIn("reloading = true", body)
+        self.assertIn("if (tabRefreshInProgress) return;", wait_body)
+        self.assertLess(
+            wait_body.index("if (tabRefreshInProgress) return;"),
+            wait_body.index("tabRefreshInProgress = true"),
+        )
+        self.assertIn("tabRefreshInProgress = true", wait_body)
+        self.assertIn("setRegenerateBusy(true)", wait_body)
+        self.assertIn("pageReportMtime", wait_body)
+        # Helper must wait for mtime change — no idle+same-mtime instant shortcut.
+        self.assertNotIn("last_modified === pageReportMtime", wait_body)
+        self.assertNotIn("setMode(mode, true)", wait_body)
+        self.assertEqual(wait_body.count("setMode(mode)"), 2)
+        self.assertIn("window.location.protocol === 'file:'", wait_body)
+        self.assertIn("catch (_err)", wait_body)
         self.assertIn("classList.add('is-busy')", busy_body)
         self.assertIn("regenerateBusyCount += 1", busy_body)
         self.assertIn("regenerateBusyCount > 0", busy_body)
         self.assertNotIn("Refreshing…", body)
         self.assertNotIn("/api/report/rebuild", body)
         self.assertIn("tabRefreshStatus.textContent = ''", body)
-        self.assertEqual(body.count("reloading = true"), 2)
-        self.assertIn("reloading = true;\n                            reloadWithTab(mode);", body)
-        self.assertIn("reloading = true;\n                    reloadWithTab(mode);", body)
-        self.assertIn("if (!reloading) {\n                        setRegenerateBusy(false);\n                    }", body)
+        self.assertEqual(wait_body.count("reloading = true"), 2)
+        self.assertIn(
+            "reloading = true;\n                            reloadWithTab(mode);",
+            wait_body,
+        )
+        self.assertIn(
+            "reloading = true;\n                    reloadWithTab(mode);",
+            wait_body,
+        )
+        self.assertIn(
+            "if (!reloading) {\n                        setRegenerateBusy(false);\n                    }",
+            wait_body,
+        )
+        self.assertIn("setMode(mode)", wait_body)
 
     def test_regenerate_report_uses_busy_spin_not_status_text(self):
         html = _render_template("dashboard.html")
