@@ -57,6 +57,7 @@ def api_inbox_sync_status(runtime: ServerRuntime = Depends(get_runtime)):
             "stage_message": "",
             "status": "idle",
             "message": "",
+            "reload_generation": 0,
         }
     return runtime.get_inbox_sync_status()
 

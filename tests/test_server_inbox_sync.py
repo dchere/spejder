@@ -37,6 +37,7 @@ def create_test_app(db_path: str, report_dir: str, *, running: bool = False):
             "stage_message": state["stage_message"],
             "status": state["status"],
             "message": state["message"],
+            "reload_generation": state.get("reload_generation", 0),
         }
 
     app = create_app(
@@ -82,6 +83,7 @@ class ServerInboxSyncApiTest(unittest.TestCase):
         self.assertEqual(payload["status"], "running")
         self.assertEqual(payload["stage_id"], "start")
         self.assertEqual(payload["stage_message"], "Sync started")
+        self.assertEqual(payload["reload_generation"], 0)
 
     def test_inbox_sync_rejects_when_already_running(self):
         self.client.post("/api/inbox/sync")
@@ -114,6 +116,7 @@ class ServerInboxSyncApiTest(unittest.TestCase):
                 "stage_message": "",
                 "status": "idle",
                 "message": "",
+                "reload_generation": 0,
             },
         )
 

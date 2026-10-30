@@ -57,6 +57,7 @@ Core orchestration for CLI commands, GUI background sync, and heavy multi-step p
 1. Ingest inbox (or backfill missing descriptions)
 2. Delete processed inbox files
 3. Company+title position dedupe (post-ingest)
+3b. Gated post-ingest dashboard refresh when new portal/inbox inserts and GUI `after_ingest_dashboard_refresh` is set (queue+wait rebuild, bump `reload_generation` only when the mid-wait succeeds); mid-sync path is GUI `InboxSyncRunner` / `run_inbox_sync` only — CLI `process_inbox` is a separate pipeline and never runs it
 4. Skill materialization (+ dashboard rebuild when `skills_updated > 0`)
 5. Description generation (+ rebuild when updated)
 6. Skill-pattern learning (+ rebuild when new patterns)
