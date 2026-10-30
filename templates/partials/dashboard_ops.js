@@ -247,7 +247,7 @@
             }
 
             function ensureEmptyState(panel) {
-                const hasCards = panel.querySelector('.card') !== null;
+                const hasCards = panel.querySelector('.card:not(.is-soft-filtered)') !== null;
                 let emptyEl = panel.querySelector('.empty');
                 if (!hasCards && !emptyEl) {
                     emptyEl = document.createElement('p');

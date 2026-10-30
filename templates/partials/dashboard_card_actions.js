@@ -36,6 +36,9 @@
                         } else {
                             if (interviewCheckbox) interviewCheckbox.checked = false;
                             if (stoppedCheckbox) stoppedCheckbox.checked = false;
+                            const hiddenCheckbox = card.querySelector('.hidden-wrap input');
+                            if (hiddenCheckbox) hiddenCheckbox.checked = false;
+                            card.classList.remove('is-soft-filtered');
                             removeCompanyFeedbackUI(card);
                             removeCardFromAppliedStages(card);
                             const stillViewed = Boolean(viewedCheckbox && viewedCheckbox.checked);
@@ -142,12 +145,18 @@
                         throw new Error(data.error || 'Request failed');
                     }
                     if (card) {
-                        const viewedCheckbox = card.querySelector('.viewed-wrap input');
                         const appliedCheckbox = card.querySelector('.applied-wrap input');
-                        const interviewCheckbox = card.querySelector('.interview-wrap input');
-                        const stoppedCheckbox = card.querySelector('.stopped-wrap input');
-                        const relevantCheckbox = card.querySelector('.relevant-wrap input');
-                        if (hidden) {
+                        const isAppliedStage = appliedStagePanels.includes(card.parentElement)
+                            || Boolean(appliedCheckbox && appliedCheckbox.checked);
+                        if (isAppliedStage) {
+                            // Soft-hide: keep applied-stage checkboxes/UI and panel; filter only.
+                            if (typeof applyShowHiddenFilter === 'function') {
+                                applyShowHiddenFilter();
+                            }
+                        } else if (hidden) {
+                            const viewedCheckbox = card.querySelector('.viewed-wrap input');
+                            const interviewCheckbox = card.querySelector('.interview-wrap input');
+                            const stoppedCheckbox = card.querySelector('.stopped-wrap input');
                             if (viewedCheckbox) viewedCheckbox.checked = false;
                             if (appliedCheckbox) appliedCheckbox.checked = false;
                             if (interviewCheckbox) interviewCheckbox.checked = false;
@@ -159,6 +168,7 @@
                             }
                             if (card.parentElement !== panelHidden) panelHidden.prepend(card);
                         } else {
+                            const relevantCheckbox = card.querySelector('.relevant-wrap input');
                             const targetPanel = relevantCheckbox && relevantCheckbox.checked ? panelRelevant : panelNotRelevant;
                             bumpPanelTotal(targetPanel, 1);
                             if (card.parentElement !== targetPanel) targetPanel.prepend(card);

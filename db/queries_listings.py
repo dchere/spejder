@@ -162,7 +162,7 @@ def get_hidden_jobs(db_path: str, limit: int = 0) -> list[dict]:
         cur = conn.cursor()
         q = (
             f"SELECT {_JOB_SELECT_COLS}, category "
-            "FROM jobs WHERE COALESCE(hidden, 0)=1 "
+            "FROM jobs WHERE COALESCE(hidden, 0)=1 AND COALESCE(applied, 0)=0 "
             "ORDER BY relevance_score DESC, updated_at DESC"
         )
         params: list = []
@@ -202,7 +202,10 @@ def get_hidden_jobs_count(db_path: str) -> int:
     conn = _connect(db_path)
     try:
         cur = conn.cursor()
-        cur.execute("SELECT COUNT(1) FROM jobs WHERE COALESCE(hidden, 0)=1")
+        cur.execute(
+            "SELECT COUNT(1) FROM jobs "
+            "WHERE COALESCE(hidden, 0)=1 AND COALESCE(applied, 0)=0"
+        )
         row = cur.fetchone()
         return int((row[0] if row else 0) or 0)
     finally:

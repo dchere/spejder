@@ -20,6 +20,9 @@
             .controls-wrap { margin-bottom: 12px; }
             .controls-wrap > .controls { margin-bottom: 0; }
             .controls-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+            .show-hidden-wrap { margin: 0 0 12px 0; font-size: 13px; color: #333; }
+            .show-hidden-wrap[hidden] { display: none; }
+            .is-soft-filtered { display: none !important; }
             .toolbar-action-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 36px; min-height: 36px; padding: 8px; border: 1px solid #0a58ca; color: #0a58ca; background: #fff; border-radius: 8px; cursor: pointer; }
             .toolbar-action-btn.active { background: #eef4ff; box-shadow: inset 0 0 0 1px #0a58ca; }
             .toolbar-action-btn:disabled { opacity: 0.55; cursor: not-allowed; }
@@ -83,6 +86,9 @@
                 </div>
             </div>
         </div>
+        <div id="show-hidden-wrap" class="show-hidden-wrap" hidden>
+            <label><input type="checkbox" id="show-hidden" /> Show hidden</label>
+        </div>
         <section id="panel-relevant" class="grid">{{ relevant_cards }}</section>
         <section id="panel-not-relevant" class="grid hidden">{{ not_relevant_cards }}</section>
         <section id="panel-applied" class="grid hidden">{{ applied_cards }}</section>
@@ -145,6 +151,9 @@
             const portraitDiff = document.getElementById('portrait-diff');
             const portraitStatus = document.getElementById('portrait-status');
             const appliedStagePanels = [panelApplied, panelInterview, panelStopped];
+            const showHiddenWrap = document.getElementById('show-hidden-wrap');
+            const showHiddenCheckbox = document.getElementById('show-hidden');
+            const SHOW_HIDDEN_KEY = 'spejder-show-hidden';
             let portraitCommitted = portraitEditor ? portraitEditor.value : '';
             let portraitDraftPending = false;
             let currentMode = 'relevant';
@@ -152,6 +161,34 @@
             let tabRefreshInProgress = false;
             {% include "partials/profile_panel.js" %}
             {% include "partials/dashboard_ops.js" %}
+
+            function isShowHiddenEnabled() {
+                try {
+                    return sessionStorage.getItem(SHOW_HIDDEN_KEY) === '1';
+                } catch (_err) {
+                    return false;
+                }
+            }
+
+            function setShowHiddenEnabled(on) {
+                try {
+                    sessionStorage.setItem(SHOW_HIDDEN_KEY, on ? '1' : '0');
+                } catch (_err) {
+                    /* ignore quota / private-mode failures */
+                }
+            }
+
+            function applyShowHiddenFilter() {
+                const show = isShowHiddenEnabled();
+                if (showHiddenCheckbox) showHiddenCheckbox.checked = show;
+                appliedStagePanels.forEach((panel) => {
+                    panel.querySelectorAll('.card').forEach((card) => {
+                        const hiddenCb = card.querySelector('.hidden-wrap input');
+                        const softHidden = Boolean(hiddenCb && hiddenCb.checked);
+                        card.classList.toggle('is-soft-filtered', !show && softHidden);
+                    });
+                });
+            }
 
             function confirmLeaveCurrentPanel(mode) {
                 if (currentMode === 'portrait' && mode !== 'portrait' && portraitHasUnsavedChanges()) {
@@ -200,6 +237,12 @@
                 btnSkills.classList.toggle('active', isSkills);
                 btnPortrait.classList.toggle('active', isPortrait);
                 if (btnProfile) btnProfile.classList.toggle('active', isProfile);
+                if (showHiddenWrap) {
+                    showHiddenWrap.hidden = !(isApplied || isInterview || isStopped);
+                }
+                if (isApplied || isInterview || isStopped) {
+                    applyShowHiddenFilter();
+                }
                 if (enteringPortrait) {
                     refreshPortraitFromServer();
                 }
@@ -252,6 +295,9 @@
                         throw new Error(data.error || 'Request failed');
                     }
                     if (statusEl) statusEl.textContent = `Saved: ${signal}`;
+                    const viewedCheckbox = card ? card.querySelector('.viewed-wrap input') : null;
+                    const hiddenCheckbox = card ? card.querySelector('.hidden-wrap input') : null;
+                    let isViewed = viewedCheckbox ? viewedCheckbox.checked : false;
                     if (signal === 'not relevant') {
                         const appliedCheckbox = card ? card.querySelector('.applied-wrap input') : null;
                         if (appliedCheckbox) appliedCheckbox.checked = false;
@@ -260,35 +306,53 @@
                         if (interviewCheckbox) interviewCheckbox.checked = false;
                         if (stoppedCheckbox) stoppedCheckbox.checked = false;
                         if (card) removeCompanyFeedbackUI(card);
-                    }
-                    const viewedCheckbox = card ? card.querySelector('.viewed-wrap input') : null;
-                    const hiddenCheckbox = card ? card.querySelector('.hidden-wrap input') : null;
-                    let isViewed = viewedCheckbox ? viewedCheckbox.checked : false;
-                    if (signal === 'not relevant' && viewedCheckbox && !isViewed) {
-                        const viewedResponse = await fetch(apiUrl('/api/viewed'), {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ job_id: jobId, viewed: true })
-                        });
-                        const viewedData = await viewedResponse.json();
-                        if (!viewedResponse.ok || !viewedData.ok) {
-                            throw new Error(viewedData.error || 'Failed to update viewed');
-                        }
-                        viewedCheckbox.checked = true;
-                        isViewed = true;
+                        // Soft-hide clear matches DB leave-applied CASE (not only auto-view).
                         if (hiddenCheckbox) hiddenCheckbox.checked = false;
-                    }
-                    const stillHidden = Boolean(hiddenCheckbox && hiddenCheckbox.checked);
-                    const targetPanel = signal === 'relevant' ? panelRelevant : panelNotRelevant;
-                    if (!stillHidden && card && !isViewed && card.parentElement !== targetPanel) {
-                        if (card.parentElement === panelRelevant || card.parentElement === panelNotRelevant) {
-                            bumpPanelTotal(card.parentElement, -1);
+                        if (card) card.classList.remove('is-soft-filtered');
+                        if (viewedCheckbox && !isViewed) {
+                            const viewedResponse = await fetch(apiUrl('/api/viewed'), {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ job_id: jobId, viewed: true })
+                            });
+                            const viewedData = await viewedResponse.json();
+                            if (!viewedResponse.ok || !viewedData.ok) {
+                                throw new Error(viewedData.error || 'Failed to update viewed');
+                            }
+                            viewedCheckbox.checked = true;
+                            isViewed = true;
                         }
-                        bumpPanelTotal(targetPanel, 1);
-                        targetPanel.prepend(card);
-                    } else if (!stillHidden && card && isViewed && !appliedStagePanels.includes(card.parentElement)) {
-                        bumpPanelTotal(card.parentElement, -1);
-                        if (card.parentElement !== panelEditedToday) panelEditedToday.prepend(card);
+                        if (card) {
+                            const fromTriage = card.parentElement === panelRelevant
+                                || card.parentElement === panelNotRelevant;
+                            if (appliedStagePanels.includes(card.parentElement)) {
+                                removeCardFromAppliedStages(card);
+                            } else if (fromTriage && isViewed) {
+                                bumpPanelTotal(card.parentElement, -1);
+                            }
+                            if (isViewed) {
+                                if (card.parentElement !== panelEditedToday) {
+                                    panelEditedToday.prepend(card);
+                                }
+                            } else if (card.parentElement !== panelNotRelevant) {
+                                if (fromTriage) bumpPanelTotal(card.parentElement, -1);
+                                bumpPanelTotal(panelNotRelevant, 1);
+                                panelNotRelevant.prepend(card);
+                            }
+                        }
+                    } else {
+                        const stillHidden = Boolean(hiddenCheckbox && hiddenCheckbox.checked);
+                        const targetPanel = panelRelevant;
+                        if (!stillHidden && card && !isViewed && card.parentElement !== targetPanel) {
+                            if (card.parentElement === panelRelevant || card.parentElement === panelNotRelevant) {
+                                bumpPanelTotal(card.parentElement, -1);
+                            }
+                            bumpPanelTotal(targetPanel, 1);
+                            targetPanel.prepend(card);
+                        } else if (!stillHidden && card && isViewed && !appliedStagePanels.includes(card.parentElement)) {
+                            bumpPanelTotal(card.parentElement, -1);
+                            if (card.parentElement !== panelEditedToday) panelEditedToday.prepend(card);
+                        }
                     }
                     refreshCounts();
                     if (signal === 'not relevant') {
@@ -330,6 +394,9 @@
                         const stoppedCheckbox = card ? card.querySelector('.stopped-wrap input') : null;
                         if (interviewCheckbox) interviewCheckbox.checked = false;
                         if (stoppedCheckbox) stoppedCheckbox.checked = false;
+                        const hiddenCheckbox = card ? card.querySelector('.hidden-wrap input') : null;
+                        if (hiddenCheckbox) hiddenCheckbox.checked = false;
+                        if (card) card.classList.remove('is-soft-filtered');
                         const relevantCheckbox = card ? card.querySelector('.relevant-wrap input') : null;
                         const targetPanel = relevantCheckbox && relevantCheckbox.checked ? panelRelevant : panelNotRelevant;
                         bumpPanelTotal(targetPanel, 1);
@@ -392,9 +459,19 @@
                 }
             }
 
+            if (showHiddenCheckbox) {
+                showHiddenCheckbox.checked = isShowHiddenEnabled();
+                showHiddenCheckbox.addEventListener('change', () => {
+                    setShowHiddenEnabled(showHiddenCheckbox.checked);
+                    applyShowHiddenFilter();
+                    refreshCounts();
+                });
+            }
+
             document.addEventListener('DOMContentLoaded', async () => {
                 await initPageReportMtime();
                 initTabFromUrl();
+                applyShowHiddenFilter();
             });
             initSkillsTableSort();
             initInboxSyncStatus();

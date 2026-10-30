@@ -284,6 +284,12 @@ class DashboardTemplatesTest(unittest.TestCase):
                 body = _extract_js_function_body(_render_template(name), "setApplied")
                 marker = "removeCardFromAppliedStages(card)"
                 self.assertIn(marker, body)
+                # Unapply clears soft-hide UI before leaving applied stages.
+                before_remove = body.split(marker, 1)[0]
+                false_start = before_remove.rfind("} else {")
+                false_prefix = before_remove[false_start:]
+                self.assertIn("hiddenCheckbox.checked = false", false_prefix)
+                self.assertIn("is-soft-filtered", false_prefix)
                 false_branch = body.split(marker, 1)[1]
                 # Uncheck: card placement only — no tab focus change.
                 self.assertNotIn("setMode", false_branch)
@@ -291,19 +297,52 @@ class DashboardTemplatesTest(unittest.TestCase):
                 self.assertIn("stillViewed", false_branch)
                 self.assertIn("panelEditedToday", false_branch)
 
-    def test_set_hidden_does_not_call_set_mode(self):
+    def test_set_hidden_soft_vs_park_paths(self):
         for name in ("dashboard.html", "company_dashboard.html"):
             with self.subTest(template=name):
                 text = _render_template(name)
                 body = _extract_js_function_body(text, "setHidden")
                 self.assertNotIn("setMode", body)
-                hidden_branch = _extract_if_block(body, "hidden")
-                self.assertIn("removeAppliedOnlyUI(card)", hidden_branch)
                 self.assertIn("/api/hidden", body)
+                self.assertIn("isAppliedStage", body)
+                soft_marker = "if (isAppliedStage)"
+                self.assertIn(soft_marker, body)
+                soft_branch = body.split(soft_marker, 1)[1]
+                soft_end = soft_branch.index("} else if (hidden)")
+                soft_body = soft_branch[:soft_end]
+                self.assertNotIn("removeAppliedOnlyUI(card)", soft_body)
+                self.assertNotIn("panelHidden.prepend", soft_body)
+                self.assertIn("applyShowHiddenFilter", soft_body)
+                park_branch = _extract_if_block(body, "hidden")
+                self.assertIn("removeAppliedOnlyUI(card)", park_branch)
+                self.assertIn("panelHidden.prepend", park_branch)
                 else_branch = body.split("} else {", 1)[1]
                 self.assertIn("panelRelevant", else_branch)
                 self.assertIn("panelNotRelevant", else_branch)
                 self.assertIn("relevantCheckbox.checked", else_branch)
+
+    def test_show_hidden_control_main_only(self):
+        main = _render_template("dashboard.html")
+        company = _render_template("company_dashboard.html")
+        self.assertIn('id="show-hidden-wrap"', main)
+        self.assertIn('id="show-hidden"', main)
+        self.assertIn("spejder-show-hidden", main)
+        self.assertIn("function applyShowHiddenFilter", main)
+        self.assertIn(".is-soft-filtered", main)
+        self.assertNotIn('id="show-hidden-wrap"', company)
+        self.assertNotIn("spejder-show-hidden", company)
+        self.assertNotIn("function applyShowHiddenFilter", company)
+
+        # Tab counts stay inclusive of soft-filtered cards; empty-state ignores them.
+        refresh_body = _extract_js_function_body(main, "refreshCounts")
+        for panel in ("panelApplied", "panelInterview", "panelStopped"):
+            self.assertIn(f"{panel}.querySelectorAll('.card').length", refresh_body)
+            self.assertNotIn(
+                f"{panel}.querySelectorAll('.card:not",
+                refresh_body,
+            )
+        empty_body = _extract_js_function_body(main, "ensureEmptyState")
+        self.assertIn(".card:not(.is-soft-filtered)", empty_body)
 
     def test_main_set_relevant_unviewed_move_bumps_both_totals(self):
         body = _extract_js_function_body(
@@ -338,6 +377,24 @@ class DashboardTemplatesTest(unittest.TestCase):
                 self.assertIn("stillHidden", body)
                 self.assertIn("hiddenCheckbox.checked", body)
                 self.assertIn("!stillHidden", body)
+
+    def test_set_relevant_not_relevant_clears_soft_hide(self):
+        for name in ("dashboard.html", "company_dashboard.html"):
+            with self.subTest(template=name):
+                body = _extract_js_function_body(
+                    _render_template(name), "setRelevant"
+                )
+                marker = "if (signal === 'not relevant')"
+                self.assertIn(marker, body)
+                not_rel = body.split(marker, 1)[1]
+                # Soft-hide UI clear before auto-view / panel moves (mirrors unapply).
+                auto_view = not_rel.index("/api/viewed")
+                soft_prefix = not_rel[:auto_view]
+                self.assertIn("hiddenCheckbox.checked = false", soft_prefix)
+                self.assertIn("is-soft-filtered", soft_prefix)
+                if name == "dashboard.html":
+                    self.assertIn("removeCardFromAppliedStages(card)", not_rel)
+                    self.assertIn("panelEditedToday", not_rel)
 
     def test_company_set_viewed_true_moves_to_edited_today(self):
         body = _extract_js_function_body(

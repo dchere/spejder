@@ -72,7 +72,7 @@ class ServerHiddenApiTest(unittest.TestCase):
     def tearDown(self):
         self._tmpdir.cleanup()
 
-    def test_api_hidden_true_and_rebuild(self):
+    def test_api_hidden_soft_hides_applied(self):
         job_id = _insert_job(self.db_path, "https://example.com/api-hidden")
         self.assertTrue(set_job_applied(self.db_path, job_id, True))
 
@@ -82,6 +82,25 @@ class ServerHiddenApiTest(unittest.TestCase):
         self.assertTrue(body["ok"])
         self.assertTrue(body["hidden"])
         self.assertIn(f"job {job_id} marked hidden", self.rebuild_calls)
+
+        self.assertEqual(get_hidden_jobs(self.db_path, limit=0), [])
+        conn = _connect(self.db_path)
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT hidden, applied, viewed FROM jobs WHERE id=?", (job_id,))
+            hidden, applied, viewed = cur.fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(hidden, 1)
+        self.assertEqual(applied, 1)
+        self.assertEqual(viewed, 1)
+
+    def test_api_hidden_parks_non_applied(self):
+        job_id = _insert_job(self.db_path, "https://example.com/api-park")
+
+        response = self.client.post("/api/hidden", json={"job_id": job_id, "hidden": True})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["ok"])
 
         rows = get_hidden_jobs(self.db_path, limit=0)
         self.assertEqual({row["id"] for row in rows}, {job_id})

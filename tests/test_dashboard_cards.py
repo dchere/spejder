@@ -1,5 +1,7 @@
 """Tests for dashboard job card HTML builders."""
 
+import os
+import tempfile
 import unittest
 
 from spejder.managers.dashboard_cards import (
@@ -10,7 +12,10 @@ from spejder.managers.dashboard_cards import (
     _build_job_cards,
     _format_applied_date,
 )
-from spejder.managers.dashboard_manager import _render_company_dashboard_html
+from spejder.managers.dashboard_manager import (
+    _render_company_dashboard_html,
+    _render_html_dashboard,
+)
 
 
 def _applied_card_item(**overrides):
@@ -126,6 +131,164 @@ class DashboardCardsTest(unittest.TestCase):
         relevant_panel = html[relevant_panel_start:relevant_panel_end]
         self.assertIn("Visible Role", relevant_panel)
         self.assertNotIn("Parked Role", relevant_panel)
+
+    def test_company_dashboard_soft_hidden_applied_stays_on_applied(self):
+        soft_hidden = _applied_card_item(
+            id=30,
+            title="Soft Hidden Applied",
+            applied=1,
+            viewed=1,
+            hidden=1,
+            on_interview=0,
+            interview_stopped=0,
+            category="relevant",
+            position_link="https://example.com/soft-applied",
+        )
+        soft_interview = _applied_card_item(
+            id=31,
+            title="Soft Hidden Interview",
+            applied=1,
+            viewed=1,
+            hidden=1,
+            on_interview=1,
+            interview_stopped=0,
+            category="relevant",
+            position_link="https://example.com/soft-interview",
+        )
+        soft_stopped = _applied_card_item(
+            id=32,
+            title="Soft Hidden Stopped",
+            applied=1,
+            viewed=1,
+            hidden=1,
+            on_interview=0,
+            interview_stopped=1,
+            category="relevant",
+            position_link="https://example.com/soft-stopped",
+        )
+        html = _render_company_dashboard_html(
+            "Acme", [soft_hidden, soft_interview, soft_stopped]
+        )
+
+        self.assertIn(">Hidden (0)<", html)
+        self.assertIn(">Applied (1)<", html)
+        self.assertIn(">Interview (1)<", html)
+        self.assertIn(">Stopped (1)<", html)
+
+        hidden_panel_start = html.index('id="panel-hidden"')
+        hidden_panel_end = html.index("</section>", hidden_panel_start)
+        hidden_panel = html[hidden_panel_start:hidden_panel_end]
+        self.assertNotIn("Soft Hidden Applied", hidden_panel)
+        self.assertNotIn("Soft Hidden Interview", hidden_panel)
+        self.assertNotIn("Soft Hidden Stopped", hidden_panel)
+
+        applied_panel_start = html.index('id="panel-applied"')
+        applied_panel_end = html.index("</section>", applied_panel_start)
+        self.assertIn(
+            "Soft Hidden Applied", html[applied_panel_start:applied_panel_end]
+        )
+
+        interview_panel_start = html.index('id="panel-interview"')
+        interview_panel_end = html.index("</section>", interview_panel_start)
+        self.assertIn(
+            "Soft Hidden Interview",
+            html[interview_panel_start:interview_panel_end],
+        )
+
+        stopped_panel_start = html.index('id="panel-stopped"')
+        stopped_panel_end = html.index("</section>", stopped_panel_start)
+        self.assertIn(
+            "Soft Hidden Stopped", html[stopped_panel_start:stopped_panel_end]
+        )
+
+    def test_main_dashboard_soft_hidden_applied_stays_on_applied(self):
+        """Soft-hidden applied rows render under Applied, not Hidden (main report)."""
+        from spejder.db import (
+            ensure_db,
+            get_applied_jobs,
+            get_hidden_jobs,
+            set_job_applied,
+            set_job_hidden,
+            upsert_job,
+        )
+        from spejder.db.connection import _connect
+        from spejder.config import AppConfig
+        from spejder.workflows.dashboard import build_dashboard_record
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "jobs.db")
+            out_html = os.path.join(tmpdir, "dashboard.html")
+            ensure_db(db_path)
+            upsert_job(
+                db_path,
+                {
+                    "source": "Test",
+                    "company": "Acme",
+                    "title": "Soft Hidden Main",
+                    "position_link": "https://example.com/soft-main",
+                    "raw_text": "raw",
+                },
+            )
+            conn = _connect(db_path)
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT id FROM jobs WHERE position_link=?",
+                    ("https://example.com/soft-main",),
+                )
+                job_id = int(cur.fetchone()[0])
+            finally:
+                conn.close()
+            self.assertTrue(set_job_applied(db_path, job_id, True))
+            self.assertTrue(set_job_hidden(db_path, job_id, True))
+
+            profile = AppConfig()
+            cache = {}
+            applied_items = [
+                build_dashboard_record(
+                    db_path,
+                    profile,
+                    cache,
+                    row,
+                    default_category="relevant",
+                    default_viewed=1,
+                    default_applied=1,
+                    translate_title=False,
+                )
+                for row in get_applied_jobs(db_path, limit=0)
+            ]
+            hidden_items = [
+                build_dashboard_record(
+                    db_path,
+                    profile,
+                    cache,
+                    row,
+                    default_category="relevant",
+                    translate_title=False,
+                )
+                for row in get_hidden_jobs(db_path, limit=0)
+            ]
+            _render_html_dashboard(
+                [],
+                [],
+                applied_items,
+                out_html,
+                "Test dashboard",
+                hidden_items=hidden_items,
+            )
+            with open(out_html, encoding="utf-8") as f:
+                html = f.read()
+
+        applied_panel_start = html.index('id="panel-applied"')
+        applied_panel_end = html.index("</section>", applied_panel_start)
+        self.assertIn(
+            "Soft Hidden Main", html[applied_panel_start:applied_panel_end]
+        )
+        hidden_panel_start = html.index('id="panel-hidden"')
+        hidden_panel_end = html.index("</section>", hidden_panel_start)
+        self.assertNotIn(
+            "Soft Hidden Main", html[hidden_panel_start:hidden_panel_end]
+        )
 
     def test_company_dashboard_partitions_edited_today(self):
         today_item = _applied_card_item(
