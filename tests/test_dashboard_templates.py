@@ -631,6 +631,51 @@ class DashboardTemplatesTest(unittest.TestCase):
         )
         self.assertIn("setMode(mode)", wait_body)
 
+    def test_mid_sync_reload_generation_gate(self):
+        html = _render_template("dashboard.html")
+        reload_body = _extract_js_function_body(html, "maybeMidSyncReload")
+        poll_body = _extract_js_function_body(html, "pollSyncStatus")
+        init_body = _extract_js_function_body(html, "initInboxSyncStatus")
+        self.assertIn("spejder-sync-reload-generation", html)
+        self.assertIn("reload_generation", reload_body)
+        self.assertIn("handledSyncReloadGeneration", reload_body)
+        self.assertIn("sessionStorage.setItem", reload_body)
+        # Process restart: server gen resets while sessionStorage may be stale.
+        self.assertIn("gen < handled", reload_body)
+        self.assertIn(
+            "sessionStorage.setItem(SYNC_RELOAD_GENERATION_KEY, '0')",
+            reload_body,
+        )
+        self.assertLess(
+            reload_body.index("gen < handled"),
+            reload_body.index("gen <= handled"),
+        )
+        self.assertLess(
+            reload_body.index("sessionStorage.setItem(SYNC_RELOAD_GENERATION_KEY, '0')"),
+            reload_body.index("gen <= handled"),
+        )
+        self.assertLess(
+            reload_body.index(
+                "sessionStorage.setItem(SYNC_RELOAD_GENERATION_KEY, String(gen))"
+            ),
+            reload_body.index("reloadWithTab(currentMode)"),
+        )
+        self.assertIn("if (tabRefreshInProgress)", reload_body)
+        self.assertLess(
+            reload_body.index(
+                "sessionStorage.setItem(SYNC_RELOAD_GENERATION_KEY, String(gen))"
+            ),
+            reload_body.index("if (tabRefreshInProgress)"),
+        )
+        self.assertIn("maybeMidSyncReload(data)", poll_body)
+        self.assertIn("maybeMidSyncReload(data)", init_body)
+        self.assertIn("if (data.running)", init_body)
+        self.assertLess(
+            init_body.index("maybeMidSyncReload(data)"),
+            init_body.index("if (data.running)"),
+        )
+        self.assertIn("pollSyncStatus(btnEl, statusEl)", init_body)
+
     def test_regenerate_report_uses_busy_spin_not_status_text(self):
         html = _render_template("dashboard.html")
         self.assertIn(".toolbar-action-btn.is-busy svg", html)

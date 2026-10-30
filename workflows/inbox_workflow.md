@@ -31,6 +31,8 @@ Portal sync runs (when enabled) even when the inbox is empty. Early return only 
 
 Scoring is change-driven: jobs are scored when skills are first materialized or change, not via a full-DB `apply_relevance` pass on each run.
 
+**GUI-only mid-sync dashboard refresh:** Mid-sync dashboard rebuild / `reload_generation` / browser reload exists only on GUI `InboxSyncRunner` / `run_inbox_sync` when `after_ingest_dashboard_refresh` is set. CLI `process_inbox` is a separate pipeline and never runs that path — see `gui_sync.md`.
+
 **Ingest translation flow:**
 - Ingest now builds `entry_transform` through `spejder.workflows.job_enrichment.make_translate_job_entry_for_storage`.
 - `process_inbox` owns invocation-scoped `text_translation_cache` and `title_translation_cache` and passes both into the shared factory before `ingest_docs_to_db`.

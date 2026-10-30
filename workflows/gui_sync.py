@@ -87,6 +87,8 @@ class GuiSyncContext:
     on_stage: Optional[Callable[[str, str], None]] = None
     sync_log_path: str = ""
     sync_log: Optional[SyncRunLogLike] = None
+    # GUI-only: mid-sync dashboard rebuild + reload signal after ingest/dedupe.
+    after_ingest_dashboard_refresh: Optional[Callable[[], None]] = None
 
 
 def _emit_stage(context: GuiSyncContext, stage_id: str, message: str) -> None:
@@ -318,6 +320,12 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
         except Exception as exc:
             print(f"Background sync: cross-source dedupe failed: {exc}")
 
+        new_count = int(portal_stats.get("inserted_new", 0) or 0) + int(
+            ingest_stats.get("inserted_new", 0) or 0
+        )
+        if new_count > 0 and context.after_ingest_dashboard_refresh is not None:
+            context.after_ingest_dashboard_refresh()
+
         blocked_rescored = 0
 
         _emit_stage(context, "skills", SKILLS_STAGE_MESSAGE)
@@ -530,6 +538,7 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
 
 
 _SYNC_COMPLETE_MESSAGE = "Sync complete — reload the page to see new positions"
+_SYNC_COMPLETE_AFTER_REFRESH_MESSAGE = "Sync complete"
 _SYNC_SKIPPED_MESSAGE = (
     "Nothing to sync — inbox is empty, descriptions are up to date, "
     "and IT-DAY portal has no new positions"
@@ -537,6 +546,8 @@ _SYNC_SKIPPED_MESSAGE = (
 _SYNC_REBUILD_TIMEOUT_MESSAGE = (
     "Sync finished — dashboard rebuild may still be in progress; reload when ready"
 )
+_MID_SYNC_DASHBOARD_REFRESH_TIMEOUT_S = 120
+_END_SYNC_REBUILD_TIMEOUT_S = 600
 
 
 class InboxSyncRunner:
@@ -553,6 +564,9 @@ class InboxSyncRunner:
         self._stage_message = ""
         self._terminal_status = "idle"
         self._terminal_message = ""
+        self._reload_generation = 0
+        self._mid_sync_refreshed = False
+        self._rebuilds_after_mid_sync = False
 
     def trigger(self) -> dict:
         with self._lock:
@@ -563,21 +577,25 @@ class InboxSyncRunner:
 
     def get_status(self) -> dict:
         with self._lock:
-            if self._running:
-                return {
-                    "running": True,
-                    "stage_id": self._stage_id,
-                    "stage_message": self._stage_message,
-                    "status": "running",
-                    "message": self._stage_message,
-                }
-            return {
+            payload = {
                 "running": False,
                 "stage_id": "",
                 "stage_message": "",
                 "status": self._terminal_status,
                 "message": self._terminal_message,
+                "reload_generation": self._reload_generation,
             }
+            if self._running:
+                payload.update(
+                    {
+                        "running": True,
+                        "stage_id": self._stage_id,
+                        "stage_message": self._stage_message,
+                        "status": "running",
+                        "message": self._stage_message,
+                    }
+                )
+            return payload
 
     def _claim_sync_locked(self) -> bool:
         if self._running:
@@ -587,6 +605,9 @@ class InboxSyncRunner:
         self._terminal_message = ""
         self._stage_id = "start"
         self._stage_message = "Sync started"
+        self._mid_sync_refreshed = False
+        self._rebuilds_after_mid_sync = False
+        # reload_generation is monotonic for process life — do not reset.
         return True
 
     def _start_sync_thread(self) -> None:
@@ -607,26 +628,83 @@ class InboxSyncRunner:
                 self._stage_id = stage_id
                 self._stage_message = message
 
-        context = replace(self._base_context, on_stage=on_stage, sync_log=sync_log)
+        def queue_dashboard_rebuild(*, reason: str = "") -> None:
+            # Mid-sync refresh calls rebuild_queue.queue directly (before the
+            # mid-success flag). Later pipeline stages go through this wrap so
+            # end-of-sync can re-bump reload_generation onto final HTML.
+            with self._lock:
+                if self._mid_sync_refreshed:
+                    self._rebuilds_after_mid_sync = True
+            self._rebuild_queue.queue(reason=reason)
+
+        def after_ingest_dashboard_refresh() -> None:
+            message = "Refreshing dashboard after ingest"
+            on_stage("dashboard_refresh", message)
+            sync_log.stage_start("dashboard_refresh", message)
+            self._rebuild_queue.queue(reason="post-ingest dashboard refresh")
+            ready = self._rebuild_queue.wait_until_idle(
+                timeout=_MID_SYNC_DASHBOARD_REFRESH_TIMEOUT_S
+            )
+            if not ready:
+                sync_log.note(
+                    "dashboard_refresh_timeout",
+                    stage="dashboard_refresh",
+                    timeout_s=_MID_SYNC_DASHBOARD_REFRESH_TIMEOUT_S,
+                )
+                sync_log.stage_end("dashboard_refresh")
+                # Do not bump generation or soften the terminal message — the
+                # mid-sync rebuild did not finish; end-of-sync wait may still
+                # succeed and the reload nudge must remain accurate.
+                return
+            sync_log.stage_end("dashboard_refresh")
+            with self._lock:
+                self._reload_generation += 1
+                self._mid_sync_refreshed = True
+
+        context = replace(
+            self._base_context,
+            on_stage=on_stage,
+            sync_log=sync_log,
+            after_ingest_dashboard_refresh=after_ingest_dashboard_refresh,
+            queue_dashboard_rebuild=queue_dashboard_rebuild,
+        )
         sync_log.run_start(source="gui_sync")
 
         try:
             result = run_inbox_sync(context)
+            with self._lock:
+                mid_sync_refreshed = self._mid_sync_refreshed
+                rebuilds_after_mid = self._rebuilds_after_mid_sync
             if result.status == "done":
                 on_stage("rebuild", "Waiting for dashboard rebuild")
                 sync_log.stage_start("rebuild", "Waiting for dashboard rebuild")
-                rebuild_ready = self._rebuild_queue.wait_until_idle(timeout=600)
+                rebuild_ready = self._rebuild_queue.wait_until_idle(
+                    timeout=_END_SYNC_REBUILD_TIMEOUT_S
+                )
                 sync_log.stage_end("rebuild")
                 if rebuild_ready:
+                    # Second one-shot via the same generation mechanism: after
+                    # mid-reload the client already stored that gen; bump again
+                    # only when later stages queued rebuilds so the page lands
+                    # on enrichment-complete HTML without a manual reload.
+                    if mid_sync_refreshed and rebuilds_after_mid:
+                        with self._lock:
+                            self._reload_generation += 1
                     terminal_status = "complete"
-                    terminal_message = _SYNC_COMPLETE_MESSAGE
+                    terminal_message = (
+                        _SYNC_COMPLETE_AFTER_REFRESH_MESSAGE
+                        if mid_sync_refreshed
+                        else _SYNC_COMPLETE_MESSAGE
+                    )
                 else:
                     terminal_status = "complete"
                     terminal_message = _SYNC_REBUILD_TIMEOUT_MESSAGE
             elif result.status == "skipped":
                 on_stage("rebuild", "Waiting for dashboard rebuild")
                 sync_log.stage_start("rebuild", "Waiting for dashboard rebuild")
-                self._rebuild_queue.wait_until_idle(timeout=600)
+                self._rebuild_queue.wait_until_idle(
+                    timeout=_END_SYNC_REBUILD_TIMEOUT_S
+                )
                 sync_log.stage_end("rebuild")
                 terminal_status = "skipped"
                 terminal_message = _SYNC_SKIPPED_MESSAGE

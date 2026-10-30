@@ -63,6 +63,42 @@
                 }
             }
 
+            const SYNC_RELOAD_GENERATION_KEY = 'spejder-sync-reload-generation';
+
+            function handledSyncReloadGeneration() {
+                const raw = sessionStorage.getItem(SYNC_RELOAD_GENERATION_KEY);
+                const n = Number.parseInt(raw || '0', 10);
+                return Number.isFinite(n) ? n : 0;
+            }
+
+            function maybeMidSyncReload(data) {
+                const gen = Number.parseInt(String(data.reload_generation ?? 0), 10);
+                // Process restart resets server gen to 0 while sessionStorage
+                // may still hold a prior value — treat a backward jump as a
+                // new epoch so mid-sync reload is not skipped forever.
+                let handled = handledSyncReloadGeneration();
+                if (Number.isFinite(gen) && gen < handled) {
+                    sessionStorage.setItem(SYNC_RELOAD_GENERATION_KEY, '0');
+                    handled = 0;
+                }
+                if (!Number.isFinite(gen) || gen <= handled) {
+                    return false;
+                }
+                // Persist before navigate so the reloaded page does not loop.
+                // When Applied/tab wait owns navigation, mark handled and skip
+                // stacking a second reload (rebuild already coalesced).
+                sessionStorage.setItem(SYNC_RELOAD_GENERATION_KEY, String(gen));
+                if (tabRefreshInProgress) {
+                    return false;
+                }
+                try {
+                    reloadWithTab(currentMode);
+                } catch (_err) {
+                    location.reload();
+                }
+                return true;
+            }
+
             function applySyncStatus(data, btnEl, statusEl) {
                 const running = Boolean(data.running);
                 btnEl.disabled = running;
@@ -95,6 +131,9 @@
                 try {
                     const data = await fetchSyncStatus();
                     applySyncStatus(data, btnEl, statusEl);
+                    if (maybeMidSyncReload(data)) {
+                        return;
+                    }
                     if (data.running) {
                         syncPollTimer = setTimeout(() => pollSyncStatus(btnEl, statusEl), 2000);
                     }
@@ -137,6 +176,9 @@
                 try {
                     const data = await fetchSyncStatus();
                     applySyncStatus(data, btnEl, statusEl);
+                    if (maybeMidSyncReload(data)) {
+                        return;
+                    }
                     if (data.running) {
                         pollSyncStatus(btnEl, statusEl);
                     }

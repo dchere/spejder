@@ -406,6 +406,138 @@ class RunInboxSyncRebuildTest(unittest.TestCase):
         self.assertEqual(result.status, "done")
         self.assertEqual(order, ["patterns", "hygiene", "profile_learning"])
 
+    @patch(
+        "spejder.workflows.gui_sync.sync_itday_portal",
+        return_value={
+            "found": 2,
+            "inserted_new": 2,
+            "skipped_existing": 0,
+            "processed": 2,
+        },
+    )
+    @patch(
+        "spejder.workflows.gui_sync.run_profile_keyword_learning",
+        side_effect=_fake_profile_learning,
+    )
+    @patch(
+        "spejder.workflows.gui_sync.run_skill_hygiene_stages",
+        side_effect=_fake_hygiene,
+    )
+    @patch(
+        "spejder.workflows.gui_sync._learn_skill_patterns_from_positions",
+        return_value=_LEARN_EMPTY,
+    )
+    @patch(
+        "spejder.workflows.gui_sync._generate_missing_descriptions_for_ingest",
+        return_value=(0, 0),
+    )
+    @patch("spejder.workflows.gui_sync.run_cross_source_dedupe", return_value={})
+    @patch("spejder.workflows.gui_sync.delete_processed_inbox_files", return_value={})
+    @patch("spejder.workflows.gui_sync.get_jobs_for_active_rescore", return_value=[])
+    @patch("spejder.workflows.gui_sync.get_jobs_for_description_triage", return_value=[])
+    def test_after_ingest_refresh_after_dedupe_before_skills(
+        self,
+        _desc_refresh,
+        _active_rescore,
+        _delete_files,
+        mock_dedupe,
+        _gen_desc,
+        _learn,
+        _hygiene,
+        _profile_learning,
+        _portal,
+    ):
+        order: list[str] = []
+
+        def _dedupe(*_a, **_k):
+            order.append("dedupe")
+            return {}
+
+        def _refresh() -> None:
+            order.append("refresh")
+
+        def _populate(*_a, **_k):
+            order.append("skills")
+            return 0
+
+        mock_dedupe.side_effect = _dedupe
+        context = GuiSyncContext(
+            db_path=self.context.db_path,
+            inbox_path=self.context.inbox_path,
+            model_path="",
+            profile_path=self.context.profile_path,
+            runtime_profile=AppConfig(),
+            cli_verbose=False,
+            queue_dashboard_rebuild=lambda *, reason="": None,
+            reload_runtime_profile=lambda: None,
+            populate_missing_dashboard_skills=_populate,
+            after_ingest_dashboard_refresh=_refresh,
+        )
+        result = run_inbox_sync(context)
+        self.assertEqual(result.status, "done")
+        # Post-portal dedupe (portal inserts) then post-ingest dedupe, then refresh, then skills.
+        self.assertEqual(order[-3:], ["dedupe", "refresh", "skills"])
+        self.assertIn("refresh", order)
+        self.assertLess(order.index("refresh"), order.index("skills"))
+
+    @patch(
+        "spejder.workflows.gui_sync.sync_itday_portal",
+        return_value={
+            "found": 0,
+            "inserted_new": 0,
+            "skipped_existing": 0,
+            "processed": 0,
+        },
+    )
+    @patch(
+        "spejder.workflows.gui_sync.run_profile_keyword_learning",
+        side_effect=_fake_profile_learning,
+    )
+    @patch(
+        "spejder.workflows.gui_sync.run_skill_hygiene_stages",
+        side_effect=_fake_hygiene,
+    )
+    @patch(
+        "spejder.workflows.gui_sync._learn_skill_patterns_from_positions",
+        return_value=_LEARN_EMPTY,
+    )
+    @patch(
+        "spejder.workflows.gui_sync._generate_missing_descriptions_for_ingest",
+        return_value=(0, 0),
+    )
+    @patch("spejder.workflows.gui_sync.run_cross_source_dedupe", return_value={})
+    @patch("spejder.workflows.gui_sync.delete_processed_inbox_files", return_value={})
+    @patch("spejder.workflows.gui_sync.get_jobs_for_active_rescore", return_value=[])
+    @patch("spejder.workflows.gui_sync.get_jobs_for_description_triage", return_value=[{"id": 1}])
+    def test_skips_after_ingest_refresh_when_no_new_inserts(
+        self,
+        _desc_refresh,
+        _active_rescore,
+        _delete_files,
+        _dedupe,
+        _gen_desc,
+        _learn,
+        _hygiene,
+        _profile_learning,
+        _portal,
+    ):
+        refresh_calls: list[int] = []
+        context = GuiSyncContext(
+            db_path=self.context.db_path,
+            inbox_path=self.context.inbox_path,
+            model_path="",
+            profile_path=self.context.profile_path,
+            runtime_profile=AppConfig(),
+            cli_verbose=False,
+            queue_dashboard_rebuild=lambda *, reason="": None,
+            reload_runtime_profile=lambda: None,
+            populate_missing_dashboard_skills=lambda *args, **kwargs: 0,
+            after_ingest_dashboard_refresh=lambda: refresh_calls.append(1),
+        )
+        result = run_inbox_sync(context)
+        self.assertEqual(result.status, "done")
+        self.assertEqual(refresh_calls, [])
+
 
 class RunInboxSyncIngestEtaWiringTest(unittest.TestCase):
     """Focused: gui_sync passes ingest ETA store/status and clears eta_s on finish."""
