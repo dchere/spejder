@@ -24,10 +24,13 @@ def set_job_feedback(db_path: str, job_id: int, signal: str) -> bool:
     try:
         cur = conn.cursor()
         if normalized == "not relevant":
+            # Leaving applied clears soft-hide; parked hidden (applied=0) stays parked.
             cur.execute(
                 f"""
                 UPDATE jobs
-                SET relevant=?, category=?, relevance_reason=?, applied=0, {_INTERVIEW_FIELDS_CLEAR}, updated_at=?
+                SET relevant=?, category=?, relevance_reason=?,
+                    hidden=CASE WHEN applied=1 THEN 0 ELSE hidden END,
+                    applied=0, {_INTERVIEW_FIELDS_CLEAR}, updated_at=?
                 WHERE id=?
                 """,
                 (
@@ -66,10 +69,12 @@ def set_job_viewed(db_path: str, job_id: int, viewed: bool) -> bool:
     try:
         cur = conn.cursor()
         if viewed_int == 0:
+            # Leaving applied clears soft-hide; parked hidden stays parked.
             cur.execute(
                 f"""
                 UPDATE jobs
-                SET viewed=0, applied=0, {_INTERVIEW_FIELDS_CLEAR}, updated_at=?
+                SET viewed=0, hidden=CASE WHEN applied=1 THEN 0 ELSE hidden END,
+                    applied=0, {_INTERVIEW_FIELDS_CLEAR}, updated_at=?
                 WHERE id=?
                 """,
                 (now, int(job_id)),
@@ -106,7 +111,7 @@ def set_job_applied(db_path: str, job_id: int, applied: bool) -> bool:
             cur.execute(
                 f"""
                 UPDATE jobs
-                SET applied=0, {_INTERVIEW_FIELDS_CLEAR}, updated_at=?
+                SET applied=0, hidden=0, {_INTERVIEW_FIELDS_CLEAR}, updated_at=?
                 WHERE id=?
                 """,
                 (now, int(job_id)),
@@ -124,14 +129,25 @@ def set_job_hidden(db_path: str, job_id: int, hidden: bool) -> bool:
     try:
         cur = conn.cursor()
         if hidden_int == 1:
+            # Soft-hide: applied-stage rows keep pipeline flags; only flip hidden.
             cur.execute(
-                f"""
+                """
                 UPDATE jobs
-                SET hidden=1, viewed=0, applied=0, {_INTERVIEW_FIELDS_CLEAR}, updated_at=?
-                WHERE id=?
+                SET hidden=1, updated_at=?
+                WHERE id=? AND applied=1
                 """,
                 (now, int(job_id)),
             )
+            if cur.rowcount == 0:
+                # Park non-applied (or missing) rows onto the Hidden tab.
+                cur.execute(
+                    f"""
+                    UPDATE jobs
+                    SET hidden=1, viewed=0, applied=0, {_INTERVIEW_FIELDS_CLEAR}, updated_at=?
+                    WHERE id=?
+                    """,
+                    (now, int(job_id)),
+                )
         else:
             cur.execute(
                 "UPDATE jobs SET hidden=0, updated_at=? WHERE id=?",

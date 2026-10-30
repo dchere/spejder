@@ -14,6 +14,8 @@ from spejder.db import (
     get_jobs_by_category,
     get_relevant_jobs,
     get_stopped_interview_jobs,
+    get_viewed_today_jobs,
+    local_day_start_utc_iso,
     set_job_applied,
     set_job_company_feedback,
     set_job_feedback,
@@ -84,7 +86,7 @@ class HiddenDbTest(unittest.TestCase):
             conn.close()
         self.assertIn("hidden", cols)
 
-    def test_hide_clears_pipeline_keeps_category(self):
+    def test_soft_hide_applied_preserves_pipeline(self):
         job_id = _insert_job(self.db_path, "https://example.com/hide")
         self.assertTrue(set_job_applied(self.db_path, job_id, True))
         self.assertTrue(set_job_on_interview(self.db_path, job_id, True))
@@ -94,14 +96,99 @@ class HiddenDbTest(unittest.TestCase):
         self.assertTrue(set_job_hidden(self.db_path, job_id, True))
         row = _job_flags(self.db_path, job_id)
         self.assertEqual(row[0], 1)  # hidden
-        self.assertEqual(row[1], 0)  # viewed
+        self.assertEqual(row[1], 1)  # viewed preserved
+        self.assertEqual(row[2], 1)  # applied preserved
+        self.assertEqual(row[3], 0)  # on_interview (cleared by stop)
+        self.assertEqual(row[4], 1)  # interview_stopped preserved
+        self.assertEqual(row[5], "No hire")  # company_feedback preserved
+        self.assertEqual(row[6], "relevant")  # category preserved
+        self.assertIsNone(row[7])  # cover_letter
+        self.assertEqual(row[8], 0)  # cover_letter_requested
+        stopped_ids = {r["id"] for r in get_stopped_interview_jobs(self.db_path, limit=0)}
+        self.assertIn(job_id, stopped_ids)
+        self.assertEqual(get_hidden_jobs(self.db_path, limit=0), [])
+
+    def test_soft_hide_unapply_clears_hidden(self):
+        job_id = _insert_job(
+            self.db_path, "https://example.com/soft-unapply", title="Soft Unapply"
+        )
+        self.assertTrue(set_job_applied(self.db_path, job_id, True))
+        self.assertTrue(set_job_hidden(self.db_path, job_id, True))
+        self.assertTrue(set_job_applied(self.db_path, job_id, False))
+
+        row = _job_flags(self.db_path, job_id)
+        self.assertEqual(row[0], 0)  # hidden cleared
+        self.assertEqual(row[1], 1)  # viewed preserved
+        self.assertEqual(row[2], 0)  # applied cleared
+        self.assertEqual(get_hidden_jobs(self.db_path, limit=0), [])
+        since = local_day_start_utc_iso()
+        viewed_ids = {
+            r["id"] for r in get_viewed_today_jobs(self.db_path, since, limit=0)
+        }
+        self.assertIn(job_id, viewed_ids)
+
+    def test_soft_hide_unview_clears_hidden_keeps_parked(self):
+        soft_id = _insert_job(
+            self.db_path, "https://example.com/soft-unview", title="Soft Unview"
+        )
+        parked_id = _insert_job(
+            self.db_path, "https://example.com/park-unview", title="Park Unview"
+        )
+        self.assertTrue(set_job_applied(self.db_path, soft_id, True))
+        self.assertTrue(set_job_hidden(self.db_path, soft_id, True))
+        self.assertTrue(set_job_feedback(self.db_path, parked_id, "relevant"))
+        self.assertTrue(set_job_hidden(self.db_path, parked_id, True))
+
+        self.assertTrue(set_job_viewed(self.db_path, soft_id, False))
+
+        soft = _job_flags(self.db_path, soft_id)
+        self.assertEqual(soft[0], 0)  # soft-hide cleared
+        self.assertEqual(soft[1], 0)  # viewed cleared
+        self.assertEqual(soft[2], 0)  # applied cleared
+        parked = _job_flags(self.db_path, parked_id)
+        self.assertEqual(parked[0], 1)  # parked stays parked
+        self.assertEqual(parked[1], 0)
+        hidden_ids = {r["id"] for r in get_hidden_jobs(self.db_path, limit=0)}
+        self.assertEqual(hidden_ids, {parked_id})
+
+    def test_soft_hide_not_relevant_clears_hidden_keeps_parked(self):
+        soft_id = _insert_job(
+            self.db_path, "https://example.com/soft-nr", title="Soft Not Relevant"
+        )
+        parked_id = _insert_job(
+            self.db_path, "https://example.com/park-nr", title="Park Not Relevant"
+        )
+        self.assertTrue(set_job_applied(self.db_path, soft_id, True))
+        self.assertTrue(set_job_hidden(self.db_path, soft_id, True))
+        self.assertTrue(set_job_feedback(self.db_path, parked_id, "relevant"))
+        self.assertTrue(set_job_hidden(self.db_path, parked_id, True))
+
+        self.assertTrue(set_job_feedback(self.db_path, soft_id, "not relevant"))
+
+        soft = _job_flags(self.db_path, soft_id)
+        self.assertEqual(soft[0], 0)  # soft-hide cleared
+        self.assertEqual(soft[2], 0)  # applied cleared
+        self.assertEqual(soft[6], "not relevant")
+        parked = _job_flags(self.db_path, parked_id)
+        self.assertEqual(parked[0], 1)  # parked stays parked
+        self.assertEqual(parked[6], "relevant")
+        hidden_ids = {r["id"] for r in get_hidden_jobs(self.db_path, limit=0)}
+        self.assertEqual(hidden_ids, {parked_id})
+
+    def test_park_non_applied_clears_pipeline_keeps_category(self):
+        job_id = _insert_job(self.db_path, "https://example.com/park")
+        self.assertTrue(set_job_viewed(self.db_path, job_id, True))
+        self.assertTrue(set_job_feedback(self.db_path, job_id, "relevant"))
+
+        self.assertTrue(set_job_hidden(self.db_path, job_id, True))
+        row = _job_flags(self.db_path, job_id)
+        self.assertEqual(row[0], 1)  # hidden
+        self.assertEqual(row[1], 0)  # viewed cleared
         self.assertEqual(row[2], 0)  # applied
         self.assertEqual(row[3], 0)  # on_interview
         self.assertEqual(row[4], 0)  # interview_stopped
         self.assertIsNone(row[5])  # company_feedback
         self.assertEqual(row[6], "relevant")  # category preserved
-        self.assertIsNone(row[7])  # cover_letter
-        self.assertEqual(row[8], 0)  # cover_letter_requested
 
     def test_unhide_only_clears_hidden_flag(self):
         job_id = _insert_job(self.db_path, "https://example.com/unhide")
@@ -123,25 +210,35 @@ class HiddenDbTest(unittest.TestCase):
         self.assertEqual(_job_flags(self.db_path, job_id)[0], 0)
         self.assertEqual(_job_flags(self.db_path, job_id)[2], 1)
 
-    def test_listings_exclude_hidden(self):
+    def test_listings_soft_hide_and_park_semantics(self):
         relevant_id = _insert_job(self.db_path, "https://example.com/rel", title="Relevant")
         applied_id = _insert_job(self.db_path, "https://example.com/app", title="Applied")
+        interview_id = _insert_job(
+            self.db_path, "https://example.com/iv", title="Interview"
+        )
         self.assertTrue(set_job_feedback(self.db_path, relevant_id, "relevant"))
         self.assertTrue(set_job_applied(self.db_path, applied_id, True))
+        self.assertTrue(set_job_applied(self.db_path, interview_id, True))
+        self.assertTrue(set_job_on_interview(self.db_path, interview_id, True))
         self.assertTrue(set_job_hidden(self.db_path, relevant_id, True))
         self.assertTrue(set_job_hidden(self.db_path, applied_id, True))
+        self.assertTrue(set_job_hidden(self.db_path, interview_id, True))
 
         self.assertEqual(get_jobs_by_category(self.db_path, "relevant", limit=0), [])
         self.assertEqual(get_relevant_jobs(self.db_path, limit=0), [])
-        self.assertEqual(get_applied_jobs(self.db_path, limit=0), [])
-        self.assertEqual(get_interview_jobs(self.db_path, limit=0), [])
+        applied_ids = {row["id"] for row in get_applied_jobs(self.db_path, limit=0)}
+        interview_ids = {row["id"] for row in get_interview_jobs(self.db_path, limit=0)}
+        self.assertEqual(applied_ids, {applied_id})
+        self.assertEqual(interview_ids, {interview_id})
         self.assertEqual(get_stopped_interview_jobs(self.db_path, limit=0), [])
 
         parked = get_jobs_by_category(
             self.db_path, "relevant", limit=0, exclude_hidden=False
         )
-        self.assertEqual({row["id"] for row in parked}, {relevant_id, applied_id})
-        self.assertEqual(get_hidden_jobs_count(self.db_path), 2)
+        self.assertIn(relevant_id, {row["id"] for row in parked})
+        hidden_ids = {row["id"] for row in get_hidden_jobs(self.db_path, limit=0)}
+        self.assertEqual(hidden_ids, {relevant_id})
+        self.assertEqual(get_hidden_jobs_count(self.db_path), 1)
 
     def test_get_hidden_jobs(self):
         job_id = _insert_job(self.db_path, "https://example.com/hidden-list")

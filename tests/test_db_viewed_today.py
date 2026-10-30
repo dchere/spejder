@@ -80,7 +80,8 @@ class ViewedTodayDbTest(unittest.TestCase):
         self.assertTrue(set_job_applied(self.db_path, applied_id, True))
 
         self.assertTrue(set_job_viewed(self.db_path, hidden_id, True))
-        # Bypass mutual-exclusion mutations to assert SQL still excludes hidden=1.
+        # Parked-with-viewed (applied=0): assert SQL still excludes hidden=1.
+        # Soft-hide is applied+hidden; this is the park edge case with viewed left on.
         conn = _connect(self.db_path)
         try:
             cur = conn.cursor()

@@ -38,28 +38,28 @@ def _render_company_dashboard_html(
     order = viewed_today_order or {}
     viewed_today_ids = set(order.keys())
     hidden_items = [
-        item for item in company_items if int(item.get("hidden", 0) or 0) == 1
+        item
+        for item in company_items
+        if int(item.get("hidden", 0) or 0) == 1
+        and int(item.get("applied", 0) or 0) == 0
     ]
     applied_items = [
         item
         for item in company_items
-        if int(item.get("hidden", 0) or 0) == 0
-        and int(item.get("applied", 0) or 0) == 1
+        if int(item.get("applied", 0) or 0) == 1
         and int(item.get("on_interview", 0) or 0) == 0
         and int(item.get("interview_stopped", 0) or 0) == 0
     ]
     interview_items = [
         item
         for item in company_items
-        if int(item.get("hidden", 0) or 0) == 0
-        and int(item.get("applied", 0) or 0) == 1
+        if int(item.get("applied", 0) or 0) == 1
         and int(item.get("on_interview", 0) or 0) == 1
     ]
     stopped_items = [
         item
         for item in company_items
-        if int(item.get("hidden", 0) or 0) == 0
-        and int(item.get("applied", 0) or 0) == 1
+        if int(item.get("applied", 0) or 0) == 1
         and int(item.get("interview_stopped", 0) or 0) == 1
     ]
     viewed_today_items = [

@@ -3,7 +3,7 @@ from .deduplication_utils import (
     _canonicalize_company_for_dedupe,
     _normalize_company_key,
 )
-from .queries_listings import _EXCLUDE_HIDDEN_SQL, _JOB_SELECT_COLS
+from .queries_listings import _JOB_SELECT_COLS
 from .queries_rows import _map_applied_job_row
 
 
@@ -13,8 +13,7 @@ def get_applied_jobs(db_path: str, limit: int = 0) -> list[dict]:
         cur = conn.cursor()
         q = (
             f"SELECT {_JOB_SELECT_COLS}, category "
-            "FROM jobs WHERE applied=1 AND on_interview=0 AND interview_stopped=0"
-            f"{_EXCLUDE_HIDDEN_SQL} "
+            "FROM jobs WHERE applied=1 AND on_interview=0 AND interview_stopped=0 "
             "ORDER BY (applied_at IS NULL), applied_at DESC, updated_at DESC"
         )
         params: list = []
@@ -53,8 +52,7 @@ def get_interview_jobs(db_path: str, limit: int = 0) -> list[dict]:
         cur = conn.cursor()
         q = (
             f"SELECT {_JOB_SELECT_COLS}, category "
-            "FROM jobs WHERE applied=1 AND on_interview=1"
-            f"{_EXCLUDE_HIDDEN_SQL} "
+            "FROM jobs WHERE applied=1 AND on_interview=1 "
             "ORDER BY (applied_at IS NULL), applied_at DESC, updated_at DESC"
         )
         params: list = []
@@ -74,8 +72,7 @@ def get_stopped_interview_jobs(db_path: str, limit: int = 0) -> list[dict]:
         cur = conn.cursor()
         q = (
             f"SELECT {_JOB_SELECT_COLS}, category "
-            "FROM jobs WHERE applied=1 AND interview_stopped=1"
-            f"{_EXCLUDE_HIDDEN_SQL} "
+            "FROM jobs WHERE applied=1 AND interview_stopped=1 "
             "ORDER BY (applied_at IS NULL), applied_at DESC, updated_at DESC"
         )
         params: list = []

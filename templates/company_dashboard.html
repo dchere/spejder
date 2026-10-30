@@ -148,6 +148,9 @@
                         if (interviewCheckbox) interviewCheckbox.checked = false;
                         if (stoppedCheckbox) stoppedCheckbox.checked = false;
                         if (card) removeCompanyFeedbackUI(card);
+                        // Soft-hide clear matches DB leave-applied CASE (not only auto-view).
+                        if (hiddenCheckbox) hiddenCheckbox.checked = false;
+                        if (card) card.classList.remove('is-soft-filtered');
                         if (viewedCheckbox && !viewedCheckbox.checked) {
                             const viewedResponse = await fetch(apiUrl('/api/viewed'), {
                                 method: 'POST',
@@ -159,7 +162,6 @@
                                 throw new Error(viewedData.error || 'Failed to update viewed');
                             }
                             viewedCheckbox.checked = true;
-                            if (hiddenCheckbox) hiddenCheckbox.checked = false;
                         }
                     }
                     if (card) {
@@ -208,6 +210,9 @@
                             if (appliedCheckbox) appliedCheckbox.checked = false;
                             if (interviewCheckbox) interviewCheckbox.checked = false;
                             if (stoppedCheckbox) stoppedCheckbox.checked = false;
+                            const hiddenCheckbox = card.querySelector('.hidden-wrap input');
+                            if (hiddenCheckbox) hiddenCheckbox.checked = false;
+                            card.classList.remove('is-soft-filtered');
                             removeCardFromAppliedStages(card);
                             const targetPanel = relevantCheckbox && relevantCheckbox.checked ? panelRelevant : panelNotRelevant;
                             if (card.parentElement !== targetPanel) targetPanel.prepend(card);
