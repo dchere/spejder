@@ -1,4 +1,4 @@
-"""Regression: inbox dashboard report includes Hidden tab items."""
+"""Regression: inbox dashboard report embeds soft-hidden triage rows."""
 
 import os
 import tempfile
@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from spejder.config import AppConfig
-from spejder.db import ensure_db, set_job_hidden, upsert_job
+from spejder.db import ensure_db, set_job_feedback, set_job_hidden, upsert_job
 from spejder.db.connection import _connect
 from spejder.workflows.inbox_report import write_inbox_dashboard_report
 
@@ -17,7 +17,7 @@ def _insert_job(db_path: str, link: str) -> int:
         {
             "source": "Test",
             "company": "Acme",
-            "title": "Parked Engineer",
+            "title": "Soft Hidden Engineer",
             "position_link": link,
             "raw_text": "raw",
         },
@@ -43,9 +43,10 @@ class InboxReportHiddenTest(unittest.TestCase):
         self._tmpdir.cleanup()
 
     @patch("spejder.workflows.inbox_report.materialize_job_skills")
-    def test_write_inbox_dashboard_report_includes_hidden(self, mock_materialize):
+    def test_write_inbox_dashboard_report_includes_soft_hidden(self, mock_materialize):
         mock_materialize.return_value = ("", "raw", False)
         job_id = _insert_job(self.db_path, "https://example.com/inbox-hidden")
+        self.assertTrue(set_job_feedback(self.db_path, job_id, "relevant"))
         self.assertTrue(set_job_hidden(self.db_path, job_id, True))
 
         path = write_inbox_dashboard_report(
@@ -57,9 +58,13 @@ class InboxReportHiddenTest(unittest.TestCase):
         with open(path, encoding="utf-8") as handle:
             html = handle.read()
 
-        self.assertIn("Hidden (1)", html)
-        self.assertIn("Parked Engineer", html)
+        self.assertNotIn('id="btn-hidden"', html)
+        self.assertNotIn('id="panel-hidden"', html)
+        self.assertIn("Soft Hidden Engineer", html)
         self.assertIn(f'setHidden({job_id}', html)
+        self.assertIn('class="hidden-wrap"><input type="checkbox" checked', html)
+        # Badge numerator and total exclude soft-hidden; listing still embeds the card.
+        self.assertIn("Relevant (0/0)", html)
 
 
 if __name__ == "__main__":

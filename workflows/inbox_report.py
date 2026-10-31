@@ -6,6 +6,7 @@ from spejder.config import AppConfig
 from spejder.db import (
     get_all_applied_jobs,
     get_jobs_by_category,
+    get_jobs_count_by_category,
     get_viewed_jobs_count,
     set_job_description,
     set_job_summary,
@@ -14,10 +15,7 @@ from spejder.extractors.skill_extractor import _build_skills_tab_items
 from spejder.llm import LocalLLM
 from spejder.managers.dashboard_manager import _render_html_dashboard
 from spejder.managers.language_manager import get_title_english_for_row as _get_title_english_for_row
-from spejder.workflows.dashboard import (
-    build_hidden_dashboard_records,
-    build_viewed_today_dashboard_records,
-)
+from spejder.workflows.dashboard import build_viewed_today_dashboard_records
 from spejder.workflows.job_enrichment import (
     _build_description_summary,
     _build_title_fields,
@@ -98,8 +96,14 @@ def write_inbox_dashboard_report(
     report_data: dict[str, list[dict]] = {}
     page_context_cache: dict[str, str] = {}
     report_title_translation_cache: dict[str, str] = {}
+    category_totals: dict[str, int] = {}
     for cat in ["relevant", "not relevant"]:
-        rows = get_jobs_by_category(db_path, cat, limit=0, unviewed_only=True)
+        category_totals[cat] = get_jobs_count_by_category(
+            db_path, cat, unviewed_only=True
+        )
+        rows = get_jobs_by_category(
+            db_path, cat, limit=0, unviewed_only=True, exclude_hidden=False
+        )
         records = []
         for row in rows:
             summary = _summary_for_display(
@@ -169,6 +173,7 @@ def write_inbox_dashboard_report(
                     "category": cat,
                     "viewed": row.get("viewed", 0),
                     "applied": row.get("applied", 0),
+                    "hidden": int(row.get("hidden", 0) or 0),
                 }
             )
         report_data[cat] = records
@@ -217,6 +222,7 @@ def write_inbox_dashboard_report(
             "on_interview": int(row.get("on_interview", 0) or 0),
             "interview_stopped": int(row.get("interview_stopped", 0) or 0),
             "company_feedback": row.get("company_feedback", "") or "",
+            "hidden": int(row.get("hidden", 0) or 0),
         }
         if record["interview_stopped"]:
             stopped_records.append(record)
@@ -225,11 +231,6 @@ def write_inbox_dashboard_report(
         else:
             applied_records.append(record)
 
-    hidden_records = build_hidden_dashboard_records(
-        db_path,
-        profile,
-        report_title_translation_cache,
-    )
     viewed_today_records = build_viewed_today_dashboard_records(
         db_path,
         profile,
@@ -247,9 +248,10 @@ def write_inbox_dashboard_report(
         skills_items=_build_skills_tab_items(db_path, profile),
         report_max_relevant_positions=_report_max_relevant_positions(profile),
         report_max_not_relevant_positions=_report_max_not_relevant_positions(profile),
+        relevant_total_count=category_totals.get("relevant", 0),
+        not_relevant_total_count=category_totals.get("not relevant", 0),
         interview_items=interview_records,
         stopped_items=stopped_records,
-        hidden_items=hidden_records,
         viewed_today_items=viewed_today_records,
         runtime_profile=profile,
         db_path=db_path,

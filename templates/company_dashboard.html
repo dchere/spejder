@@ -20,7 +20,6 @@
             <button id="btn-applied" class="mode-btn" type="button">Applied ({{ len_applied_items }})</button>
             <button id="btn-interview" class="mode-btn" type="button">Interview ({{ len_interview_items }})</button>
             <button id="btn-stopped" class="mode-btn" type="button">Stopped ({{ len_stopped_items }})</button>
-            <button id="btn-hidden" class="mode-btn" type="button">Hidden ({{ len_hidden_items }})</button>
             <button id="btn-edited-today" class="mode-btn" type="button">Edited today ({{ len_viewed_today_items }})</button>
         </div>
         <section id="panel-relevant" class="grid">{{ relevant_cards }}</section>
@@ -28,7 +27,6 @@
         <section id="panel-applied" class="grid hidden">{{ applied_cards }}</section>
         <section id="panel-interview" class="grid hidden">{{ interview_cards }}</section>
         <section id="panel-stopped" class="grid hidden">{{ stopped_cards }}</section>
-        <section id="panel-hidden" class="grid hidden">{{ hidden_cards }}</section>
         <section id="panel-edited-today" class="grid hidden">{{ viewed_today_cards }}</section>
         <script>
             const btnRelevant = document.getElementById('btn-relevant');
@@ -37,14 +35,12 @@
             const btnApplied = document.getElementById('btn-applied');
             const btnInterview = document.getElementById('btn-interview');
             const btnStopped = document.getElementById('btn-stopped');
-            const btnHidden = document.getElementById('btn-hidden');
             const panelRelevant = document.getElementById('panel-relevant');
             const panelNotRelevant = document.getElementById('panel-not-relevant');
             const panelEditedToday = document.getElementById('panel-edited-today');
             const panelApplied = document.getElementById('panel-applied');
             const panelInterview = document.getElementById('panel-interview');
             const panelStopped = document.getElementById('panel-stopped');
-            const panelHidden = document.getElementById('panel-hidden');
             const appliedStagePanels = [panelApplied, panelInterview, panelStopped];
 
             function apiUrl(path) {
@@ -78,14 +74,12 @@
                 btnApplied.textContent = `Applied (${panelApplied.querySelectorAll('.card').length})`;
                 btnInterview.textContent = `Interview (${panelInterview.querySelectorAll('.card').length})`;
                 btnStopped.textContent = `Stopped (${panelStopped.querySelectorAll('.card').length})`;
-                btnHidden.textContent = `Hidden (${panelHidden.querySelectorAll('.card').length})`;
                 ensureEmptyState(panelRelevant);
                 ensureEmptyState(panelNotRelevant);
                 ensureEmptyState(panelEditedToday);
                 ensureEmptyState(panelApplied);
                 ensureEmptyState(panelInterview);
                 ensureEmptyState(panelStopped);
-                ensureEmptyState(panelHidden);
             }
 
             function setMode(mode) {
@@ -95,21 +89,18 @@
                 const isApplied = mode === 'applied';
                 const isInterview = mode === 'interview';
                 const isStopped = mode === 'stopped';
-                const isHiddenTab = mode === 'hidden';
                 panelRelevant.classList.toggle('hidden', !isRelevant);
                 panelNotRelevant.classList.toggle('hidden', !isNotRelevant);
                 panelEditedToday.classList.toggle('hidden', !isEditedToday);
                 panelApplied.classList.toggle('hidden', !isApplied);
                 panelInterview.classList.toggle('hidden', !isInterview);
                 panelStopped.classList.toggle('hidden', !isStopped);
-                panelHidden.classList.toggle('hidden', !isHiddenTab);
                 btnRelevant.classList.toggle('active', isRelevant);
                 btnNotRelevant.classList.toggle('active', isNotRelevant);
                 btnEditedToday.classList.toggle('active', isEditedToday);
                 btnApplied.classList.toggle('active', isApplied);
                 btnInterview.classList.toggle('active', isInterview);
                 btnStopped.classList.toggle('active', isStopped);
-                btnHidden.classList.toggle('active', isHiddenTab);
             }
 
             {% include "partials/dashboard_card_stage.js" %}
@@ -120,7 +111,6 @@
             btnApplied.addEventListener('click', () => setMode('applied'));
             btnInterview.addEventListener('click', () => setMode('interview'));
             btnStopped.addEventListener('click', () => setMode('stopped'));
-            btnHidden.addEventListener('click', () => setMode('hidden'));
             btnEditedToday.addEventListener('click', () => setMode('edited today'));
 
             async function setRelevant(jobId, isRelevant, inputEl) {
@@ -140,7 +130,6 @@
                     }
                     const appliedCheckbox = card ? card.querySelector('.applied-wrap input') : null;
                     const viewedCheckbox = card ? card.querySelector('.viewed-wrap input') : null;
-                    const hiddenCheckbox = card ? card.querySelector('.hidden-wrap input') : null;
                     if (signal === 'not relevant') {
                         if (appliedCheckbox) appliedCheckbox.checked = false;
                         const interviewCheckbox = card ? card.querySelector('.interview-wrap input') : null;
@@ -148,9 +137,6 @@
                         if (interviewCheckbox) interviewCheckbox.checked = false;
                         if (stoppedCheckbox) stoppedCheckbox.checked = false;
                         if (card) removeCompanyFeedbackUI(card);
-                        // Soft-hide clear matches DB leave-applied CASE (not only auto-view).
-                        if (hiddenCheckbox) hiddenCheckbox.checked = false;
-                        if (card) card.classList.remove('is-soft-filtered');
                         if (viewedCheckbox && !viewedCheckbox.checked) {
                             const viewedResponse = await fetch(apiUrl('/api/viewed'), {
                                 method: 'POST',
@@ -165,13 +151,12 @@
                         }
                     }
                     if (card) {
-                        const stillHidden = Boolean(hiddenCheckbox && hiddenCheckbox.checked);
                         const isViewedNow = Boolean(viewedCheckbox && viewedCheckbox.checked);
-                        if (!stillHidden && appliedCheckbox && appliedCheckbox.checked) {
+                        if (appliedCheckbox && appliedCheckbox.checked) {
                             moveCardToAppliedStage(card);
-                        } else if (!stillHidden && isViewedNow) {
+                        } else if (isViewedNow) {
                             if (card.parentElement !== panelEditedToday) panelEditedToday.prepend(card);
-                        } else if (!stillHidden) {
+                        } else {
                             const targetPanel = signal === 'relevant' ? panelRelevant : panelNotRelevant;
                             if (card.parentElement !== targetPanel) targetPanel.prepend(card);
                         }
@@ -210,15 +195,10 @@
                             if (appliedCheckbox) appliedCheckbox.checked = false;
                             if (interviewCheckbox) interviewCheckbox.checked = false;
                             if (stoppedCheckbox) stoppedCheckbox.checked = false;
-                            const hiddenCheckbox = card.querySelector('.hidden-wrap input');
-                            if (hiddenCheckbox) hiddenCheckbox.checked = false;
-                            card.classList.remove('is-soft-filtered');
                             removeCardFromAppliedStages(card);
                             const targetPanel = relevantCheckbox && relevantCheckbox.checked ? panelRelevant : panelNotRelevant;
                             if (card.parentElement !== targetPanel) targetPanel.prepend(card);
                         } else {
-                            const hiddenCheckbox = card.querySelector('.hidden-wrap input');
-                            if (hiddenCheckbox) hiddenCheckbox.checked = false;
                             if (!appliedStagePanels.includes(card.parentElement)) {
                                 if (card.parentElement !== panelEditedToday) panelEditedToday.prepend(card);
                             }

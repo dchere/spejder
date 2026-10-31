@@ -1,3 +1,9 @@
+            // R/NR data-total excludes soft-hidden; only bump when the card counted.
+            function cardCountsInTriageTotal(card) {
+                const hidden = card && card.querySelector('.hidden-wrap input');
+                return !(hidden && hidden.checked);
+            }
+
             async function setApplied(jobId, applied, inputEl) {
                 const card = inputEl.closest('.card');
                 const statusEl = card ? card.querySelector('.feedback-status') : null;
@@ -21,11 +27,12 @@
                             if (relevantCheckbox) relevantCheckbox.checked = true;
                             if (viewedCheckbox) viewedCheckbox.checked = true;
                             const hiddenCheckbox = card.querySelector('.hidden-wrap input');
+                            const countedInTotal = cardCountsInTriageTotal(card);
                             if (hiddenCheckbox) hiddenCheckbox.checked = false;
                             if (appliedStagePanels.includes(card.parentElement)) {
                                 moveCardToAppliedStage(card);
                             } else {
-                                bumpPanelTotal(card.parentElement, -1);
+                                if (countedInTotal) bumpPanelTotal(card.parentElement, -1);
                                 moveCardToAppliedStage(card);
                             }
                             if (typeof waitForRebuildThenReload === 'function') {
@@ -145,33 +152,12 @@
                         throw new Error(data.error || 'Request failed');
                     }
                     if (card) {
-                        const appliedCheckbox = card.querySelector('.applied-wrap input');
-                        const isAppliedStage = appliedStagePanels.includes(card.parentElement)
-                            || Boolean(appliedCheckbox && appliedCheckbox.checked);
-                        if (isAppliedStage) {
-                            // Soft-hide: keep applied-stage checkboxes/UI and panel; filter only.
-                            if (typeof applyShowHiddenFilter === 'function') {
-                                applyShowHiddenFilter();
-                            }
-                        } else if (hidden) {
-                            const viewedCheckbox = card.querySelector('.viewed-wrap input');
-                            const interviewCheckbox = card.querySelector('.interview-wrap input');
-                            const stoppedCheckbox = card.querySelector('.stopped-wrap input');
-                            if (viewedCheckbox) viewedCheckbox.checked = false;
-                            if (appliedCheckbox) appliedCheckbox.checked = false;
-                            if (interviewCheckbox) interviewCheckbox.checked = false;
-                            if (stoppedCheckbox) stoppedCheckbox.checked = false;
-                            removeCompanyFeedbackUI(card);
-                            removeAppliedOnlyUI(card);
-                            if (card.parentElement === panelRelevant || card.parentElement === panelNotRelevant) {
-                                bumpPanelTotal(card.parentElement, -1);
-                            }
-                            if (card.parentElement !== panelHidden) panelHidden.prepend(card);
-                        } else {
-                            const relevantCheckbox = card.querySelector('.relevant-wrap input');
-                            const targetPanel = relevantCheckbox && relevantCheckbox.checked ? panelRelevant : panelNotRelevant;
-                            bumpPanelTotal(targetPanel, 1);
-                            if (card.parentElement !== targetPanel) targetPanel.prepend(card);
+                        // Soft-hide only: stay on current stage/category panel; filter via Show hidden.
+                        if (card.parentElement === panelRelevant || card.parentElement === panelNotRelevant) {
+                            bumpPanelTotal(card.parentElement, hidden ? -1 : 1);
+                        }
+                        if (typeof applyShowHiddenFilter === 'function') {
+                            applyShowHiddenFilter();
                         }
                     }
                     if (statusEl) statusEl.textContent = `Saved: ${hidden ? 'hidden' : 'unhidden'}`;
@@ -197,7 +183,10 @@
                         throw new Error(data.error || 'Request failed');
                     }
                     document.querySelectorAll(`[data-job-id="${jobId}"]`).forEach((el) => {
-                        if (el.parentElement === panelRelevant || el.parentElement === panelNotRelevant) {
+                        if (
+                            (el.parentElement === panelRelevant || el.parentElement === panelNotRelevant)
+                            && cardCountsInTriageTotal(el)
+                        ) {
                             bumpPanelTotal(el.parentElement, -1);
                         }
                         el.remove();
@@ -233,11 +222,15 @@
                         removeAppliedOnlyUI(el);
                         const relevantCheckbox = el.querySelector('.relevant-wrap input');
                         const targetPanel = relevantCheckbox && relevantCheckbox.checked ? panelRelevant : panelNotRelevant;
+                        const countedInTotal = cardCountsInTriageTotal(el);
                         if (el.parentElement !== targetPanel) {
-                            if (el.parentElement === panelRelevant || el.parentElement === panelNotRelevant) {
+                            if (
+                                (el.parentElement === panelRelevant || el.parentElement === panelNotRelevant)
+                                && countedInTotal
+                            ) {
                                 bumpPanelTotal(el.parentElement, -1);
                             }
-                            bumpPanelTotal(targetPanel, 1);
+                            if (countedInTotal) bumpPanelTotal(targetPanel, 1);
                             targetPanel.prepend(el);
                         }
                     });

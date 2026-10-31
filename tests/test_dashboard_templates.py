@@ -68,7 +68,6 @@ def _minimal_dashboard_context():
         "len_applied_items": 0,
         "len_interview_items": 0,
         "len_stopped_items": 0,
-        "len_hidden_items": 0,
         "len_skills_items": 0,
         "relevant_cards": "",
         "not_relevant_cards": "",
@@ -76,7 +75,6 @@ def _minimal_dashboard_context():
         "applied_cards": "",
         "interview_cards": "",
         "stopped_cards": "",
-        "hidden_cards": "",
         "skills_table_html": '<p class="empty">No skills found.</p>',
         "skills_cloud_status_html": "",
         "skills_empty_added_at_sort": SKILLS_EMPTY_ADDED_AT_SORT,
@@ -97,14 +95,12 @@ def _minimal_company_context():
         "len_applied_items": 0,
         "len_interview_items": 0,
         "len_stopped_items": 0,
-        "len_hidden_items": 0,
         "relevant_cards": "",
         "not_relevant_cards": "",
         "viewed_today_cards": "",
         "applied_cards": "",
         "interview_cards": "",
         "stopped_cards": "",
-        "hidden_cards": "",
         "skills_table_html": "",
         "len_skills_items": 0,
     }
@@ -258,10 +254,10 @@ class DashboardTemplatesTest(unittest.TestCase):
     def test_set_applied_true_branch_waits_reload_when_helper_exists(self):
         for name in ("dashboard.html", "company_dashboard.html"):
             with self.subTest(template=name):
-                applied_branch = _extract_if_block(
-                    _extract_js_function_body(_render_template(name), "setApplied"),
-                    "applied",
+                applied_body = _extract_js_function_body(
+                    _render_template(name), "setApplied"
                 )
+                applied_branch = _extract_if_block(applied_body, "applied")
                 self.assertIn(
                     "typeof waitForRebuildThenReload === 'function'", applied_branch
                 )
@@ -273,6 +269,16 @@ class DashboardTemplatesTest(unittest.TestCase):
                     applied_branch.index("Saved: applied"),
                     applied_branch.index("waitForRebuildThenReload('applied')"),
                 )
+                # Soft-hidden triage cards already excluded from data-total.
+                counted_at = applied_branch.index(
+                    "countedInTotal = cardCountsInTriageTotal(card)"
+                )
+                clear_at = applied_branch.index("hiddenCheckbox.checked = false")
+                bump_at = applied_branch.index(
+                    "if (countedInTotal) bumpPanelTotal(card.parentElement, -1)"
+                )
+                self.assertLess(counted_at, clear_at)
+                self.assertLess(clear_at, bump_at)
         main_html = _render_template("dashboard.html")
         company_html = _render_template("company_dashboard.html")
         self.assertIn("function waitForRebuildThenReload", main_html)
@@ -297,29 +303,17 @@ class DashboardTemplatesTest(unittest.TestCase):
                 self.assertIn("stillViewed", false_branch)
                 self.assertIn("panelEditedToday", false_branch)
 
-    def test_set_hidden_soft_vs_park_paths(self):
+    def test_set_hidden_soft_only(self):
         for name in ("dashboard.html", "company_dashboard.html"):
             with self.subTest(template=name):
                 text = _render_template(name)
                 body = _extract_js_function_body(text, "setHidden")
                 self.assertNotIn("setMode", body)
                 self.assertIn("/api/hidden", body)
-                self.assertIn("isAppliedStage", body)
-                soft_marker = "if (isAppliedStage)"
-                self.assertIn(soft_marker, body)
-                soft_branch = body.split(soft_marker, 1)[1]
-                soft_end = soft_branch.index("} else if (hidden)")
-                soft_body = soft_branch[:soft_end]
-                self.assertNotIn("removeAppliedOnlyUI(card)", soft_body)
-                self.assertNotIn("panelHidden.prepend", soft_body)
-                self.assertIn("applyShowHiddenFilter", soft_body)
-                park_branch = _extract_if_block(body, "hidden")
-                self.assertIn("removeAppliedOnlyUI(card)", park_branch)
-                self.assertIn("panelHidden.prepend", park_branch)
-                else_branch = body.split("} else {", 1)[1]
-                self.assertIn("panelRelevant", else_branch)
-                self.assertIn("panelNotRelevant", else_branch)
-                self.assertIn("relevantCheckbox.checked", else_branch)
+                self.assertNotIn("panelHidden", body)
+                self.assertNotIn("removeAppliedOnlyUI(card)", body)
+                self.assertIn("applyShowHiddenFilter", body)
+                self.assertIn("bumpPanelTotal", body)
 
     def test_show_hidden_control_main_only(self):
         main = _render_template("dashboard.html")
@@ -328,12 +322,14 @@ class DashboardTemplatesTest(unittest.TestCase):
         self.assertIn('id="show-hidden"', main)
         self.assertIn("spejder-show-hidden", main)
         self.assertIn("function applyShowHiddenFilter", main)
+        self.assertIn("softHideFilterPanels", main)
         self.assertIn(".is-soft-filtered", main)
         self.assertNotIn('id="show-hidden-wrap"', company)
         self.assertNotIn("spejder-show-hidden", company)
         self.assertNotIn("function applyShowHiddenFilter", company)
 
-        # Tab counts stay inclusive of soft-filtered cards; empty-state ignores them.
+        # Applied-stage counts include soft-hidden; Relevant/Not relevant exclude by
+        # soft-hide checkbox state (not is-soft-filtered / Show hidden visibility).
         refresh_body = _extract_js_function_body(main, "refreshCounts")
         for panel in ("panelApplied", "panelInterview", "panelStopped"):
             self.assertIn(f"{panel}.querySelectorAll('.card').length", refresh_body)
@@ -341,19 +337,33 @@ class DashboardTemplatesTest(unittest.TestCase):
                 f"{panel}.querySelectorAll('.card:not",
                 refresh_body,
             )
+        triage_exclude = ".card:not(:has(.hidden-wrap input:checked))"
+        self.assertIn(triage_exclude, refresh_body)
+        self.assertNotIn(
+            "panelRelevant.querySelectorAll(\n"
+            "                    '.card:not(.is-soft-filtered)'\n"
+            "                ).length",
+            refresh_body,
+        )
         empty_body = _extract_js_function_body(main, "ensureEmptyState")
         self.assertIn(".card:not(.is-soft-filtered)", empty_body)
+        # Initial Show-hidden filter must refresh badges/empty after CSS applies.
+        loaded = main.split("DOMContentLoaded", 1)[1]
+        filter_at = loaded.index("applyShowHiddenFilter()")
+        refresh_at = loaded.index("refreshCounts()", filter_at)
+        self.assertLess(filter_at, refresh_at)
 
     def test_main_set_relevant_unviewed_move_bumps_both_totals(self):
         body = _extract_js_function_body(
             _render_template("dashboard.html"), "setRelevant"
         )
+        self.assertIn("countedInTotal = cardCountsInTriageTotal(card)", body)
         marker = (
-            "if (!stillHidden && card && !isViewed && card.parentElement !== targetPanel)"
+            "if (card && !isViewed && card.parentElement !== targetPanel)"
         )
         start = body.index(marker)
         viewed = body.index(
-            "} else if (!stillHidden && card && isViewed && !appliedStagePanels",
+            "} else if (card && isViewed && !appliedStagePanels",
             start,
         )
         unviewed = body[start:viewed]
@@ -362,6 +372,8 @@ class DashboardTemplatesTest(unittest.TestCase):
             "card.parentElement === panelNotRelevant"
         )
         self.assertIn(source_guard, unviewed)
+        self.assertIn("&& countedInTotal", unviewed)
+        self.assertIn("if (countedInTotal) bumpPanelTotal(targetPanel, 1)", unviewed)
         source_bump = unviewed.index("bumpPanelTotal(card.parentElement, -1)")
         target_bump = unviewed.index("bumpPanelTotal(targetPanel, 1)")
         prepend = unviewed.index("targetPanel.prepend(card)")
@@ -369,32 +381,63 @@ class DashboardTemplatesTest(unittest.TestCase):
         self.assertLess(source_bump, prepend)
         self.assertLess(target_bump, prepend)
 
-    def test_set_relevant_keeps_still_hidden_cards(self):
-        for name in ("dashboard.html", "company_dashboard.html"):
-            with self.subTest(template=name):
-                text = _render_template(name)
-                body = _extract_js_function_body(text, "setRelevant")
-                self.assertIn("stillHidden", body)
-                self.assertIn("hiddenCheckbox.checked", body)
-                self.assertIn("!stillHidden", body)
+    def test_set_relevant_not_relevant_clears_soft_hide_on_main(self):
+        body = _extract_js_function_body(
+            _render_template("dashboard.html"), "setRelevant"
+        )
+        marker = "if (signal === 'not relevant')"
+        self.assertIn(marker, body)
+        not_rel = body.split(marker, 1)[1]
+        auto_view = not_rel.index("/api/viewed")
+        soft_prefix = not_rel[:auto_view]
+        self.assertIn("hiddenCheckbox.checked = false", soft_prefix)
+        self.assertIn("is-soft-filtered", soft_prefix)
+        self.assertIn("removeCardFromAppliedStages(card)", not_rel)
+        self.assertIn("panelEditedToday", not_rel)
+        # Capture counts-in-total before soft-hide clear; gate triage leave bumps.
+        counted_at = body.index("countedInTotal = cardCountsInTriageTotal(card)")
+        clear_at = body.index("hiddenCheckbox.checked = false", body.index(marker))
+        self.assertLess(counted_at, clear_at)
+        self.assertIn("fromTriage && isViewed && countedInTotal", not_rel)
+        self.assertIn("fromTriage && countedInTotal", not_rel)
 
-    def test_set_relevant_not_relevant_clears_soft_hide(self):
-        for name in ("dashboard.html", "company_dashboard.html"):
-            with self.subTest(template=name):
-                body = _extract_js_function_body(
-                    _render_template(name), "setRelevant"
-                )
-                marker = "if (signal === 'not relevant')"
-                self.assertIn(marker, body)
-                not_rel = body.split(marker, 1)[1]
-                # Soft-hide UI clear before auto-view / panel moves (mirrors unapply).
-                auto_view = not_rel.index("/api/viewed")
-                soft_prefix = not_rel[:auto_view]
-                self.assertIn("hiddenCheckbox.checked = false", soft_prefix)
-                self.assertIn("is-soft-filtered", soft_prefix)
-                if name == "dashboard.html":
-                    self.assertIn("removeCardFromAppliedStages(card)", not_rel)
-                    self.assertIn("panelEditedToday", not_rel)
+    def test_main_set_viewed_true_gates_bump_before_soft_hide_clear(self):
+        body = _extract_js_function_body(
+            _render_template("dashboard.html"), "setViewed"
+        )
+        viewed_true = _extract_if_block(body, "viewed")
+        counted_at = viewed_true.index(
+            "countedInTotal = cardCountsInTriageTotal(card)"
+        )
+        clear_at = viewed_true.index("hiddenCheckbox.checked = false")
+        soft_clear = viewed_true.index("is-soft-filtered")
+        bump_at = viewed_true.index(
+            "bumpPanelTotal(card.parentElement, -1)"
+        )
+        self.assertLess(counted_at, clear_at)
+        self.assertLess(clear_at, bump_at)
+        self.assertLess(soft_clear, bump_at)
+        self.assertIn("&& countedInTotal", viewed_true)
+
+    def test_main_set_viewed_false_keeps_soft_hide_and_gates_bump(self):
+        body = _extract_js_function_body(
+            _render_template("dashboard.html"), "setViewed"
+        )
+        # False branch after `if (viewed) { ... } else {`
+        marker = "const wasApplied = Boolean(appliedCheckbox && appliedCheckbox.checked)"
+        self.assertIn(marker, body)
+        false_branch = body.split(marker, 1)[1]
+        self.assertIn("if (wasApplied)", false_branch)
+        self.assertIn("hiddenCheckbox.checked = false", false_branch)
+        self.assertIn("is-soft-filtered", false_branch)
+        self.assertIn(
+            "if (cardCountsInTriageTotal(card)) bumpPanelTotal(targetPanel, 1)",
+            false_branch,
+        )
+        self.assertIn("applyShowHiddenFilter", false_branch)
+        # Unconditional clear must not appear outside wasApplied.
+        before_was = false_branch.split("if (wasApplied)", 1)[0]
+        self.assertNotIn("hiddenCheckbox.checked = false", before_was)
 
     def test_company_set_viewed_true_moves_to_edited_today(self):
         body = _extract_js_function_body(
@@ -403,9 +446,12 @@ class DashboardTemplatesTest(unittest.TestCase):
         self.assertNotIn("setMode", body)
         viewed_true = body.split("} else {", 1)[1]
         self.assertIn("panelEditedToday", viewed_true)
-        self.assertIn("hiddenCheckbox.checked = false", viewed_true)
         self.assertNotIn("panelRelevant", viewed_true)
         self.assertNotIn("panelNotRelevant", viewed_true)
+        # Company has no soft-hide UI / triage totals — no invent hide bumps.
+        self.assertNotIn("cardCountsInTriageTotal", body)
+        self.assertNotIn("hiddenCheckbox", body)
+        self.assertNotIn("applyShowHiddenFilter", body)
 
     def test_company_bump_panel_total_is_empty_noop(self):
         body = _extract_js_function_body(
@@ -429,13 +475,13 @@ class DashboardTemplatesTest(unittest.TestCase):
                 self.assertNotIn("setMode", body)
                 self.assertIn("panelEditedToday", body)
 
-    def test_templates_include_hidden_tab(self):
+    def test_templates_omit_hidden_tab(self):
         for name in ("dashboard.html", "company_dashboard.html"):
             with self.subTest(template=name):
                 source = _read_template(name)
                 html = _render_template(name)
-                self.assertIn('id="btn-hidden"', source)
-                self.assertIn('id="panel-hidden"', source)
+                self.assertNotIn('id="btn-hidden"', source)
+                self.assertNotIn('id="panel-hidden"', source)
                 self.assertIn('{% include "partials/dashboard_card_stage.js" %}', source)
                 self.assertIn('{% include "partials/dashboard_card_actions.js" %}', source)
                 self.assertIn(
@@ -557,6 +603,7 @@ class DashboardTemplatesTest(unittest.TestCase):
                 self.assertIn('`[data-job-id="${jobId}"]`', body)
                 self.assertIn(".remove()", body)
                 self.assertIn("bumpPanelTotal", body)
+                self.assertIn("cardCountsInTriageTotal", body)
                 self.assertIn("panelRelevant", body)
                 self.assertIn("panelNotRelevant", body)
                 self.assertIn("refreshCounts()", body)
@@ -638,9 +685,10 @@ class DashboardTemplatesTest(unittest.TestCase):
 
     def test_dashboard_tab_buttons_use_switch_tab(self):
         text = _read_template("dashboard.html")
-        for mode in ("relevant", "not relevant", "applied", "interview", "stopped", "hidden", "skills", "edited today"):
+        for mode in ("relevant", "not relevant", "applied", "interview", "stopped", "skills", "edited today"):
             with self.subTest(mode=mode):
                 self.assertIn(f"switchTab('{mode}')", text)
+        self.assertNotIn("switchTab('hidden')", text)
         self.assertIn("btnPortrait.addEventListener('click', () => setMode('portrait'))", text)
 
     def test_dashboard_switch_tab_checks_stale_report(self):
@@ -846,6 +894,10 @@ class DashboardTemplatesTest(unittest.TestCase):
                 )
                 self.assertIn("targetPanel.prepend(el)", cleaner)
                 self.assertIn("bumpPanelTotal", cleaner)
+                self.assertIn(
+                    "countedInTotal = cardCountsInTriageTotal(el)", cleaner
+                )
+                self.assertIn("if (countedInTotal) bumpPanelTotal(targetPanel, 1)", cleaner)
                 self.assertIn("panelRelevant", cleaner)
                 self.assertIn("panelNotRelevant", cleaner)
                 self.assertIn(".feedback-status", cleaner)

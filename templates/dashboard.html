@@ -63,7 +63,6 @@
                 <button id="btn-applied" class="mode-btn" type="button">Applied ({{ len_applied_items }})</button>
                 <button id="btn-interview" class="mode-btn" type="button">Interview ({{ len_interview_items }})</button>
                 <button id="btn-stopped" class="mode-btn" type="button">Stopped ({{ len_stopped_items }})</button>
-                <button id="btn-hidden" class="mode-btn" type="button">Hidden ({{ len_hidden_items }})</button>
                 <button id="btn-skills" class="mode-btn" type="button">Skills ({{ len_skills_items }})</button>
                 <button id="btn-edited-today" class="mode-btn" type="button">Edited today ({{ len_viewed_today_items }})</button>
                 <span id="tab-refresh-status" class="tab-refresh-status"></span>
@@ -86,7 +85,7 @@
                 </div>
             </div>
         </div>
-        <div id="show-hidden-wrap" class="show-hidden-wrap" hidden>
+        <div id="show-hidden-wrap" class="show-hidden-wrap">
             <label><input type="checkbox" id="show-hidden" /> Show hidden</label>
         </div>
         <section id="panel-relevant" class="grid">{{ relevant_cards }}</section>
@@ -94,7 +93,6 @@
         <section id="panel-applied" class="grid hidden">{{ applied_cards }}</section>
         <section id="panel-interview" class="grid hidden">{{ interview_cards }}</section>
         <section id="panel-stopped" class="grid hidden">{{ stopped_cards }}</section>
-        <section id="panel-hidden" class="grid hidden">{{ hidden_cards }}</section>
         <section id="panel-skills" class="skills-wrap hidden">
             <div class="skills-bulk-bar">
                 {% if len_skills_items > 0 %}
@@ -134,7 +132,6 @@
             const btnApplied = document.getElementById('btn-applied');
             const btnInterview = document.getElementById('btn-interview');
             const btnStopped = document.getElementById('btn-stopped');
-            const btnHidden = document.getElementById('btn-hidden');
             const btnSkills = document.getElementById('btn-skills');
             const btnPortrait = document.getElementById('btn-portrait');
             const panelRelevant = document.getElementById('panel-relevant');
@@ -143,7 +140,6 @@
             const panelApplied = document.getElementById('panel-applied');
             const panelInterview = document.getElementById('panel-interview');
             const panelStopped = document.getElementById('panel-stopped');
-            const panelHidden = document.getElementById('panel-hidden');
             const panelSkills = document.getElementById('panel-skills');
             const panelPortrait = document.getElementById('panel-portrait');
             const portraitEditor = document.getElementById('portrait-editor');
@@ -151,6 +147,9 @@
             const portraitDiff = document.getElementById('portrait-diff');
             const portraitStatus = document.getElementById('portrait-status');
             const appliedStagePanels = [panelApplied, panelInterview, panelStopped];
+            const softHideFilterPanels = [
+                panelRelevant, panelNotRelevant, panelApplied, panelInterview, panelStopped
+            ];
             const showHiddenWrap = document.getElementById('show-hidden-wrap');
             const showHiddenCheckbox = document.getElementById('show-hidden');
             const SHOW_HIDDEN_KEY = 'spejder-show-hidden';
@@ -181,7 +180,7 @@
             function applyShowHiddenFilter() {
                 const show = isShowHiddenEnabled();
                 if (showHiddenCheckbox) showHiddenCheckbox.checked = show;
-                appliedStagePanels.forEach((panel) => {
+                softHideFilterPanels.forEach((panel) => {
                     panel.querySelectorAll('.card').forEach((card) => {
                         const hiddenCb = card.querySelector('.hidden-wrap input');
                         const softHidden = Boolean(hiddenCb && hiddenCb.checked);
@@ -213,7 +212,6 @@
                 const isApplied = mode === 'applied';
                 const isInterview = mode === 'interview';
                 const isStopped = mode === 'stopped';
-                const isHiddenTab = mode === 'hidden';
                 const isSkills = mode === 'skills';
                 const isPortrait = mode === 'portrait';
                 const isProfile = mode === 'profile';
@@ -223,7 +221,6 @@
                 panelApplied.classList.toggle('hidden', !isApplied);
                 panelInterview.classList.toggle('hidden', !isInterview);
                 panelStopped.classList.toggle('hidden', !isStopped);
-                panelHidden.classList.toggle('hidden', !isHiddenTab);
                 panelSkills.classList.toggle('hidden', !isSkills);
                 panelPortrait.classList.toggle('hidden', !isPortrait);
                 if (panelProfile) panelProfile.classList.toggle('hidden', !isProfile);
@@ -233,14 +230,14 @@
                 btnApplied.classList.toggle('active', isApplied);
                 btnInterview.classList.toggle('active', isInterview);
                 btnStopped.classList.toggle('active', isStopped);
-                btnHidden.classList.toggle('active', isHiddenTab);
                 btnSkills.classList.toggle('active', isSkills);
                 btnPortrait.classList.toggle('active', isPortrait);
                 if (btnProfile) btnProfile.classList.toggle('active', isProfile);
+                const showHiddenTab = isRelevant || isNotRelevant || isApplied || isInterview || isStopped;
                 if (showHiddenWrap) {
-                    showHiddenWrap.hidden = !(isApplied || isInterview || isStopped);
+                    showHiddenWrap.hidden = !showHiddenTab;
                 }
-                if (isApplied || isInterview || isStopped) {
+                if (showHiddenTab) {
                     applyShowHiddenFilter();
                 }
                 if (enteringPortrait) {
@@ -271,7 +268,6 @@
             btnApplied.addEventListener('click', () => switchTab('applied'));
             btnInterview.addEventListener('click', () => switchTab('interview'));
             btnStopped.addEventListener('click', () => switchTab('stopped'));
-            btnHidden.addEventListener('click', () => switchTab('hidden'));
             btnSkills.addEventListener('click', () => switchTab('skills'));
             btnEditedToday.addEventListener('click', () => switchTab('edited today'));
             btnPortrait.addEventListener('click', () => setMode('portrait'));
@@ -297,6 +293,8 @@
                     if (statusEl) statusEl.textContent = `Saved: ${signal}`;
                     const viewedCheckbox = card ? card.querySelector('.viewed-wrap input') : null;
                     const hiddenCheckbox = card ? card.querySelector('.hidden-wrap input') : null;
+                    // Capture before soft-hide clear so leave/move bumps match data-total.
+                    const countedInTotal = cardCountsInTriageTotal(card);
                     let isViewed = viewedCheckbox ? viewedCheckbox.checked : false;
                     if (signal === 'not relevant') {
                         const appliedCheckbox = card ? card.querySelector('.applied-wrap input') : null;
@@ -327,7 +325,7 @@
                                 || card.parentElement === panelNotRelevant;
                             if (appliedStagePanels.includes(card.parentElement)) {
                                 removeCardFromAppliedStages(card);
-                            } else if (fromTriage && isViewed) {
+                            } else if (fromTriage && isViewed && countedInTotal) {
                                 bumpPanelTotal(card.parentElement, -1);
                             }
                             if (isViewed) {
@@ -335,24 +333,27 @@
                                     panelEditedToday.prepend(card);
                                 }
                             } else if (card.parentElement !== panelNotRelevant) {
-                                if (fromTriage) bumpPanelTotal(card.parentElement, -1);
-                                bumpPanelTotal(panelNotRelevant, 1);
+                                if (fromTriage && countedInTotal) bumpPanelTotal(card.parentElement, -1);
+                                if (countedInTotal) bumpPanelTotal(panelNotRelevant, 1);
                                 panelNotRelevant.prepend(card);
                             }
                         }
                     } else {
-                        const stillHidden = Boolean(hiddenCheckbox && hiddenCheckbox.checked);
                         const targetPanel = panelRelevant;
-                        if (!stillHidden && card && !isViewed && card.parentElement !== targetPanel) {
-                            if (card.parentElement === panelRelevant || card.parentElement === panelNotRelevant) {
+                        if (card && !isViewed && card.parentElement !== targetPanel) {
+                            if (
+                                (card.parentElement === panelRelevant || card.parentElement === panelNotRelevant)
+                                && countedInTotal
+                            ) {
                                 bumpPanelTotal(card.parentElement, -1);
                             }
-                            bumpPanelTotal(targetPanel, 1);
+                            if (countedInTotal) bumpPanelTotal(targetPanel, 1);
                             targetPanel.prepend(card);
-                        } else if (!stillHidden && card && isViewed && !appliedStagePanels.includes(card.parentElement)) {
-                            bumpPanelTotal(card.parentElement, -1);
+                        } else if (card && isViewed && !appliedStagePanels.includes(card.parentElement)) {
+                            if (countedInTotal) bumpPanelTotal(card.parentElement, -1);
                             if (card.parentElement !== panelEditedToday) panelEditedToday.prepend(card);
                         }
+                        if (typeof applyShowHiddenFilter === 'function') applyShowHiddenFilter();
                     }
                     refreshCounts();
                     if (signal === 'not relevant') {
@@ -380,8 +381,15 @@
                     }
                     if (viewed) {
                         const hiddenCheckbox = card ? card.querySelector('.hidden-wrap input') : null;
+                        // Capture before soft-hide clear so leave bumps match data-total.
+                        const countedInTotal = cardCountsInTriageTotal(card);
                         if (hiddenCheckbox) hiddenCheckbox.checked = false;
-                        if (card && (card.parentElement === panelRelevant || card.parentElement === panelNotRelevant)) {
+                        if (card) card.classList.remove('is-soft-filtered');
+                        if (
+                            card
+                            && (card.parentElement === panelRelevant || card.parentElement === panelNotRelevant)
+                            && countedInTotal
+                        ) {
                             bumpPanelTotal(card.parentElement, -1);
                         }
                         if (card && !appliedStagePanels.includes(card.parentElement)) {
@@ -389,18 +397,23 @@
                         }
                     } else {
                         const appliedCheckbox = card ? card.querySelector('.applied-wrap input') : null;
+                        // DB clears soft-hide only when leaving applied; keep UI aligned.
+                        const wasApplied = Boolean(appliedCheckbox && appliedCheckbox.checked);
                         if (appliedCheckbox) appliedCheckbox.checked = false;
                         const interviewCheckbox = card ? card.querySelector('.interview-wrap input') : null;
                         const stoppedCheckbox = card ? card.querySelector('.stopped-wrap input') : null;
                         if (interviewCheckbox) interviewCheckbox.checked = false;
                         if (stoppedCheckbox) stoppedCheckbox.checked = false;
                         const hiddenCheckbox = card ? card.querySelector('.hidden-wrap input') : null;
-                        if (hiddenCheckbox) hiddenCheckbox.checked = false;
-                        if (card) card.classList.remove('is-soft-filtered');
+                        if (wasApplied) {
+                            if (hiddenCheckbox) hiddenCheckbox.checked = false;
+                            if (card) card.classList.remove('is-soft-filtered');
+                        }
                         const relevantCheckbox = card ? card.querySelector('.relevant-wrap input') : null;
                         const targetPanel = relevantCheckbox && relevantCheckbox.checked ? panelRelevant : panelNotRelevant;
-                        bumpPanelTotal(targetPanel, 1);
+                        if (cardCountsInTriageTotal(card)) bumpPanelTotal(targetPanel, 1);
                         if (card && card.parentElement !== targetPanel) targetPanel.prepend(card);
+                        if (typeof applyShowHiddenFilter === 'function') applyShowHiddenFilter();
                         if (statusEl) statusEl.textContent = 'Saved: unviewed';
                     }
                     if (viewed && statusEl) statusEl.textContent = 'Saved: viewed';
@@ -448,7 +461,7 @@
             function initTabFromUrl() {
                 const params = new URLSearchParams(window.location.search);
                 const tab = params.get('tab');
-                const validModes = ['relevant', 'not relevant', 'applied', 'interview', 'stopped', 'hidden', 'skills', 'edited today', 'portrait', 'profile'];
+                const validModes = ['relevant', 'not relevant', 'applied', 'interview', 'stopped', 'skills', 'edited today', 'portrait', 'profile'];
                 if (tab && validModes.includes(tab)) {
                     setMode(tab);
                 }
@@ -472,6 +485,7 @@
                 await initPageReportMtime();
                 initTabFromUrl();
                 applyShowHiddenFilter();
+                refreshCounts();
             });
             initSkillsTableSort();
             initInboxSyncStatus();

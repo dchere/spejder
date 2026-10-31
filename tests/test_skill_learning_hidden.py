@@ -1,4 +1,4 @@
-"""Tests that skill learning includes parked Hidden relevant jobs."""
+"""Tests that skill learning includes soft-hidden relevant jobs."""
 
 import unittest
 from unittest.mock import patch

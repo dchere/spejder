@@ -16,7 +16,6 @@ from spejder.llm import LocalLLM
 from spejder.managers.dashboard_manager import _render_html_dashboard
 from spejder.workflows.dashboard_records import (
     build_dashboard_record,
-    build_hidden_dashboard_records,
     build_viewed_today_dashboard_records,
 )
 from spejder.workflows.job_enrichment import materialize_jobs_skills
@@ -30,7 +29,6 @@ __all__ = [
     "populate_missing_dashboard_skills",
     "DashboardRebuildQueue",
     "build_dashboard_record",
-    "build_hidden_dashboard_records",
     "build_viewed_today_dashboard_records",
 ]
 
@@ -156,6 +154,7 @@ class DashboardRebuildQueue:
                             cat,
                             limit=report_limit,
                             unviewed_only=True,
+                            exclude_hidden=False,
                         )
                         if should_log_rebuild:
                             print(
@@ -178,11 +177,6 @@ class DashboardRebuildQueue:
                     refreshed_applied_rows = get_applied_jobs(self.db_path, limit=0)
                     refreshed_interview_rows = get_interview_jobs(self.db_path, limit=0)
                     refreshed_stopped_rows = get_stopped_interview_jobs(self.db_path, limit=0)
-                    refreshed_hidden_records = build_hidden_dashboard_records(
-                        self.db_path,
-                        self.runtime_profile,
-                        self._title_translation_cache,
-                    )
                     refreshed_viewed_today_records = build_viewed_today_dashboard_records(
                         self.db_path,
                         self.runtime_profile,
@@ -194,8 +188,7 @@ class DashboardRebuildQueue:
                             f"({len(refreshed_applied_rows)} rows), interview "
                             f"({len(refreshed_interview_rows)} rows), stopped "
                             f"({len(refreshed_stopped_rows)} rows), edited today "
-                            f"({len(refreshed_viewed_today_records)} rows), hidden "
-                            f"({len(refreshed_hidden_records)} rows)"
+                            f"({len(refreshed_viewed_today_records)} rows)"
                         )
                     refreshed_applied_records = [
                         build_dashboard_record(
@@ -255,7 +248,6 @@ class DashboardRebuildQueue:
                         not_relevant_total_count=category_totals.get("not relevant", 0),
                         interview_items=refreshed_interview_records,
                         stopped_items=refreshed_stopped_records,
-                        hidden_items=refreshed_hidden_records,
                         viewed_today_items=refreshed_viewed_today_records,
                         runtime_profile=self.runtime_profile,
                         db_path=self.db_path,

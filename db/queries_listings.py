@@ -156,34 +156,14 @@ def get_jobs_by_company(db_path: str, company: str, limit: int = 0) -> list[dict
         conn.close()
 
 
-def get_hidden_jobs(db_path: str, limit: int = 0) -> list[dict]:
-    conn = _connect(db_path)
-    try:
-        cur = conn.cursor()
-        q = (
-            f"SELECT {_JOB_SELECT_COLS}, category "
-            "FROM jobs WHERE COALESCE(hidden, 0)=1 AND COALESCE(applied, 0)=0 "
-            "ORDER BY relevance_score DESC, updated_at DESC"
-        )
-        params: list = []
-        if limit and limit > 0:
-            q += " LIMIT ?"
-            params.append(int(limit))
-        cur.execute(q, params)
-        rows = cur.fetchall()
-        return [_map_company_job_row(r) for r in rows]
-    finally:
-        conn.close()
-
-
 def get_viewed_today_jobs(db_path: str, since_iso: str, limit: int = 0) -> list[dict]:
-    """Jobs for Edited today tab: viewed, not applied, not hidden, updated_at >= since_iso."""
+    """Jobs for Edited today tab: viewed, not applied, updated_at >= since_iso (includes soft-hidden)."""
     conn = _connect(db_path)
     try:
         cur = conn.cursor()
         q = (
             f"SELECT {_JOB_SELECT_COLS}, category "
-            "FROM jobs WHERE viewed=1 AND applied=0 AND COALESCE(hidden, 0)=0 "
+            "FROM jobs WHERE viewed=1 AND applied=0 "
             "AND updated_at IS NOT NULL AND updated_at >= ? "
             "ORDER BY updated_at DESC"
         )
@@ -194,20 +174,6 @@ def get_viewed_today_jobs(db_path: str, since_iso: str, limit: int = 0) -> list[
         cur.execute(q, params)
         rows = cur.fetchall()
         return [_map_company_job_row(r) for r in rows]
-    finally:
-        conn.close()
-
-
-def get_hidden_jobs_count(db_path: str) -> int:
-    conn = _connect(db_path)
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT COUNT(1) FROM jobs "
-            "WHERE COALESCE(hidden, 0)=1 AND COALESCE(applied, 0)=0"
-        )
-        row = cur.fetchone()
-        return int((row[0] if row else 0) or 0)
     finally:
         conn.close()
 

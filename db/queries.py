@@ -8,8 +8,6 @@ from .queries_applied import (
     get_stopped_interview_jobs,
 )
 from .queries_listings import (
-    get_hidden_jobs,
-    get_hidden_jobs_count,
     get_jobs_by_category,
     get_jobs_by_category_paged,
     get_jobs_by_company,
@@ -43,8 +41,6 @@ __all__ = [
     "get_jobs_count_by_category",
     "get_jobs_by_category_paged",
     "get_jobs_by_company",
-    "get_hidden_jobs",
-    "get_hidden_jobs_count",
     "get_viewed_today_jobs",
     "local_day_start_utc_iso",
     "get_applied_jobs",

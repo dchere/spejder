@@ -6,6 +6,7 @@ from spejder.db.mutations import set_job_description
 from spejder.db.queries import (
     get_all_applied_jobs,
     get_jobs_by_category,
+    get_jobs_count_by_category,
     get_jobs_for_description_refresh,
     get_viewed_jobs_count,
 )
@@ -16,10 +17,7 @@ from spejder.extractors.skill_extractor import (
 )
 from spejder.llm import LocalLLM
 from spejder.managers.dashboard_manager import _render_html_dashboard
-from spejder.workflows.dashboard import (
-    build_hidden_dashboard_records,
-    build_viewed_today_dashboard_records,
-)
+from spejder.workflows.dashboard import build_viewed_today_dashboard_records
 from spejder.workflows.job_enrichment import (
     _build_description_summary,
     _build_title_fields,
@@ -140,8 +138,14 @@ def refresh_descriptions(profile: str = None, db: str = None, model: str = "", s
         report_data = {}
         page_context_cache: dict[str, str] = {}
         title_translation_cache: dict[str, str] = {}
+        category_totals: dict[str, int] = {}
         for cat in ["relevant", "not relevant"]:
-            cat_rows = get_jobs_by_category(db_path, cat, limit=0, unviewed_only=True)
+            category_totals[cat] = get_jobs_count_by_category(
+                db_path, cat, unviewed_only=True
+            )
+            cat_rows = get_jobs_by_category(
+                db_path, cat, limit=0, unviewed_only=True, exclude_hidden=False
+            )
             records = []
             for row in cat_rows:
                 skills, raw_text, _ = materialize_job_skills(
@@ -182,6 +186,7 @@ def refresh_descriptions(profile: str = None, db: str = None, model: str = "", s
                         "category": cat,
                         "viewed": row.get("viewed", 0),
                         "applied": row.get("applied", 0),
+                        "hidden": int(row.get("hidden", 0) or 0),
                     }
                 )
             report_data[cat] = records
@@ -229,6 +234,7 @@ def refresh_descriptions(profile: str = None, db: str = None, model: str = "", s
                 "on_interview": int(row.get("on_interview", 0) or 0),
                 "interview_stopped": int(row.get("interview_stopped", 0) or 0),
                 "company_feedback": row.get("company_feedback", "") or "",
+                "hidden": int(row.get("hidden", 0) or 0),
             }
             if record["interview_stopped"]:
                 stopped_records.append(record)
@@ -237,11 +243,6 @@ def refresh_descriptions(profile: str = None, db: str = None, model: str = "", s
             else:
                 applied_records.append(record)
 
-        hidden_records = build_hidden_dashboard_records(
-            db_path,
-            runtime_profile,
-            title_translation_cache,
-        )
         viewed_today_records = build_viewed_today_dashboard_records(
             db_path,
             runtime_profile,
@@ -259,9 +260,10 @@ def refresh_descriptions(profile: str = None, db: str = None, model: str = "", s
             skills_items=_build_skills_tab_items(db_path, runtime_profile),
             report_max_relevant_positions=_report_max_relevant_positions(runtime_profile),
             report_max_not_relevant_positions=_report_max_not_relevant_positions(runtime_profile),
+            relevant_total_count=category_totals.get("relevant", 0),
+            not_relevant_total_count=category_totals.get("not relevant", 0),
             interview_items=interview_records,
             stopped_items=stopped_records,
-            hidden_items=hidden_records,
             viewed_today_items=viewed_today_records,
             runtime_profile=runtime_profile,
             db_path=db_path,

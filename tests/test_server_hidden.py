@@ -1,4 +1,4 @@
-"""API tests for Hidden positions endpoint."""
+"""API tests for soft-hide Hidden endpoint."""
 
 import os
 import tempfile
@@ -9,9 +9,11 @@ from fastapi.testclient import TestClient
 from spejder.config import AppConfig
 from spejder.db import (
     ensure_db,
-    get_hidden_jobs,
+    get_jobs_by_category,
     set_job_applied,
+    set_job_feedback,
     set_job_hidden,
+    set_job_viewed,
     upsert_job,
 )
 from spejder.db.connection import _connect
@@ -83,7 +85,6 @@ class ServerHiddenApiTest(unittest.TestCase):
         self.assertTrue(body["hidden"])
         self.assertIn(f"job {job_id} marked hidden", self.rebuild_calls)
 
-        self.assertEqual(get_hidden_jobs(self.db_path, limit=0), [])
         conn = _connect(self.db_path)
         try:
             cur = conn.cursor()
@@ -95,17 +96,33 @@ class ServerHiddenApiTest(unittest.TestCase):
         self.assertEqual(applied, 1)
         self.assertEqual(viewed, 1)
 
-    def test_api_hidden_parks_non_applied(self):
-        job_id = _insert_job(self.db_path, "https://example.com/api-park")
+    def test_api_hidden_soft_hides_non_applied_preserves_flags(self):
+        job_id = _insert_job(self.db_path, "https://example.com/api-soft")
+        self.assertTrue(set_job_feedback(self.db_path, job_id, "relevant"))
+        self.assertTrue(set_job_viewed(self.db_path, job_id, True))
 
         response = self.client.post("/api/hidden", json={"job_id": job_id, "hidden": True})
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["ok"])
 
-        rows = get_hidden_jobs(self.db_path, limit=0)
-        self.assertEqual({row["id"] for row in rows}, {job_id})
-        self.assertEqual(rows[0]["applied"], 0)
-        self.assertEqual(rows[0]["viewed"], 0)
+        conn = _connect(self.db_path)
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT hidden, applied, viewed, category FROM jobs WHERE id=?",
+                (job_id,),
+            )
+            hidden, applied, viewed, category = cur.fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(hidden, 1)
+        self.assertEqual(applied, 0)
+        self.assertEqual(viewed, 1)
+        self.assertEqual(category, "relevant")
+        rows = get_jobs_by_category(
+            self.db_path, "relevant", limit=0, exclude_hidden=False, unviewed_only=False
+        )
+        self.assertIn(job_id, {row["id"] for row in rows})
 
     def test_api_hidden_false(self):
         job_id = _insert_job(self.db_path, "https://example.com/api-unhide")
@@ -115,7 +132,13 @@ class ServerHiddenApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["ok"])
         self.assertFalse(response.json()["hidden"])
-        self.assertEqual(get_hidden_jobs(self.db_path, limit=0), [])
+        conn = _connect(self.db_path)
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT hidden FROM jobs WHERE id=?", (job_id,))
+            self.assertEqual(cur.fetchone()[0], 0)
+        finally:
+            conn.close()
         self.assertIn(f"job {job_id} unhidden", self.rebuild_calls)
 
 

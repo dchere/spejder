@@ -34,8 +34,6 @@ _EXPORTS = {
     "get_jobs_count_by_category": "queries",
     "get_jobs_by_category_paged": "queries",
     "get_jobs_by_company": "queries",
-    "get_hidden_jobs": "queries",
-    "get_hidden_jobs_count": "queries",
     "get_viewed_today_jobs": "queries",
     "local_day_start_utc_iso": "queries",
     "get_applied_jobs": "queries",

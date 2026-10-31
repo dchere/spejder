@@ -28,6 +28,12 @@ __all__ = [
 # Fixed-width placeholder (29 chars, same as HTTP-date) replaced after write.
 _SPEJDER_REPORT_MTIME_PLACEHOLDER = "_____SPEJDER_REPORT_MTIME_P__"
 
+
+def _count_non_hidden_items(items: list[dict]) -> int:
+    """Relevant/Not relevant badge numerators exclude soft-hidden cards."""
+    return sum(1 for item in items if int(item.get("hidden", 0) or 0) != 1)
+
+
 def _render_company_dashboard_html(
     company_name: str,
     company_items: list[dict],
@@ -37,12 +43,6 @@ def _render_company_dashboard_html(
     safe_company_label = html_lib.escape(company_label)
     order = viewed_today_order or {}
     viewed_today_ids = set(order.keys())
-    hidden_items = [
-        item
-        for item in company_items
-        if int(item.get("hidden", 0) or 0) == 1
-        and int(item.get("applied", 0) or 0) == 0
-    ]
     applied_items = [
         item
         for item in company_items
@@ -66,7 +66,6 @@ def _render_company_dashboard_html(
         item
         for item in company_items
         if int(item.get("id", 0) or 0) in viewed_today_ids
-        and int(item.get("hidden", 0) or 0) == 0
         and int(item.get("applied", 0) or 0) == 0
     ]
     viewed_today_items.sort(
@@ -75,47 +74,59 @@ def _render_company_dashboard_html(
     relevant_items = [
         item
         for item in company_items
-        if int(item.get("hidden", 0) or 0) == 0
-        and int(item.get("id", 0) or 0) not in viewed_today_ids
+        if int(item.get("id", 0) or 0) not in viewed_today_ids
         and str(item.get("category", "")).strip().lower() == "relevant"
         and int(item.get("applied", 0) or 0) != 1
     ]
     not_relevant_items = [
         item
         for item in company_items
-        if int(item.get("hidden", 0) or 0) == 0
-        and int(item.get("id", 0) or 0) not in viewed_today_ids
+        if int(item.get("id", 0) or 0) not in viewed_today_ids
         and str(item.get("category", "")).strip().lower() == "not relevant"
         and int(item.get("applied", 0) or 0) != 1
     ]
 
     relevant_items = _sort_positions_unviewed_then_score(relevant_items)
     not_relevant_items = _sort_positions_unviewed_then_score(not_relevant_items)
-    hidden_items = _sort_positions_unviewed_then_score(hidden_items)
     applied_items = _sort_applied_positions(applied_items)
     interview_items = _sort_applied_positions(interview_items)
     stopped_items = _sort_applied_positions(stopped_items)
 
-    relevant_cards = _build_job_cards(relevant_items, company_links=False, skill_buttons=False)
+    relevant_cards = _build_job_cards(
+        relevant_items, company_links=False, skill_buttons=False, hidden_control=False
+    )
     not_relevant_cards = _build_job_cards(
         not_relevant_items,
         company_links=False,
         skill_buttons=False,
+        hidden_control=False,
     )
     viewed_today_cards = _build_job_cards(
-        viewed_today_items, company_links=False, skill_buttons=False
+        viewed_today_items,
+        company_links=False,
+        skill_buttons=False,
+        hidden_control=False,
     )
     applied_cards = _build_job_cards(
-        applied_items, company_links=False, skill_buttons=False, card_panel="applied"
+        applied_items,
+        company_links=False,
+        skill_buttons=False,
+        card_panel="applied",
+        hidden_control=False,
     )
     interview_cards = _build_job_cards(
-        interview_items, company_links=False, skill_buttons=False, card_panel="interview"
+        interview_items,
+        company_links=False,
+        skill_buttons=False,
+        card_panel="interview",
+        hidden_control=False,
     )
     stopped_cards = _build_job_cards(
-        stopped_items, company_links=False, skill_buttons=False, card_panel="stopped"
-    )
-    hidden_cards = _build_job_cards(
-        hidden_items, company_links=False, skill_buttons=False, card_panel="hidden"
+        stopped_items,
+        company_links=False,
+        skill_buttons=False,
+        card_panel="stopped",
+        hidden_control=False,
     )
 
     template = jinja_env.get_template("company_dashboard.html")
@@ -129,14 +140,12 @@ def _render_company_dashboard_html(
         len_applied_items=len(applied_items),
         len_interview_items=len(interview_items),
         len_stopped_items=len(stopped_items),
-        len_hidden_items=len(hidden_items),
         relevant_cards=relevant_cards,
         not_relevant_cards=not_relevant_cards,
         viewed_today_cards=viewed_today_cards,
         applied_cards=applied_cards,
         interview_cards=interview_cards,
         stopped_cards=stopped_cards,
-        hidden_cards=hidden_cards,
         skills_table_html=locals().get("skills_table_html", ""),
         skills_cloud_status_html="",
         len_skills_items=0
@@ -157,7 +166,6 @@ def _render_html_dashboard(
     not_relevant_total_count: Optional[int] = None,
     interview_items: Optional[list[dict]] = None,
     stopped_items: Optional[list[dict]] = None,
-    hidden_items: Optional[list[dict]] = None,
     viewed_today_items: Optional[list[dict]] = None,
     runtime_profile: Optional[AppConfig] = None,
     db_path: Optional[str] = None,
@@ -168,7 +176,6 @@ def _render_html_dashboard(
     applied_items = _sort_applied_positions(applied_items)
     interview_items = _sort_applied_positions(interview_items or [])
     stopped_items = _sort_applied_positions(stopped_items or [])
-    hidden_items = _sort_positions_unviewed_then_score(hidden_items or [])
     # Preserve DB updated_at DESC from get_viewed_today_jobs / build helper.
     viewed_today_items = list(viewed_today_items or [])
 
@@ -181,7 +188,6 @@ def _render_html_dashboard(
     applied_items = list(applied_items)
     interview_items = list(interview_items)
     stopped_items = list(stopped_items)
-    hidden_items = list(hidden_items)
 
     relevant_cards = _build_job_cards(relevant_items)
     not_relevant_cards = _build_job_cards(not_relevant_items)
@@ -189,7 +195,6 @@ def _render_html_dashboard(
     applied_cards = _build_job_cards(applied_items, card_panel="applied")
     interview_cards = _build_job_cards(interview_items, card_panel="interview")
     stopped_cards = _build_job_cards(stopped_items, card_panel="stopped")
-    hidden_cards = _build_job_cards(hidden_items, card_panel="hidden")
     skills_items = skills_items or []
     skills_table_html = _render_skills_table_html(skills_items)
     skills_cloud_status_html = ""
@@ -217,13 +222,12 @@ def _render_html_dashboard(
         relevant_total_count=relevant_total_count,
         not_relevant_total_count=not_relevant_total_count,
         viewed_total=viewed_total,
-        len_relevant_items=len(relevant_items),
-        len_not_relevant_items=len(not_relevant_items),
+        len_relevant_items=_count_non_hidden_items(relevant_items),
+        len_not_relevant_items=_count_non_hidden_items(not_relevant_items),
         len_viewed_today_items=len(viewed_today_items),
         len_applied_items=len(applied_items),
         len_interview_items=len(interview_items),
         len_stopped_items=len(stopped_items),
-        len_hidden_items=len(hidden_items),
         len_skills_items=len(skills_items) if skills_items else 0,
         relevant_cards=relevant_cards,
         not_relevant_cards=not_relevant_cards,
@@ -231,7 +235,6 @@ def _render_html_dashboard(
         applied_cards=applied_cards,
         interview_cards=interview_cards,
         stopped_cards=stopped_cards,
-        hidden_cards=hidden_cards,
         skills_cloud_status_html=skills_cloud_status_html,
         skills_table_html=skills_table_html,
         skills_empty_added_at_sort=SKILLS_EMPTY_ADDED_AT_SORT,
@@ -259,6 +262,6 @@ def _render_html_dashboard(
         f"(relevant={len(relevant_items)}, not_relevant={len(not_relevant_items)}, "
         f"viewed_today={len(viewed_today_items)}, "
         f"applied={len(applied_items)}, interview={len(interview_items)}, "
-        f"stopped={len(stopped_items)}, hidden={len(hidden_items)}, "
+        f"stopped={len(stopped_items)}, "
         f"viewed={int(viewed_total)})"
     )

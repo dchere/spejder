@@ -270,13 +270,18 @@
             }
 
             function refreshCounts() {
-                const relevantCount = panelRelevant.querySelectorAll('.card').length;
-                const notRelevantCount = panelNotRelevant.querySelectorAll('.card').length;
+                // Relevant/Not relevant numerators exclude soft-hidden by checkbox state
+                // (not is-soft-filtered), so Show hidden ON still matches data-total.
+                const relevantCount = panelRelevant.querySelectorAll(
+                    '.card:not(:has(.hidden-wrap input:checked))'
+                ).length;
+                const notRelevantCount = panelNotRelevant.querySelectorAll(
+                    '.card:not(:has(.hidden-wrap input:checked))'
+                ).length;
                 const editedTodayCount = panelEditedToday.querySelectorAll('.card').length;
                 const appliedCount = panelApplied.querySelectorAll('.card').length;
                 const interviewCount = panelInterview.querySelectorAll('.card').length;
                 const stoppedCount = panelStopped.querySelectorAll('.card').length;
-                const hiddenCount = panelHidden.querySelectorAll('.card').length;
                 const skillsCount = panelSkills.querySelectorAll('tbody tr').length;
                 const relevantTotal = Number.parseInt(btnRelevant.dataset.total || String(relevantCount), 10) || relevantCount;
                 const notRelevantTotal = Number.parseInt(btnNotRelevant.dataset.total || String(notRelevantCount), 10) || notRelevantCount;
@@ -286,7 +291,6 @@
                 btnApplied.textContent = `Applied (${appliedCount})`;
                 btnInterview.textContent = `Interview (${interviewCount})`;
                 btnStopped.textContent = `Stopped (${stoppedCount})`;
-                btnHidden.textContent = `Hidden (${hiddenCount})`;
                 btnSkills.textContent = `Skills (${skillsCount})`;
                 ensureEmptyState(panelRelevant);
                 ensureEmptyState(panelNotRelevant);
@@ -294,7 +298,6 @@
                 ensureEmptyState(panelApplied);
                 ensureEmptyState(panelInterview);
                 ensureEmptyState(panelStopped);
-                ensureEmptyState(panelHidden);
             }
 
             async function waitForRebuildThenReload(mode) {
