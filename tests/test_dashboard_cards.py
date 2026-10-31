@@ -82,55 +82,51 @@ class DashboardCardsTest(unittest.TestCase):
         self.assertIn("setHidden(1, this.checked, this)", html)
         self.assertIn("Hidden</label>", html)
 
-    def test_build_job_cards_hidden_panel_checks_hidden(self):
+    def test_build_job_cards_hidden_checkbox_checked_from_item(self):
         html = _build_job_cards(
             [_applied_card_item(applied=0, viewed=0, hidden=1)],
-            card_panel="hidden",
         )
         self.assertIn('class="hidden-wrap"><input type="checkbox" checked', html)
 
-    def test_build_job_cards_hidden_checkbox_from_item_only(self):
+    def test_build_job_cards_omits_hidden_control_when_disabled(self):
         html = _build_job_cards(
-            [_applied_card_item(applied=0, viewed=0, hidden=0)],
-            card_panel="hidden",
+            [_applied_card_item(applied=0, viewed=0, hidden=1)],
+            hidden_control=False,
         )
-        self.assertIn('class="hidden-wrap"><input type="checkbox"  onchange="setHidden', html)
+        self.assertNotIn('class="hidden-wrap"', html)
+        self.assertNotIn("setHidden", html)
 
-    def test_company_dashboard_partitions_hidden_only_to_hidden_tab(self):
+    def test_company_dashboard_soft_hidden_stays_on_category(self):
         hidden_item = _applied_card_item(
             id=10,
-            title="Parked Role",
+            title="Soft Hidden Role",
             applied=0,
             viewed=0,
             hidden=1,
             category="relevant",
-            position_link="https://example.com/parked",
+            position_link="https://example.com/soft",
         )
         visible_item = _applied_card_item(
             id=11,
             title="Visible Role",
             applied=0,
-            viewed=1,
+            viewed=0,
             hidden=0,
             category="relevant",
             position_link="https://example.com/visible",
         )
         html = _render_company_dashboard_html("Acme", [hidden_item, visible_item])
 
-        self.assertIn(">Hidden (1)<", html)
-        self.assertIn(">Relevant (1)<", html)
-
-        hidden_panel_start = html.index('id="panel-hidden"')
-        hidden_panel_end = html.index("</section>", hidden_panel_start)
-        hidden_panel = html[hidden_panel_start:hidden_panel_end]
-        self.assertIn("Parked Role", hidden_panel)
-        self.assertNotIn("Visible Role", hidden_panel)
+        self.assertNotIn('id="btn-hidden"', html)
+        self.assertNotIn('id="panel-hidden"', html)
+        self.assertIn(">Relevant (2)<", html)
+        self.assertNotIn('class="hidden-wrap"', html)
 
         relevant_panel_start = html.index('id="panel-relevant"')
         relevant_panel_end = html.index("</section>", relevant_panel_start)
         relevant_panel = html[relevant_panel_start:relevant_panel_end]
+        self.assertIn("Soft Hidden Role", relevant_panel)
         self.assertIn("Visible Role", relevant_panel)
-        self.assertNotIn("Parked Role", relevant_panel)
 
     def test_company_dashboard_soft_hidden_applied_stays_on_applied(self):
         soft_hidden = _applied_card_item(
@@ -170,17 +166,10 @@ class DashboardCardsTest(unittest.TestCase):
             "Acme", [soft_hidden, soft_interview, soft_stopped]
         )
 
-        self.assertIn(">Hidden (0)<", html)
+        self.assertNotIn('id="btn-hidden"', html)
         self.assertIn(">Applied (1)<", html)
         self.assertIn(">Interview (1)<", html)
         self.assertIn(">Stopped (1)<", html)
-
-        hidden_panel_start = html.index('id="panel-hidden"')
-        hidden_panel_end = html.index("</section>", hidden_panel_start)
-        hidden_panel = html[hidden_panel_start:hidden_panel_end]
-        self.assertNotIn("Soft Hidden Applied", hidden_panel)
-        self.assertNotIn("Soft Hidden Interview", hidden_panel)
-        self.assertNotIn("Soft Hidden Stopped", hidden_panel)
 
         applied_panel_start = html.index('id="panel-applied"')
         applied_panel_end = html.index("</section>", applied_panel_start)
@@ -202,11 +191,10 @@ class DashboardCardsTest(unittest.TestCase):
         )
 
     def test_main_dashboard_soft_hidden_applied_stays_on_applied(self):
-        """Soft-hidden applied rows render under Applied, not Hidden (main report)."""
+        """Soft-hidden applied rows render under Applied (main report)."""
         from spejder.db import (
             ensure_db,
             get_applied_jobs,
-            get_hidden_jobs,
             set_job_applied,
             set_job_hidden,
             upsert_job,
@@ -257,37 +245,21 @@ class DashboardCardsTest(unittest.TestCase):
                 )
                 for row in get_applied_jobs(db_path, limit=0)
             ]
-            hidden_items = [
-                build_dashboard_record(
-                    db_path,
-                    profile,
-                    cache,
-                    row,
-                    default_category="relevant",
-                    translate_title=False,
-                )
-                for row in get_hidden_jobs(db_path, limit=0)
-            ]
             _render_html_dashboard(
                 [],
                 [],
                 applied_items,
                 out_html,
                 "Test dashboard",
-                hidden_items=hidden_items,
             )
             with open(out_html, encoding="utf-8") as f:
                 html = f.read()
 
+        self.assertNotIn('id="panel-hidden"', html)
         applied_panel_start = html.index('id="panel-applied"')
         applied_panel_end = html.index("</section>", applied_panel_start)
         self.assertIn(
             "Soft Hidden Main", html[applied_panel_start:applied_panel_end]
-        )
-        hidden_panel_start = html.index('id="panel-hidden"')
-        hidden_panel_end = html.index("</section>", hidden_panel_start)
-        self.assertNotIn(
-            "Soft Hidden Main", html[hidden_panel_start:hidden_panel_end]
         )
 
     def test_company_dashboard_partitions_edited_today(self):

@@ -1,6 +1,5 @@
 from spejder.config import AppConfig
 from spejder.db import (
-    get_hidden_jobs,
     get_viewed_today_jobs,
     local_day_start_utc_iso,
 )
@@ -71,33 +70,12 @@ def build_dashboard_record(
     }
 
 
-def build_hidden_dashboard_records(
-    db_path: str,
-    runtime_profile: AppConfig,
-    title_translation_cache: dict[str, str],
-) -> list[dict]:
-    """Load Hidden-tab rows and shape them with rebuild defaults."""
-    return [
-        build_dashboard_record(
-            db_path,
-            runtime_profile,
-            title_translation_cache,
-            row,
-            default_category=str(row.get("category") or "not relevant"),
-            default_viewed=0,
-            default_applied=0,
-            translate_title=False,
-        )
-        for row in get_hidden_jobs(db_path, limit=0)
-    ]
-
-
 def build_viewed_today_dashboard_records(
     db_path: str,
     runtime_profile: AppConfig,
     title_translation_cache: dict[str, str],
 ) -> list[dict]:
-    """Load Viewed-today tab rows (updated_at DESC) with rebuild defaults."""
+    """Load Edited today tab rows (updated_at DESC; includes soft-hidden) with rebuild defaults."""
     since_iso = local_day_start_utc_iso()
     return [
         build_dashboard_record(

@@ -24,7 +24,7 @@ def set_job_feedback(db_path: str, job_id: int, signal: str) -> bool:
     try:
         cur = conn.cursor()
         if normalized == "not relevant":
-            # Leaving applied clears soft-hide; parked hidden (applied=0) stays parked.
+            # Leaving applied clears soft-hide; non-applied soft-hide is kept.
             cur.execute(
                 f"""
                 UPDATE jobs
@@ -69,7 +69,7 @@ def set_job_viewed(db_path: str, job_id: int, viewed: bool) -> bool:
     try:
         cur = conn.cursor()
         if viewed_int == 0:
-            # Leaving applied clears soft-hide; parked hidden stays parked.
+            # Leaving applied clears soft-hide; non-applied soft-hide is kept.
             cur.execute(
                 f"""
                 UPDATE jobs
@@ -123,36 +123,16 @@ def set_job_applied(db_path: str, job_id: int, applied: bool) -> bool:
 
 
 def set_job_hidden(db_path: str, job_id: int, hidden: bool) -> bool:
+    """Soft-hide only: flip `hidden` without clearing viewed/applied/interview."""
     now = datetime.now(timezone.utc).isoformat()
     hidden_int = 1 if hidden else 0
     conn = _connect(db_path)
     try:
         cur = conn.cursor()
-        if hidden_int == 1:
-            # Soft-hide: applied-stage rows keep pipeline flags; only flip hidden.
-            cur.execute(
-                """
-                UPDATE jobs
-                SET hidden=1, updated_at=?
-                WHERE id=? AND applied=1
-                """,
-                (now, int(job_id)),
-            )
-            if cur.rowcount == 0:
-                # Park non-applied (or missing) rows onto the Hidden tab.
-                cur.execute(
-                    f"""
-                    UPDATE jobs
-                    SET hidden=1, viewed=0, applied=0, {_INTERVIEW_FIELDS_CLEAR}, updated_at=?
-                    WHERE id=?
-                    """,
-                    (now, int(job_id)),
-                )
-        else:
-            cur.execute(
-                "UPDATE jobs SET hidden=0, updated_at=? WHERE id=?",
-                (now, int(job_id)),
-            )
+        cur.execute(
+            "UPDATE jobs SET hidden=?, updated_at=? WHERE id=?",
+            (hidden_int, now, int(job_id)),
+        )
         conn.commit()
         return cur.rowcount > 0
     finally:

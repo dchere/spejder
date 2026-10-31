@@ -1,4 +1,4 @@
-"""Regression: enrichment report write includes Hidden tab items."""
+"""Regression: enrichment report write embeds soft-hidden triage rows."""
 
 import os
 import tempfile
@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from spejder.config import AppConfig
-from spejder.db import ensure_db, set_job_hidden, upsert_job
+from spejder.db import ensure_db, set_job_feedback, set_job_hidden, upsert_job
 from spejder.db.connection import _connect
 from spejder.workflows.enrichment import refresh_descriptions
 
@@ -17,7 +17,7 @@ def _insert_job(db_path: str, link: str) -> int:
         {
             "source": "Test",
             "company": "Acme",
-            "title": "Parked Engineer",
+            "title": "Soft Hidden Engineer",
             "position_link": link,
             "raw_text": "raw",
         },
@@ -51,7 +51,7 @@ class EnrichmentReportHiddenTest(unittest.TestCase):
     @patch("spejder.workflows.enrichment.get_jobs_for_description_refresh")
     @patch("spejder.workflows.enrichment.LocalLLM")
     @patch("spejder.workflows.enrichment.load_runtime_profile")
-    def test_refresh_descriptions_report_includes_hidden(
+    def test_refresh_descriptions_report_includes_soft_hidden(
         self,
         mock_load_profile,
         mock_llm,
@@ -75,13 +75,14 @@ class EnrichmentReportHiddenTest(unittest.TestCase):
         mock_summary.return_value = "summary"
 
         job_id = _insert_job(self.db_path, "https://www.linkedin.com/jobs/view/1234567890")
+        self.assertTrue(set_job_feedback(self.db_path, job_id, "relevant"))
         self.assertTrue(set_job_hidden(self.db_path, job_id, True))
         mock_get_rows.return_value = [
             {
                 "id": job_id,
                 "source": "Test",
                 "company": "Acme",
-                "title": "Parked Engineer",
+                "title": "Soft Hidden Engineer",
                 "position_link": "https://www.linkedin.com/jobs/view/1234567890",
                 "raw_text": "raw",
                 "description": "",
@@ -102,9 +103,13 @@ class EnrichmentReportHiddenTest(unittest.TestCase):
         with open(path, encoding="utf-8") as handle:
             html = handle.read()
 
-        self.assertIn("Hidden (1)", html)
-        self.assertIn("Parked Engineer", html)
+        self.assertNotIn('id="btn-hidden"', html)
+        self.assertNotIn('id="panel-hidden"', html)
+        self.assertIn("Soft Hidden Engineer", html)
         self.assertIn(f"setHidden({job_id}", html)
+        self.assertIn('class="hidden-wrap"><input type="checkbox" checked', html)
+        # Soft-hidden embeds in Relevant but badge numerator excludes it.
+        self.assertIn("Relevant (0/0)", html)
 
 
 if __name__ == "__main__":

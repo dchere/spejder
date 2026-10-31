@@ -80,8 +80,7 @@ class ViewedTodayDbTest(unittest.TestCase):
         self.assertTrue(set_job_applied(self.db_path, applied_id, True))
 
         self.assertTrue(set_job_viewed(self.db_path, hidden_id, True))
-        # Parked-with-viewed (applied=0): assert SQL still excludes hidden=1.
-        # Soft-hide is applied+hidden; this is the park edge case with viewed left on.
+        # Soft-hidden viewed non-applied rows are included in Edited today.
         conn = _connect(self.db_path)
         try:
             cur = conn.cursor()
@@ -101,9 +100,8 @@ class ViewedTodayDbTest(unittest.TestCase):
 
         rows = get_viewed_today_jobs(self.db_path, self.since_iso, limit=0)
         ids = {row["id"] for row in rows}
-        self.assertEqual(ids, {today_id})
+        self.assertEqual(ids, {today_id, hidden_id})
         self.assertNotIn(applied_id, ids)
-        self.assertNotIn(hidden_id, ids)
         self.assertNotIn(old_id, ids)
         self.assertNotIn(unviewed_id, ids)
 
