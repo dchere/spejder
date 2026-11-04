@@ -15,7 +15,11 @@ from .dashboard_skills_table import (
     _render_skills_cloud_status_html,
     _render_skills_table_html,
 )
-from .dashboard_sorting import _sort_applied_positions, _sort_positions_unviewed_then_score
+from .dashboard_sorting import (
+    _sort_applied_positions,
+    _sort_positions_unviewed_then_score,
+    slice_triage_by_non_hidden_limit,
+)
 from .dashboard_templates import jinja_env
 
 __all__ = [
@@ -27,11 +31,6 @@ __all__ = [
 
 # Fixed-width placeholder (29 chars, same as HTTP-date) replaced after write.
 _SPEJDER_REPORT_MTIME_PLACEHOLDER = "_____SPEJDER_REPORT_MTIME_P__"
-
-
-def _count_non_hidden_items(items: list[dict]) -> int:
-    """Relevant/Not relevant badge numerators exclude soft-hidden cards."""
-    return sum(1 for item in items if int(item.get("hidden", 0) or 0) != 1)
 
 
 def _render_company_dashboard_html(
@@ -183,8 +182,23 @@ def _render_html_dashboard(
         relevant_total_count = len(relevant_items)
     if not_relevant_total_count is None:
         not_relevant_total_count = len(not_relevant_items)
-    relevant_items = list(relevant_items)[: max(1, int(report_max_relevant_positions or 7))]
-    not_relevant_items = list(not_relevant_items)[: max(1, int(report_max_not_relevant_positions or 7))]
+    relevant_items = slice_triage_by_non_hidden_limit(
+        relevant_items, report_max_relevant_positions
+    )
+    not_relevant_items = slice_triage_by_non_hidden_limit(
+        not_relevant_items, report_max_not_relevant_positions
+    )
+    # N is the category total (incl. soft-hidden). Never show a denominator below
+    # the cards actually embedded (guards stale callers that still pass non-hidden-only N).
+    relevant_total_count = max(int(relevant_total_count or 0), len(relevant_items))
+    not_relevant_total_count = max(
+        int(not_relevant_total_count or 0), len(not_relevant_items)
+    )
+    # SSR Relevant split form when k>0 (default Show hidden off / active tab).
+    relevant_soft_k = sum(
+        1 for item in relevant_items if int(item.get("hidden", 0) or 0) == 1
+    )
+    relevant_visible_n = len(relevant_items) - relevant_soft_k
     applied_items = list(applied_items)
     interview_items = list(interview_items)
     stopped_items = list(stopped_items)
@@ -222,8 +236,10 @@ def _render_html_dashboard(
         relevant_total_count=relevant_total_count,
         not_relevant_total_count=not_relevant_total_count,
         viewed_total=viewed_total,
-        len_relevant_items=_count_non_hidden_items(relevant_items),
-        len_not_relevant_items=_count_non_hidden_items(not_relevant_items),
+        len_relevant_items=len(relevant_items),
+        len_not_relevant_items=len(not_relevant_items),
+        relevant_visible_n=relevant_visible_n,
+        relevant_soft_k=relevant_soft_k,
         len_viewed_today_items=len(viewed_today_items),
         len_applied_items=len(applied_items),
         len_interview_items=len(interview_items),

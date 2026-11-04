@@ -28,6 +28,8 @@ def _minimal_dashboard_context():
         "viewed_total": 0,
         "len_relevant_items": 0,
         "len_not_relevant_items": 0,
+        "relevant_visible_n": 0,
+        "relevant_soft_k": 0,
         "len_viewed_today_items": 0,
         "len_applied_items": 0,
         "len_interview_items": 0,

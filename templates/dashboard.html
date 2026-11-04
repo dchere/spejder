@@ -58,7 +58,7 @@
         </div>
         <div class="controls-wrap">
             <div class="controls">
-                <button id="btn-relevant" class="mode-btn active" type="button" data-total="{{ relevant_total_count }}">Relevant ({{ len_relevant_items }}/{{ relevant_total_count }})</button>
+                <button id="btn-relevant" class="mode-btn active" type="button" data-total="{{ relevant_total_count }}">{% if relevant_soft_k > 0 %}Relevant ({{ relevant_visible_n }} + <span class="mode-btn-soft-k">{{ relevant_soft_k }}</span>/{{ relevant_total_count }}){% else %}Relevant ({{ len_relevant_items }}/{{ relevant_total_count }}){% endif %}</button>
                 <button id="btn-not-relevant" class="mode-btn" type="button" data-total="{{ not_relevant_total_count }}">Not relevant ({{ len_not_relevant_items }}/{{ not_relevant_total_count }})</button>
                 <button id="btn-applied" class="mode-btn" type="button">Applied ({{ len_applied_items }})</button>
                 <button id="btn-interview" class="mode-btn" type="button">Interview ({{ len_interview_items }})</button>
@@ -246,6 +246,7 @@
                 if (enteringProfile) {
                     refreshProfileFromServer();
                 }
+                refreshCounts();
             }
 
             {% include "partials/dashboard_card_stage.js" %}
@@ -293,20 +294,21 @@
                     if (statusEl) statusEl.textContent = `Saved: ${signal}`;
                     const viewedCheckbox = card ? card.querySelector('.viewed-wrap input') : null;
                     const hiddenCheckbox = card ? card.querySelector('.hidden-wrap input') : null;
-                    // Capture before soft-hide clear so leave/move bumps match data-total.
-                    const countedInTotal = cardCountsInTriageTotal(card);
                     let isViewed = viewedCheckbox ? viewedCheckbox.checked : false;
                     if (signal === 'not relevant') {
                         const appliedCheckbox = card ? card.querySelector('.applied-wrap input') : null;
+                        // DB clears soft-hide only when leaving applied; keep UI aligned.
+                        const wasApplied = Boolean(appliedCheckbox && appliedCheckbox.checked);
                         if (appliedCheckbox) appliedCheckbox.checked = false;
                         const interviewCheckbox = card ? card.querySelector('.interview-wrap input') : null;
                         const stoppedCheckbox = card ? card.querySelector('.stopped-wrap input') : null;
                         if (interviewCheckbox) interviewCheckbox.checked = false;
                         if (stoppedCheckbox) stoppedCheckbox.checked = false;
                         if (card) removeCompanyFeedbackUI(card);
-                        // Soft-hide clear matches DB leave-applied CASE (not only auto-view).
-                        if (hiddenCheckbox) hiddenCheckbox.checked = false;
-                        if (card) card.classList.remove('is-soft-filtered');
+                        if (wasApplied) {
+                            if (hiddenCheckbox) hiddenCheckbox.checked = false;
+                            if (card) card.classList.remove('is-soft-filtered');
+                        }
                         if (viewedCheckbox && !isViewed) {
                             const viewedResponse = await fetch(apiUrl('/api/viewed'), {
                                 method: 'POST',
@@ -317,40 +319,45 @@
                             if (!viewedResponse.ok || !viewedData.ok) {
                                 throw new Error(viewedData.error || 'Failed to update viewed');
                             }
+                            // viewed=true clears soft-hide in DB; mirror in UI.
                             viewedCheckbox.checked = true;
                             isViewed = true;
+                            if (hiddenCheckbox) hiddenCheckbox.checked = false;
+                            if (card) card.classList.remove('is-soft-filtered');
                         }
                         if (card) {
                             const fromTriage = card.parentElement === panelRelevant
                                 || card.parentElement === panelNotRelevant;
                             if (appliedStagePanels.includes(card.parentElement)) {
                                 removeCardFromAppliedStages(card);
-                            } else if (fromTriage && isViewed && countedInTotal) {
+                            } else if (fromTriage && isViewed) {
                                 bumpPanelTotal(card.parentElement, -1);
                             }
                             if (isViewed) {
                                 if (card.parentElement !== panelEditedToday) {
                                     panelEditedToday.prepend(card);
                                 }
+                                // Edited today always shows soft-hidden; drop filter class if Hidden kept.
+                                card.classList.remove('is-soft-filtered');
                             } else if (card.parentElement !== panelNotRelevant) {
-                                if (fromTriage && countedInTotal) bumpPanelTotal(card.parentElement, -1);
-                                if (countedInTotal) bumpPanelTotal(panelNotRelevant, 1);
+                                if (fromTriage) bumpPanelTotal(card.parentElement, -1);
+                                bumpPanelTotal(panelNotRelevant, 1);
                                 panelNotRelevant.prepend(card);
                             }
                         }
+                        if (typeof applyShowHiddenFilter === 'function') applyShowHiddenFilter();
                     } else {
                         const targetPanel = panelRelevant;
                         if (card && !isViewed && card.parentElement !== targetPanel) {
                             if (
-                                (card.parentElement === panelRelevant || card.parentElement === panelNotRelevant)
-                                && countedInTotal
+                                card.parentElement === panelRelevant || card.parentElement === panelNotRelevant
                             ) {
                                 bumpPanelTotal(card.parentElement, -1);
                             }
-                            if (countedInTotal) bumpPanelTotal(targetPanel, 1);
+                            bumpPanelTotal(targetPanel, 1);
                             targetPanel.prepend(card);
                         } else if (card && isViewed && !appliedStagePanels.includes(card.parentElement)) {
-                            if (countedInTotal) bumpPanelTotal(card.parentElement, -1);
+                            bumpPanelTotal(card.parentElement, -1);
                             if (card.parentElement !== panelEditedToday) panelEditedToday.prepend(card);
                         }
                         if (typeof applyShowHiddenFilter === 'function') applyShowHiddenFilter();
@@ -381,14 +388,11 @@
                     }
                     if (viewed) {
                         const hiddenCheckbox = card ? card.querySelector('.hidden-wrap input') : null;
-                        // Capture before soft-hide clear so leave bumps match data-total.
-                        const countedInTotal = cardCountsInTriageTotal(card);
                         if (hiddenCheckbox) hiddenCheckbox.checked = false;
                         if (card) card.classList.remove('is-soft-filtered');
                         if (
                             card
                             && (card.parentElement === panelRelevant || card.parentElement === panelNotRelevant)
-                            && countedInTotal
                         ) {
                             bumpPanelTotal(card.parentElement, -1);
                         }
@@ -411,7 +415,7 @@
                         }
                         const relevantCheckbox = card ? card.querySelector('.relevant-wrap input') : null;
                         const targetPanel = relevantCheckbox && relevantCheckbox.checked ? panelRelevant : panelNotRelevant;
-                        if (cardCountsInTriageTotal(card)) bumpPanelTotal(targetPanel, 1);
+                        bumpPanelTotal(targetPanel, 1);
                         if (card && card.parentElement !== targetPanel) targetPanel.prepend(card);
                         if (typeof applyShowHiddenFilter === 'function') applyShowHiddenFilter();
                         if (statusEl) statusEl.textContent = 'Saved: unviewed';

@@ -31,6 +31,7 @@ _EXPORTS = {
     "decrement_bad_ngram_counts": "skills",
     "get_relevant_jobs": "queries",
     "get_jobs_by_category": "queries",
+    "get_jobs_by_category_triage_window": "queries",
     "get_jobs_count_by_category": "queries",
     "get_jobs_by_category_paged": "queries",
     "get_jobs_by_company": "queries",

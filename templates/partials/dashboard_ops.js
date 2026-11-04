@@ -269,28 +269,70 @@
                 btn.dataset.total = String(Math.max(0, current + delta));
             }
 
+            function panelSoftHideCounts(panel) {
+                let n = 0;
+                let k = 0;
+                panel.querySelectorAll('.card').forEach((card) => {
+                    const hidden = card.querySelector('.hidden-wrap input');
+                    if (hidden && hidden.checked) k += 1;
+                    else n += 1;
+                });
+                return { n, k };
+            }
+
+            // Digits + fixed spans only — label is a fixed tab name, never user content.
+            function formatJobListBadge(label, n, k, total, opts) {
+                const safeN = Number(n) || 0;
+                const safeK = Number(k) || 0;
+                const safeTotal = Number(total) || 0;
+                const active = Boolean(opts && opts.active);
+                const showHidden = Boolean(opts && opts.showHidden);
+                if (safeK === 0) {
+                    return `${label} (${safeN}/${safeTotal})`;
+                }
+                if (active && !showHidden) {
+                    return `${label} (${safeN} + <span class="mode-btn-soft-k">${safeK}</span>/${safeTotal})`;
+                }
+                return `${label} (${safeN + safeK}/${safeTotal})`;
+            }
+
             function refreshCounts() {
-                // Relevant/Not relevant numerators exclude soft-hidden by checkbox state
-                // (not is-soft-filtered), so Show hidden ON still matches data-total.
-                const relevantCount = panelRelevant.querySelectorAll(
-                    '.card:not(:has(.hidden-wrap input:checked))'
-                ).length;
-                const notRelevantCount = panelNotRelevant.querySelectorAll(
-                    '.card:not(:has(.hidden-wrap input:checked))'
-                ).length;
+                const showHidden = typeof isShowHiddenEnabled === 'function'
+                    ? isShowHiddenEnabled()
+                    : false;
+                const relevant = panelSoftHideCounts(panelRelevant);
+                const notRelevant = panelSoftHideCounts(panelNotRelevant);
+                const applied = panelSoftHideCounts(panelApplied);
+                const interview = panelSoftHideCounts(panelInterview);
+                const stopped = panelSoftHideCounts(panelStopped);
                 const editedTodayCount = panelEditedToday.querySelectorAll('.card').length;
-                const appliedCount = panelApplied.querySelectorAll('.card').length;
-                const interviewCount = panelInterview.querySelectorAll('.card').length;
-                const stoppedCount = panelStopped.querySelectorAll('.card').length;
                 const skillsCount = panelSkills.querySelectorAll('tbody tr').length;
-                const relevantTotal = Number.parseInt(btnRelevant.dataset.total || String(relevantCount), 10) || relevantCount;
-                const notRelevantTotal = Number.parseInt(btnNotRelevant.dataset.total || String(notRelevantCount), 10) || notRelevantCount;
-                btnRelevant.textContent = `Relevant (${relevantCount}/${relevantTotal})`;
-                btnNotRelevant.textContent = `Not relevant (${notRelevantCount}/${notRelevantTotal})`;
+                const relevantLoaded = relevant.n + relevant.k;
+                const notRelevantLoaded = notRelevant.n + notRelevant.k;
+                // N = category total incl. soft-hidden; never below cards on the tab.
+                let relevantTotal = Number.parseInt(
+                    btnRelevant.dataset.total || String(relevantLoaded), 10
+                ) || 0;
+                let notRelevantTotal = Number.parseInt(
+                    btnNotRelevant.dataset.total || String(notRelevantLoaded), 10
+                ) || 0;
+                relevantTotal = Math.max(relevantTotal, relevantLoaded);
+                notRelevantTotal = Math.max(notRelevantTotal, notRelevantLoaded);
+                btnRelevant.dataset.total = String(relevantTotal);
+                btnNotRelevant.dataset.total = String(notRelevantTotal);
+                btnRelevant.innerHTML = formatJobListBadge(
+                    'Relevant', relevant.n, relevant.k, relevantTotal,
+                    { active: currentMode === 'relevant', showHidden }
+                );
+                btnNotRelevant.innerHTML = formatJobListBadge(
+                    'Not relevant', notRelevant.n, notRelevant.k, notRelevantTotal,
+                    { active: currentMode === 'not relevant', showHidden }
+                );
+                // Applied / Interview / Stopped: single loaded total (n+k), no split badge.
+                btnApplied.textContent = `Applied (${applied.n + applied.k})`;
+                btnInterview.textContent = `Interview (${interview.n + interview.k})`;
+                btnStopped.textContent = `Stopped (${stopped.n + stopped.k})`;
                 btnEditedToday.textContent = `Edited today (${editedTodayCount})`;
-                btnApplied.textContent = `Applied (${appliedCount})`;
-                btnInterview.textContent = `Interview (${interviewCount})`;
-                btnStopped.textContent = `Stopped (${stoppedCount})`;
                 btnSkills.textContent = `Skills (${skillsCount})`;
                 ensureEmptyState(panelRelevant);
                 ensureEmptyState(panelNotRelevant);

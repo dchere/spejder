@@ -5,7 +5,7 @@ from typing import Optional
 from spejder.config import AppConfig
 from spejder.db import (
     get_all_applied_jobs,
-    get_jobs_by_category,
+    get_jobs_by_category_triage_window,
     get_jobs_count_by_category,
     get_viewed_jobs_count,
     set_job_description,
@@ -97,12 +97,18 @@ def write_inbox_dashboard_report(
     page_context_cache: dict[str, str] = {}
     report_title_translation_cache: dict[str, str] = {}
     category_totals: dict[str, int] = {}
+    relevant_limit = _report_max_relevant_positions(profile)
+    not_relevant_limit = _report_max_not_relevant_positions(profile)
     for cat in ["relevant", "not relevant"]:
         category_totals[cat] = get_jobs_count_by_category(
-            db_path, cat, unviewed_only=True
+            db_path, cat, unviewed_only=True, exclude_hidden=False
         )
-        rows = get_jobs_by_category(
-            db_path, cat, limit=0, unviewed_only=True, exclude_hidden=False
+        report_limit = relevant_limit if cat == "relevant" else not_relevant_limit
+        rows = get_jobs_by_category_triage_window(
+            db_path,
+            cat,
+            non_hidden_limit=report_limit,
+            unviewed_only=True,
         )
         records = []
         for row in rows:
@@ -174,6 +180,7 @@ def write_inbox_dashboard_report(
                     "viewed": row.get("viewed", 0),
                     "applied": row.get("applied", 0),
                     "hidden": int(row.get("hidden", 0) or 0),
+                    "updated_at": row.get("updated_at", "") or "",
                 }
             )
         report_data[cat] = records
@@ -223,6 +230,7 @@ def write_inbox_dashboard_report(
             "interview_stopped": int(row.get("interview_stopped", 0) or 0),
             "company_feedback": row.get("company_feedback", "") or "",
             "hidden": int(row.get("hidden", 0) or 0),
+            "updated_at": row.get("updated_at", "") or "",
         }
         if record["interview_stopped"]:
             stopped_records.append(record)

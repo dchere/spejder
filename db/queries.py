@@ -10,6 +10,7 @@ from .queries_applied import (
 from .queries_listings import (
     get_jobs_by_category,
     get_jobs_by_category_paged,
+    get_jobs_by_category_triage_window,
     get_jobs_by_company,
     get_jobs_count_by_category,
     get_relevant_jobs,
@@ -38,6 +39,7 @@ from .queries_signals import (
 __all__ = [
     "get_relevant_jobs",
     "get_jobs_by_category",
+    "get_jobs_by_category_triage_window",
     "get_jobs_count_by_category",
     "get_jobs_by_category_paged",
     "get_jobs_by_company",

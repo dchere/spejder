@@ -29,6 +29,8 @@ Per-job text enrichment: translation, description generation, skill materializat
 - `_generate_missing_descriptions_for_ingest`
 - Description/summary helpers used by inbox and dashboard flows
 
+**Related (sibling `enrichment.py` report write):** after `refresh-descriptions`, Relevant / Not relevant panel fetch uses `get_jobs_by_category_triage_window(..., non_hidden_limit=profile L, unviewed_only=True)` (aligned with dashboard rebuild / inbox report); badge **N** via uncapped `get_jobs_count_by_category(..., exclude_hidden=False)`; full-set materialize stays upstream (`materialize_relevant_and_applied_skills` before the report write).
+
 **Translation cache ownership:**
 - `text_translation_cache` and `title_translation_cache` are caller-owned, invocation-scoped dictionaries.
 - The factory reuses those dictionaries across records within one ingest run; callers decide lifecycle and must not treat them as module-level globals.

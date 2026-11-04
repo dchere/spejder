@@ -27,17 +27,18 @@ def _map_full_job_row(r, category: str) -> dict:
         "cover_letter_requested": int(r[19] or 0),
         "applied_at": r[20] or "",
         "hidden": int(r[21] or 0),
+        "updated_at": r[22] or "",
         "category": category,
     }
 
 
 def _map_company_job_row(r) -> dict:
-    row = _map_full_job_row(r, r[22] or "not relevant")
+    row = _map_full_job_row(r, r[23] or "not relevant")
     return row
 
 
 def _map_applied_job_row(r) -> dict:
-    return _map_full_job_row(r, r[22] or "relevant")
+    return _map_full_job_row(r, r[23] or "relevant")
 
 
 def _map_refresh_job_row(r) -> dict:

@@ -108,8 +108,11 @@ class EnrichmentReportHiddenTest(unittest.TestCase):
         self.assertIn("Soft Hidden Engineer", html)
         self.assertIn(f"setHidden({job_id}", html)
         self.assertIn('class="hidden-wrap"><input type="checkbox" checked', html)
-        # Soft-hidden embeds in Relevant but badge numerator excludes it.
-        self.assertIn("Relevant (0/0)", html)
+        # Soft-hidden only: SSR Relevant split form (default Show hidden off).
+        self.assertIn(
+            'Relevant (0 + <span class="mode-btn-soft-k">1</span>/1)',
+            html,
+        )
 
 
 if __name__ == "__main__":

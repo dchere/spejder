@@ -2,8 +2,21 @@
 
 Local CLI for parsing job emails (`.eml`), storing positions in SQLite, scoring relevance from a profile, extracting skills, and triaging in a browser dashboard.
 
+## Writing
+
+Posts about Spejder:
+
+- LinkedIn:
+  1. [lnkd.in/p/egJnafMd](https://lnkd.in/p/egJnafMd)
+  2. [lnkd.in/p/ev8zR9BU](https://lnkd.in/p/ev8zR9BU)
+  3. [lnkd.in/p/eyh_pVp4](https://lnkd.in/p/eyh_pVp4)
+  4. [lnkd.in/p/ee8Qntfj](https://lnkd.in/p/ee8Qntfj)
+  5. [lnkd.in/p/e6R72BD7](https://lnkd.in/p/e6R72BD7)
+- [Even more wordy on Medium](https://medium.com/@dcherepakha/list/spejder-en-a-jobhunt-scout-965b3cbc0a65) (full list)
+
 ## Table of contents
 
+- [Writing](#writing)
 - [Features](#features)
 - [Project layout](#project-layout)
 - [Install](#install)
@@ -92,7 +105,7 @@ Open `http://127.0.0.1:8765/report.html`.
 
 Requires `serve-gui`. Deep UI wiring lives in [`workflows/dashboard.md`](workflows/dashboard.md); API shapes in [`server.md`](server.md).
 
-**Tabs:** Relevant and Not relevant show unviewed jobs only. Viewed jobs move to **Edited today** (local calendar day). **Applied** / **Interview** / **Stopped** are the apply pipeline (mutually exclusive Interview/Stopped). Per-card **Hidden** soft-hides in place (flips `hidden` only — category/stage/pipeline flags stay). On the main dashboard, **Show hidden** (session only, default off) on Relevant / Not relevant / Applied / Interview / Stopped reveals soft-hidden cards; Edited today always shows all qualifying rows (including soft-hidden) with no Show hidden control. Relevant/Not relevant badge totals exclude soft-hidden; Applied/Interview/Stopped counts include them. Soft-hidden compete for the Relevant/Not relevant report LIMIT. Company dashboard has no Hidden tab and no hide control; soft-hidden rows still appear in category/stage / Edited today. Sync still updates skills/scores/descriptions for soft-hidden jobs (viewed non-pipeline jobs are the enrichment skip). Checking Applied / Interview / Stopped waits for report rebuild then reloads onto that tab; unchecking does not change the current tab. Hidden does not auto-switch tabs. Delete removes the position from the database; a later email with the same link can add it again. **Clean skills** drops that card's extracted skills and re-extracts them in the background (no confirm; no Sync inbox click needed); the button path also unviews non-pipeline jobs so active rescore can pick them up again. Unchecking Relevant still marks the job viewed, then auto-cleans skills while keeping Viewed and the not-relevant triage state (card stays on Edited today).
+**Tabs:** Relevant and Not relevant show unviewed jobs only. Viewed jobs move to **Edited today** (local calendar day). **Applied** / **Interview** / **Stopped** are the apply pipeline (mutually exclusive Interview/Stopped). Per-card **Hidden** soft-hides in place (flips `hidden` only — category/stage/pipeline flags stay). On the main dashboard, **Show hidden** (session only, default off) on Relevant / Not relevant / Applied / Interview / Stopped reveals soft-hidden cards; Edited today always shows all qualifying rows (including soft-hidden) with no Show hidden control. **Badges:** Relevant / Not relevant use **N** = full category total including soft-hidden. With Show hidden off on the active R/NR tab, soft-hidden cards use the split form `n + k/N` (**k** in darker grey); otherwise `(n+k)/N` (or plain `n/N` when `k=0`). Applied / Interview / Stopped show a single loaded total `(n+k)` (no slash / split). Profile LIMIT `L` caps **non-hidden** R/NR cards; soft-hidden cards in that triage walk are extras and do not consume L (beyond the walk they are not loaded). Soft-hidden extras inside the walk are uncapped — a long run of high-score soft-hidden before the L-th non-hidden is all loaded (can inflate rebuild HTML after mass soft-hide; no separate soft-extra cap). Company dashboard has no Hidden tab and no hide control; soft-hidden rows still appear in category/stage / Edited today (company badges stay simple counts). Sync still updates skills/scores/descriptions for soft-hidden jobs (viewed non-pipeline jobs are the enrichment skip). Checking Applied / Interview / Stopped waits for report rebuild then reloads onto that tab; unchecking does not change the current tab. Hidden does not auto-switch tabs. Delete removes the position from the database; a later email with the same link can add it again. **Clean skills** drops that card's extracted skills and re-extracts them in the background (no confirm; no Sync inbox click needed); the button path also unviews non-pipeline jobs so active rescore can pick them up again. Unchecking Relevant still marks the job viewed, then auto-cleans skills while keeping Viewed and the not-relevant triage state (card stays on Edited today).
 
 **Toolbar** (right of the tab bar): Portrait, Regenerate report, Profile (gear), Sync inbox. Sync runs the same pipeline as startup background sync (inbox ingest, optional IT-DAY portal, dedupe, skills, descriptions, skill-pattern learning, skill hygiene, profile keyword learning). When new positions are inserted, the dashboard auto-refreshes mid-sync (after ingest/dedupe) so new cards appear while skills and later stages continue, then auto-reloads again at end-of-sync when those later stages rebuilt the HTML. Reload manually when sync changed skills/patterns without inserting new positions (no mid-sync refresh).
 

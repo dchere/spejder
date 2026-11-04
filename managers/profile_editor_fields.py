@@ -77,9 +77,17 @@ PROFILE_FIELD_META: dict[str, dict[str, Any]] = {
     ),
     "report_max_relevant_positions": _field(
         "keywords_scoring", "Max relevant positions (report)", "number",
+        help=(
+            "Max non-hidden Relevant cards on the report "
+            "(soft-hidden cards in that score range are included as extras)."
+        ),
     ),
     "report_max_not_relevant_positions": _field(
         "keywords_scoring", "Max not-relevant positions (report)", "number",
+        help=(
+            "Max non-hidden Not relevant cards on the report "
+            "(soft-hidden cards in that score range are included as extras)."
+        ),
     ),
     "skill_match_weight": _field("keywords_scoring", "Skill match weight", "number"),
     "skill_missing_penalty": _field("keywords_scoring", "Skill missing penalty", "number"),
