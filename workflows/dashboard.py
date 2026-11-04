@@ -6,7 +6,7 @@ from spejder.config import AppConfig
 from spejder.db import (
     get_applied_jobs,
     get_interview_jobs,
-    get_jobs_by_category,
+    get_jobs_by_category_triage_window,
     get_jobs_count_by_category,
     get_stopped_interview_jobs,
     get_viewed_jobs_count,
@@ -146,20 +146,25 @@ class DashboardRebuildQueue:
                             self.db_path,
                             cat,
                             unviewed_only=True,
+                            exclude_hidden=False,
                         )
                         category_totals[cat] = int(total_rows)
                         report_limit = relevant_limit if cat == "relevant" else not_relevant_limit
-                        rows = get_jobs_by_category(
+                        rows = get_jobs_by_category_triage_window(
                             self.db_path,
                             cat,
-                            limit=report_limit,
+                            non_hidden_limit=report_limit,
                             unviewed_only=True,
-                            exclude_hidden=False,
                         )
                         if should_log_rebuild:
+                            soft_hidden = sum(
+                                1 for row in rows if int(row.get("hidden", 0) or 0) == 1
+                            )
+                            non_hidden = len(rows) - soft_hidden
                             print(
                                 "Dashboard rebuild: collecting "
-                                f"{cat} (showing={len(rows)}, total_unviewed={total_rows})"
+                                f"{cat} (showing={len(rows)}, non_hidden={non_hidden}, "
+                                f"soft_hidden={soft_hidden}, total_unviewed={total_rows})"
                             )
                         refreshed_report_data[cat] = [
                             build_dashboard_record(

@@ -16,7 +16,8 @@ def local_day_start_utc_iso() -> str:
 _JOB_SELECT_COLS = (
     "id, source, company, title, title_english, place, work_type, position_link, raw_text, "
     "relevance_score, relevance_reason, summary, viewed, applied, on_interview, interview_stopped, "
-    "company_feedback, description, cover_letter, cover_letter_requested, applied_at, hidden"
+    "company_feedback, description, cover_letter, cover_letter_requested, applied_at, hidden, "
+    "updated_at"
 )
 
 _EXCLUDE_HIDDEN_SQL = " AND COALESCE(hidden, 0)=0"
@@ -74,6 +75,51 @@ def get_jobs_by_category(
         if limit and limit > 0:
             q += " LIMIT ?"
             params.append(int(limit))
+        cur.execute(q, params)
+        rows = cur.fetchall()
+        return [_map_full_job_row(r, category) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_jobs_by_category_triage_window(
+    db_path: str,
+    category: str,
+    non_hidden_limit: int,
+    unviewed_only: bool = False,
+) -> list[dict]:
+    """Triage fetch: L non-hidden by score order, plus soft-hidden in that walk.
+
+    Soft-hidden never consume L and are uncapped within the walk (a long
+    high-score soft-hidden run before the L-th non-hidden loads every extra).
+    Rows after the L-th non-hidden are excluded. Always includes soft-hidden
+    (no exclude_hidden flag). Order: ``relevance_score DESC, updated_at DESC,
+    id ASC``.
+    """
+    capped = max(1, int(non_hidden_limit or 7))
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        where = "WHERE category=?"
+        params: list = [category]
+        if unviewed_only:
+            where += " AND viewed=0"
+        order = "relevance_score DESC, updated_at DESC, id ASC"
+        q = (
+            f"WITH ordered AS ("
+            f" SELECT {_JOB_SELECT_COLS},"
+            f" SUM(CASE WHEN COALESCE(hidden, 0)=0 THEN 1 ELSE 0 END)"
+            f"  OVER ("
+            f"   ORDER BY {order}"
+            f"   ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING"
+            f"  ) AS nh_before"
+            f" FROM jobs {where}"
+            f")"
+            f" SELECT {_JOB_SELECT_COLS} FROM ordered"
+            f" WHERE COALESCE(nh_before, 0) < ?"
+            f" ORDER BY {order}"
+        )
+        params.append(capped)
         cur.execute(q, params)
         rows = cur.fetchall()
         return [_map_full_job_row(r, category) for r in rows]

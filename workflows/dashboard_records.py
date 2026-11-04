@@ -67,6 +67,7 @@ def build_dashboard_record(
         "cover_letter_requested": int(row.get("cover_letter_requested", 0) or 0),
         "applied_at": row.get("applied_at", "") or "",
         "hidden": int(row.get("hidden", 0) or 0),
+        "updated_at": row.get("updated_at", "") or "",
     }
 
 

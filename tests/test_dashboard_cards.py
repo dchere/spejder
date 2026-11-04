@@ -413,6 +413,45 @@ class DashboardCardsTest(unittest.TestCase):
                 self.assertIn('class="cover-letter-viewer"', html)
                 self.assertIn("Saved letter body", html)
 
+    def test_render_clamps_not_relevant_total_to_embedded_cards(self):
+        """N must not be below cards on the tab when a stale non-hidden-only total is passed."""
+        items = [
+            _applied_card_item(
+                id=1,
+                title="Visible NR",
+                applied=0,
+                viewed=0,
+                hidden=0,
+                category="not relevant",
+                position_link="https://example.com/nr1",
+            ),
+            _applied_card_item(
+                id=2,
+                title="Soft Hidden NR",
+                applied=0,
+                viewed=0,
+                hidden=1,
+                category="not relevant",
+                position_link="https://example.com/nr2",
+            ),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            out_html = os.path.join(tmp, "dashboard.html")
+            _render_html_dashboard(
+                [],
+                items,
+                [],
+                out_html,
+                "Clamp N",
+                report_max_not_relevant_positions=10,
+                # Stale caller: non-hidden-only total (1) while two cards are embedded.
+                not_relevant_total_count=1,
+            )
+            with open(out_html, encoding="utf-8") as f:
+                html = f.read()
+        self.assertIn('data-total="2">Not relevant (2/2)<', html)
+        self.assertIn("Soft Hidden NR", html)
+
 
 if __name__ == "__main__":
     unittest.main()
