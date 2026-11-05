@@ -1,8 +1,6 @@
+from __future__ import annotations
+
 from .connection import _connect
-from .deduplication_utils import (
-    _canonicalize_company_for_dedupe,
-    _normalize_company_key,
-)
 from .queries_listings import _JOB_SELECT_COLS
 from .queries_rows import _map_applied_job_row
 
@@ -89,10 +87,12 @@ def get_stopped_interview_jobs(db_path: str, limit: int = 0) -> list[dict]:
 def get_applied_pipeline_company_keys(db_path: str) -> set[str]:
     """Normalized company keys eligible for applied-company relevance bonus.
 
-    Eligible = keys with ≥1 applied row where interview_stopped=0, minus keys
-    that also have any applied+stopped row. Blank companies are ignored.
-    Uses the same key as position dedupe.
+    Eligible = union of all alias keys for every resolved company that has ≥1
+    applied∧¬stopped job, minus the union of alias keys for companies that have
+    any applied+stopped job. Blank companies are ignored.
     """
+    from .companies import resolve_company_cur
+
     conn = _connect(db_path)
     try:
         cur = conn.cursor()
@@ -100,17 +100,20 @@ def get_applied_pipeline_company_keys(db_path: str) -> set[str]:
             "SELECT company, interview_stopped FROM jobs WHERE applied=1"
         )
         rows = cur.fetchall()
+        cache: dict[str, frozenset[str]] = {}
+        non_stopped: set[str] = set()
+        stopped: set[str] = set()
+        for company, interview_stopped in rows:
+            raw = str(company or "")
+            if raw not in cache:
+                cache[raw] = resolve_company_cur(cur, raw).keys
+            keys = cache[raw]
+            if not keys:
+                continue
+            if int(interview_stopped or 0) == 1:
+                stopped |= keys
+            else:
+                non_stopped |= keys
+        return non_stopped - stopped
     finally:
         conn.close()
-
-    non_stopped: set[str] = set()
-    stopped: set[str] = set()
-    for company, interview_stopped in rows:
-        key = _normalize_company_key(_canonicalize_company_for_dedupe(company or ""))
-        if not key:
-            continue
-        if int(interview_stopped or 0) == 1:
-            stopped.add(key)
-        else:
-            non_stopped.add(key)
-    return non_stopped - stopped

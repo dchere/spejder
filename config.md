@@ -41,7 +41,7 @@ Replaces the old dictionary-based profile system (`FALLBACK_DEFAULT_PROFILE`). A
 - `include_keywords` / `exclude_keywords` — operator-edited keyword lists used by `score_relevance`
 - `learned_include_keywords` / `learned_exclude_keywords` — auto-written by profile keyword learning (sync / `process-inbox`); kept separate on disk. `config.load_profile` does not merge them into include/exclude; `score_relevance` merges at score time so scoring uses both without baking learned terms into the saved include/exclude lists
 - `easy_apply_bonus` — extra relevance for LinkedIn Easy Apply (default `0.75`; `0` disables)
-- `applied_company_bonus` — extra relevance for jobs at companies with an active applied/interview pipeline row and no stopped row for that normalized company key (default `0.75`; `0` disables; score-only, no UI)
+- `applied_company_bonus` — extra relevance for jobs whose company alias key is in `get_applied_pipeline_company_keys` (union of alias keys for companies with ≥1 applied∧¬stopped job, minus alias keys for any stopped company; default `0.75`; `0` disables; score-only, no UI)
 - `skill_unwanted_penalty` — extra relevance subtracted per extracted job skill whose key is in `unwanted_skills` (default `1.2`; `0` disables). Independent of the `user_skills` match/missing gate.
 - `report_max_relevant_positions` / `report_max_not_relevant_positions` — max **non-hidden** cards on Relevant / Not relevant report panels (defaults `7` / `42`). Soft-hidden cards encountered in the triage walk before the L-th non-hidden are included as extras and do not consume L. Legacy `report_max_positions` migrates into both fields on load.
 

@@ -36,6 +36,7 @@ from spejder.workflows.progress_eta import (
     ingest_eta_store_path,
     skills_eta_store_path,
 )
+from spejder.workflows.company_catalog import run_empty_company_prune
 from spejder.workflows.profile_learning import run_profile_keyword_learning
 from spejder.workflows.skill_hygiene import run_skill_hygiene_stages
 from spejder.workflows.sync_log import (
@@ -522,6 +523,18 @@ def run_inbox_sync(context: GuiSyncContext) -> InboxSyncResult:
                 )
         if learning.profile_changed:
             context.queue_dashboard_rebuild(reason="profile keywords learned")
+
+        pruned_empty = run_empty_company_prune(
+            context.db_path,
+            on_stage=lambda stage_id, message: _emit_stage(context, stage_id, message),
+        )
+        print(
+            f"Background sync: pruned empty companies (count={len(pruned_empty)})"
+        )
+        if pruned_empty:
+            context.queue_dashboard_rebuild(
+                reason=f"empty companies pruned (count={len(pruned_empty)})"
+            )
 
         print(
             f"Background sync done: input_files={len(docs)}, processed={ingest_stats.get('processed', 0)}, "

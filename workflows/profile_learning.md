@@ -19,5 +19,5 @@ Thin shared helper so GUI background sync and CLI `process-inbox` run the same p
 - Do not call on early skipped empty sync
 
 **Constraints:**
-- Stays after pattern learning + `run_skill_hygiene_stages` (order: patterns → hygiene → profile learning)
+- Stays after pattern learning + `run_skill_hygiene_stages`; empty-company prune follows (order: patterns → hygiene → profile learning → empty_companies)
 - Not part of skill hygiene

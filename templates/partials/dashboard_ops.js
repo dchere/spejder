@@ -307,6 +307,11 @@
                 const stopped = panelSoftHideCounts(panelStopped);
                 const editedTodayCount = panelEditedToday.querySelectorAll('.card').length;
                 const skillsCount = panelSkills.querySelectorAll('tbody tr').length;
+                const companiesPanel = document.getElementById('panel-companies');
+                const companiesCount = companiesPanel
+                    ? companiesPanel.querySelectorAll('tbody tr').length
+                    : 0;
+                const btnCompanies = document.getElementById('btn-companies');
                 const relevantLoaded = relevant.n + relevant.k;
                 const notRelevantLoaded = notRelevant.n + notRelevant.k;
                 // N = category total incl. soft-hidden; never below cards on the tab.
@@ -334,6 +339,7 @@
                 btnStopped.textContent = `Stopped (${stopped.n + stopped.k})`;
                 btnEditedToday.textContent = `Edited today (${editedTodayCount})`;
                 btnSkills.textContent = `Skills (${skillsCount})`;
+                if (btnCompanies) btnCompanies.textContent = `Companies (${companiesCount})`;
                 ensureEmptyState(panelRelevant);
                 ensureEmptyState(panelNotRelevant);
                 ensureEmptyState(panelEditedToday);

@@ -35,11 +35,22 @@ def merge_duplicate_positions(db_path: str) -> dict[str, int]:
     from spejder.db.mutations import batch_update_and_delete_jobs
     from spejder.db.queries_signals import get_all_jobs_for_dedupe
 
+    from spejder.db.companies import resolve_company
+
     rows = get_all_jobs_for_dedupe(db_path)
     by_key: dict[str, list[dict]] = {}
+    company_key_cache: dict[str, str] = {}
     for row in rows:
         item = _row_to_dedupe_item(row)
-        key = _position_dedupe_key(item["company"], item["title"], item["place"])
+        company = item["company"]
+        if company not in company_key_cache:
+            company_key_cache[company] = resolve_company(db_path, company).dedupe_key
+        key = _position_dedupe_key(
+            company,
+            item["title"],
+            item["place"],
+            company_key=company_key_cache[company],
+        )
         if not key:
             continue
         by_key.setdefault(key, []).append(item)

@@ -12,6 +12,7 @@
             .pseudo-link:hover { color: #084298; }
             {% include "partials/dashboard_card_corners.css" %}
             {% include "partials/dashboard_skills.css" %}
+            {% include "partials/dashboard_companies.css" %}
             .page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 8px; }
             .page-header h1 { margin-top: 0; margin-bottom: 0; flex: 0 1 auto; min-width: 0; }
             /* Same flex row as the title (right-aligned); keeps toolbar buttons from shifting. */
@@ -64,6 +65,7 @@
                 <button id="btn-interview" class="mode-btn" type="button">Interview ({{ len_interview_items }})</button>
                 <button id="btn-stopped" class="mode-btn" type="button">Stopped ({{ len_stopped_items }})</button>
                 <button id="btn-skills" class="mode-btn" type="button">Skills ({{ len_skills_items }})</button>
+                <button id="btn-companies" class="mode-btn" type="button">Companies ({{ len_companies_items }})</button>
                 <button id="btn-edited-today" class="mode-btn" type="button">Edited today ({{ len_viewed_today_items }})</button>
                 <span id="tab-refresh-status" class="tab-refresh-status"></span>
                 <div class="controls-actions">
@@ -108,6 +110,17 @@
             {{ skills_table_html }}
             {{ skills_cloud_status_html }}
         </section>
+        <section id="panel-companies" class="companies-wrap hidden">
+            <div class="companies-bulk-bar">
+                {% if len_companies_items > 0 %}
+                <span id="companies-selected-label">0 selected</span>
+                <button type="button" id="btn-merge-companies" class="company-merge-btn" disabled onclick="mergeSelectedCompanies(this)" title="Merge selected companies into one display name">Merge</button>
+                <button type="button" id="btn-rename-company" class="company-rename-btn" disabled onclick="renameSelectedCompany(this)" title="Rename the selected company's display name">Rename</button>
+                <button type="button" id="btn-delete-company" class="company-delete-btn" disabled onclick="deleteSelectedCompany(this)" title="Delete company and all membership jobs">Delete</button>
+                {% endif %}
+            </div>
+            {{ companies_table_html }}
+        </section>
         <section id="panel-edited-today" class="grid hidden">{{ viewed_today_cards }}</section>
         <section id="panel-portrait" class="portrait-wrap hidden">
             <div class="portrait-toolbar">
@@ -133,6 +146,7 @@
             const btnInterview = document.getElementById('btn-interview');
             const btnStopped = document.getElementById('btn-stopped');
             const btnSkills = document.getElementById('btn-skills');
+            const btnCompanies = document.getElementById('btn-companies');
             const btnPortrait = document.getElementById('btn-portrait');
             const panelRelevant = document.getElementById('panel-relevant');
             const panelNotRelevant = document.getElementById('panel-not-relevant');
@@ -141,6 +155,7 @@
             const panelInterview = document.getElementById('panel-interview');
             const panelStopped = document.getElementById('panel-stopped');
             const panelSkills = document.getElementById('panel-skills');
+            const panelCompanies = document.getElementById('panel-companies');
             const panelPortrait = document.getElementById('panel-portrait');
             const portraitEditor = document.getElementById('portrait-editor');
             const portraitDiffWrap = document.getElementById('portrait-diff-wrap');
@@ -213,6 +228,7 @@
                 const isInterview = mode === 'interview';
                 const isStopped = mode === 'stopped';
                 const isSkills = mode === 'skills';
+                const isCompanies = mode === 'companies';
                 const isPortrait = mode === 'portrait';
                 const isProfile = mode === 'profile';
                 panelRelevant.classList.toggle('hidden', !isRelevant);
@@ -222,6 +238,7 @@
                 panelInterview.classList.toggle('hidden', !isInterview);
                 panelStopped.classList.toggle('hidden', !isStopped);
                 panelSkills.classList.toggle('hidden', !isSkills);
+                if (panelCompanies) panelCompanies.classList.toggle('hidden', !isCompanies);
                 panelPortrait.classList.toggle('hidden', !isPortrait);
                 if (panelProfile) panelProfile.classList.toggle('hidden', !isProfile);
                 btnRelevant.classList.toggle('active', isRelevant);
@@ -231,6 +248,7 @@
                 btnInterview.classList.toggle('active', isInterview);
                 btnStopped.classList.toggle('active', isStopped);
                 btnSkills.classList.toggle('active', isSkills);
+                if (btnCompanies) btnCompanies.classList.toggle('active', isCompanies);
                 btnPortrait.classList.toggle('active', isPortrait);
                 if (btnProfile) btnProfile.classList.toggle('active', isProfile);
                 const showHiddenTab = isRelevant || isNotRelevant || isApplied || isInterview || isStopped;
@@ -256,6 +274,8 @@
             {% include "partials/dashboard_skills_flags.js" %}
             {% include "partials/dashboard_skills_bulk.js" %}
             {% include "partials/dashboard_skills_sort.js" %}
+            {% include "partials/dashboard_companies_sort.js" %}
+            {% include "partials/dashboard_companies.js" %}
 
             function openCompanyPage(companyName) {
                 if (!companyName) return;
@@ -270,6 +290,7 @@
             btnInterview.addEventListener('click', () => switchTab('interview'));
             btnStopped.addEventListener('click', () => switchTab('stopped'));
             btnSkills.addEventListener('click', () => switchTab('skills'));
+            if (btnCompanies) btnCompanies.addEventListener('click', () => switchTab('companies'));
             btnEditedToday.addEventListener('click', () => switchTab('edited today'));
             btnPortrait.addEventListener('click', () => setMode('portrait'));
             if (portraitEditor) {
@@ -449,6 +470,11 @@
             window.toggleSelectAllSkills = toggleSelectAllSkills;
             window.blockSelectedSkills = blockSelectedSkills;
             window.deleteSelectedSkills = deleteSelectedSkills;
+            window.updateCompaniesBulkBar = updateCompaniesBulkBar;
+            window.toggleSelectAllCompanies = toggleSelectAllCompanies;
+            window.mergeSelectedCompanies = mergeSelectedCompanies;
+            window.renameSelectedCompany = renameSelectedCompany;
+            window.deleteSelectedCompany = deleteSelectedCompany;
             window.appendAppliedRawText = appendAppliedRawText;
             window.setCoverLetterRequested = setCoverLetterRequested;
             window.saveCoverLetter = saveCoverLetter;
@@ -465,7 +491,7 @@
             function initTabFromUrl() {
                 const params = new URLSearchParams(window.location.search);
                 const tab = params.get('tab');
-                const validModes = ['relevant', 'not relevant', 'applied', 'interview', 'stopped', 'skills', 'edited today', 'portrait', 'profile'];
+                const validModes = ['relevant', 'not relevant', 'applied', 'interview', 'stopped', 'skills', 'companies', 'edited today', 'portrait', 'profile'];
                 if (tab && validModes.includes(tab)) {
                     setMode(tab);
                 }
@@ -492,6 +518,7 @@
                 refreshCounts();
             });
             initSkillsTableSort();
+            initCompaniesTableSort();
             initInboxSyncStatus();
             refreshCounts();
         </script>

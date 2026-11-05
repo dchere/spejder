@@ -179,8 +179,14 @@ def get_jobs_by_category_paged(
 
 
 def get_jobs_by_company(db_path: str, company: str, limit: int = 0) -> list[dict]:
+    from .companies import company_alias_key, resolve_company
+
     normalized_company = str(company or "").strip()
     if not normalized_company:
+        return []
+
+    ref = resolve_company(db_path, normalized_company)
+    if not ref.keys:
         return []
 
     conn = _connect(db_path)
@@ -188,16 +194,20 @@ def get_jobs_by_company(db_path: str, company: str, limit: int = 0) -> list[dict
         cur = conn.cursor()
         q = (
             f"SELECT {_JOB_SELECT_COLS}, category "
-            "FROM jobs WHERE LOWER(TRIM(COALESCE(company, '')))=LOWER(TRIM(?)) "
+            "FROM jobs WHERE TRIM(COALESCE(company, '')) != '' "
             "ORDER BY applied DESC, relevance_score DESC, updated_at DESC"
         )
-        params: list = [normalized_company]
-        if limit and limit > 0:
-            q += " LIMIT ?"
-            params.append(int(limit))
-        cur.execute(q, params)
+        cur.execute(q)
         rows = cur.fetchall()
-        return [_map_company_job_row(r) for r in rows]
+        matched = []
+        for row in rows:
+            mapped = _map_company_job_row(row)
+            job_key = company_alias_key(str(mapped.get("company") or ""))
+            if job_key and job_key in ref.keys:
+                matched.append(mapped)
+        if limit and limit > 0:
+            return matched[: int(limit)]
+        return matched
     finally:
         conn.close()
 

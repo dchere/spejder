@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from spejder.db import get_jobs_by_company, get_viewed_today_jobs, local_day_start_utc_iso
+from spejder.db.companies import resolve_company
 from spejder.managers.dashboard_manager import _render_company_dashboard_html
 from spejder.server.context import ServerRuntime, get_runtime
 
@@ -75,6 +76,8 @@ def company_page(company: str = "", runtime: ServerRuntime = Depends(get_runtime
             ),
         )
 
+    ref = resolve_company(runtime.db_path, company_name)
+    page_title = ref.display_name if ref.catalogued else company_name
     company_items = get_jobs_by_company(runtime.db_path, company_name, limit=0)
     since_iso = local_day_start_utc_iso()
     viewed_today_order = {
@@ -84,6 +87,6 @@ def company_page(company: str = "", runtime: ServerRuntime = Depends(get_runtime
         )
     }
     html_content = _render_company_dashboard_html(
-        company_name, company_items, viewed_today_order=viewed_today_order
+        page_title, company_items, viewed_today_order=viewed_today_order
     )
     return HTMLResponse(content=html_content)

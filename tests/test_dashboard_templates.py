@@ -71,6 +71,7 @@ def _minimal_dashboard_context():
         "len_interview_items": 0,
         "len_stopped_items": 0,
         "len_skills_items": 0,
+        "len_companies_items": 0,
         "relevant_cards": "",
         "not_relevant_cards": "",
         "viewed_today_cards": "",
@@ -79,6 +80,7 @@ def _minimal_dashboard_context():
         "stopped_cards": "",
         "skills_table_html": '<p class="empty">No skills found.</p>',
         "skills_cloud_status_html": "",
+        "companies_table_html": '<p class="empty">No companies found.</p>',
         "skills_empty_added_at_sort": SKILLS_EMPTY_ADDED_AT_SORT,
         "portrait_text": "",
         "has_portrait": False,
@@ -192,7 +194,7 @@ class DashboardTemplatesTest(unittest.TestCase):
         self.assertIn('id="btn-sync-from-cv"', html)
         self.assertIn("skills-bulk-bar-end", html)
         self.assertNotIn("skills-legend", html)
-        panel = html[html.index('id="panel-skills"') : html.index('id="panel-edited-today"')]
+        panel = html[html.index('id="panel-skills"') : html.index('id="panel-companies"')]
         self.assertLess(panel.index('id="btn-block-selected"'), panel.index('id="btn-sync-from-cv"'))
         self.assertLess(panel.index('id="btn-sync-from-cv"'), panel.index('class="skills-table"'))
         self.assertLess(panel.index('class="skills-table"'), panel.index('id="skills-cloud-status"'))
@@ -759,7 +761,16 @@ class DashboardTemplatesTest(unittest.TestCase):
 
     def test_dashboard_tab_buttons_use_switch_tab(self):
         text = _read_template("dashboard.html")
-        for mode in ("relevant", "not relevant", "applied", "interview", "stopped", "skills", "edited today"):
+        for mode in (
+            "relevant",
+            "not relevant",
+            "applied",
+            "interview",
+            "stopped",
+            "skills",
+            "companies",
+            "edited today",
+        ):
             with self.subTest(mode=mode):
                 self.assertIn(f"switchTab('{mode}')", text)
         self.assertNotIn("switchTab('hidden')", text)
