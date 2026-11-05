@@ -23,3 +23,4 @@ Shared post-learning skill hygiene for GUI background sync and CLI `process-inbo
 - Do not diverge stage order between `gui_sync` and `inbox_workflow`; both must call `run_skill_hygiene_stages`.
 - Stale cleanup must not append `blocked_skills` or touch the bad cloud.
 - Profile keyword learning is a separate stage (`profile_learning.py`) after hygiene — do not fold it into this module.
+- Empty-company prune is a separate stage (`company_catalog.run_empty_company_prune`) after profile learning — do not fold it into this module.

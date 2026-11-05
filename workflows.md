@@ -21,7 +21,7 @@ Core orchestration for CLI commands, GUI background sync, and heavy multi-step p
 | `dashboard.py` | Rebuild queue worker + missing-skill helper; re-exports record builders |
 | `dashboard_records.py` | Row → dashboard dict + Hidden / Edited-today loaders |
 | `gui.py` | GUI/server thread orchestration |
-| `gui_sync.py` | Background inbox sync pipeline (portal → ingest → enrichment → shared skill hygiene → profile keyword learning); append-only sync event log via `sync_log.py` |
+| `gui_sync.py` | Background inbox sync pipeline (portal → ingest → enrichment → shared skill hygiene → profile keyword learning → empty-company prune); append-only sync event log via `sync_log.py` |
 | `sync_log.py` | Append-only `{report_dir}/sync.log` writer for GUI sync and `process-inbox`; mirrors events to stdout as `sync …` |
 | `skill_hygiene.py` | Shared skill hygiene stages for GUI sync and `process-inbox`: `run_skill_hygiene_stages` (blocked DB cleanup → stale low-share cleanup → bad-cloud seed/recalibrate) plus `run_stale_skill_cleanup` |
 | `profile_learning.py` | Shared post-hygiene profile keyword learning: `run_profile_keyword_learning` (stage `profile_learning`, wraps `update_profile_from_db_signals`, dirty split: `keywords_changed` / `suggestions_changed`) |
@@ -37,6 +37,7 @@ Core orchestration for CLI commands, GUI background sync, and heavy multi-step p
 | `progress_eta.py` | Rolling sample ETA + skills/descriptions/ingest stage lines (base sentence, optional minutes left; ingest uses `{db}.ingest_eta.json`, `kind == "position"`) |
 | `job_easy_apply.py` | LinkedIn easy-apply detection |
 | `report_workflow.py` | CLI link reports + JSONL HTML export |
+| `company_catalog.py` | Company catalog merge / rename / delete orchestration (`merge_companies` always calls `merge_duplicate_positions` after the identity txn) plus shared late-sync `run_empty_company_prune` (stage `empty_companies`) |
 | `deduplication.py` | Company+title position dedupe wrapper |
 | `enrichment.py` | `refresh-descriptions` command |
 | `text_prepend.py` | Summary validity checks + title/summary raw-text prepend (title skip on presence, not only exact `Title:` prefix) |
@@ -67,3 +68,4 @@ Core orchestration for CLI commands, GUI background sync, and heavy multi-step p
    - 8. Bad cloud seed / threshold recalibration
    - Profile save/reload once when `profile_dirty` (stale prune and/or cloud/threshold change)
 9. Profile keyword learning (`run_profile_keyword_learning` in `profile_learning.py`) — stage `profile_learning`; always reload runtime profile after write; `rescore_active_jobs` when `keywords_changed`; dashboard rebuild when `profile_changed` (keywords or suggestions)
+10. Empty-company prune (`run_empty_company_prune` in `company_catalog.py`) — stage `empty_companies`; full-catalog prune after profile learning; dashboard rebuild when any ids pruned

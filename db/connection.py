@@ -33,3 +33,6 @@ def ensure_db(db_path: str):
         conn.commit()
     finally:
         conn.close()
+    from spejder.db.companies import ensure_companies_from_jobs
+
+    ensure_companies_from_jobs(db_path)

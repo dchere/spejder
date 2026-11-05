@@ -19,6 +19,7 @@ Provides an interactive dashboard (web GUI) to review extracted jobs and view th
 | `routers/jobs_applied_extras.py` | `/api/applied/raw-text`, `/api/applied/cover-letter/request`, `/api/applied/cover-letter` |
 | `routers/skills.py` | `/api/skill/user\|learn\|unwanted\|sync-from-cv` (profile exclusive-list toggles + CV→`user_skills` sync + `rescore_active_jobs` when the list changed) |
 | `routers/skills_block_delete.py` | `/api/skill/block\|delete\|forgive\|block-batch\|delete-batch\|forgive-batch` plus `_normalize_skill_batch`, `_run_skill_block`, `_run_skill_delete`, `_run_skill_forgive`, `_delete_skills_from_db`, `_merge_db_deleted` |
+| `routers/companies.py` | `POST /api/company/merge`, `/rename`, `/delete` (catalog ops; queue dashboard rebuild; JSON `{ ok: false, error }` on 400) |
 | `routers/ops.py` | `/api/report/rebuild`, `/api/report/status`, `/api/inbox/sync`, `/api/inbox/sync/status`, `GET /company.html` |
 | `routers/portrait.py` | `/api/portrait`, `/portrait/save`, `/portrait/generate` |
 | `routers/profile.py` | `/api/profile`, `/api/profile/save` |
@@ -53,7 +54,10 @@ Pydantic request models live at module level on the router that uses them.
 - `POST /api/inbox/sync` — starts a background inbox sync when `trigger_inbox_sync` is wired (`serve-gui`); returns 503 when inbox sync is not configured; returns 409 when a sync is already running
 - `GET /api/inbox/sync/status` — `{ running, stage_id, stage_message, status, message, reload_generation }`; `status` is `running`, `complete`, `skipped`, `failed`, or `idle`; `reload_generation` is always present (`0` until the first mid-sync dashboard refresh bump; may bump again at end-of-sync when later stages rebuilt after a successful mid-refresh; monotonic for process life). When sync is not configured, the idle payload still includes `reload_generation: 0`
 - `GET /api/portrait` — `{ ok, text }`; committed portrait from `default_portrait_path`
-- `GET /company.html` — company-filtered dashboard; computes local-day `since_iso`, loads `get_viewed_today_jobs` for Edited today partition order, and passes `viewed_today_order` into `_render_company_dashboard_html`
+- `POST /api/company/merge` — `{ company_ids, display_name }`; ≥2 distinct ids; runs `workflows.company_catalog.merge_companies` (always position-dedupes after identity merge); queues dashboard rebuild; **400** when `display_name` alias key is owned outside the merge set
+- `POST /api/company/rename` — `{ company_id, display_name }`; updates catalog display + member jobs; queues rebuild; **400** when `display_name` alias key belongs to another company
+- `POST /api/company/delete` — `{ company_id }`; deletes catalog + membership jobs; idempotent `{ already_gone: true }` when missing (no rebuild when already gone)
+- `GET /company.html` — company-filtered dashboard; `resolve_company` for page title (catalog `display_name` when catalogued); membership via `get_jobs_by_company` (alias or display); computes local-day `since_iso`, loads `get_viewed_today_jobs` for Edited today partition order, and passes `viewed_today_order` into `_render_company_dashboard_html`. Company dashboard has no Companies tab.
 - `POST /api/portrait/generate` — sync LLM regeneration; returns `{ ok, draft, committed, diff_html }`; requires `default_model`; 503 without model; 400 without context; 409 when generation already in progress; does not write file
 - `POST /api/portrait/save` — `{ text }`; writes portrait file; no dashboard rebuild
 - `GET /api/profile` — `{ ok, values, fields, groups }`; `values` is `runtime_profile.model_dump()`; `fields`/`groups` from `profile_editor` metadata

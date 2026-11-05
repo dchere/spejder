@@ -1,5 +1,6 @@
 import re
 from difflib import SequenceMatcher
+from typing import Optional
 
 from .utils import sanitize_job_title
 
@@ -162,8 +163,17 @@ def _canonicalize_title_for_dedupe(title: str, place: str = "") -> str:
     return text
 
 
-def _position_dedupe_key(company: str, title: str, place: str = "") -> str:
-    company_key = _normalize_company_key(_canonicalize_company_for_dedupe(company))
+def _position_dedupe_key(
+    company: str,
+    title: str,
+    place: str = "",
+    *,
+    company_key: Optional[str] = None,
+) -> str:
+    if company_key is None:
+        company_key = _normalize_company_key(_canonicalize_company_for_dedupe(company))
+    else:
+        company_key = str(company_key or "")
     title_key = _normalize_title_key(_canonicalize_title_for_dedupe(title, place))
     if not company_key or not title_key:
         return ""

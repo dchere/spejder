@@ -31,7 +31,21 @@ def upsert_job(db_path: str, job: dict) -> bool:
         is_new_record = cur.fetchone() is None
 
         if is_new_record:
-            dedupe_key = _position_dedupe_key(company, title, place)
+            from .companies import resolve_company_cur
+
+            company_key_cache: dict[str, str] = {}
+
+            def _resolved_company_key(raw: str) -> str:
+                if raw not in company_key_cache:
+                    company_key_cache[raw] = resolve_company_cur(cur, raw).dedupe_key
+                return company_key_cache[raw]
+
+            dedupe_key = _position_dedupe_key(
+                company,
+                title,
+                place,
+                company_key=_resolved_company_key(company),
+            )
             if dedupe_key:
                 cur.execute(
                     """
@@ -41,8 +55,12 @@ def upsert_job(db_path: str, job: dict) -> bool:
                 )
                 matches = []
                 for row in cur.fetchall():
+                    existing_company = str(row[2] or "")
                     existing_key = _position_dedupe_key(
-                        str(row[2] or ""), str(row[3] or ""), str(row[5] or "")
+                        existing_company,
+                        str(row[3] or ""),
+                        str(row[5] or ""),
+                        company_key=_resolved_company_key(existing_company),
                     )
                     if existing_key != dedupe_key:
                         continue

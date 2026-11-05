@@ -238,8 +238,10 @@ class RunInboxSyncPortalTest(unittest.TestCase):
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
         self.rebuild_reasons: list[str] = []
+        db_path = os.path.join(self._tmpdir.name, "jobs.db")
+        ensure_db(db_path)
         self.context = GuiSyncContext(
-            db_path=os.path.join(self._tmpdir.name, "jobs.db"),
+            db_path=db_path,
             inbox_path=os.path.join(self._tmpdir.name, "inbox"),
             model_path="",
             profile_path=os.path.join(self._tmpdir.name, "profile.json"),
@@ -483,6 +485,7 @@ class RunInboxSyncPortalTest(unittest.TestCase):
         self.assertIn("stale_skills", stages)
         self.assertIn("bad_cloud", stages)
         self.assertIn("profile_learning", stages)
+        self.assertIn("empty_companies", stages)
 
     @patch(
         "spejder.workflows.gui_sync.sync_itday_portal",

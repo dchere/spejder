@@ -27,6 +27,7 @@ from spejder.workflows.job_enrichment import (
 )
 from spejder.workflows.portal_sync import sync_itday_portal
 from spejder.workflows.deduplication import run_cross_source_dedupe
+from spejder.workflows.company_catalog import run_empty_company_prune
 from spejder.workflows.profile_learning import run_profile_keyword_learning
 from spejder.workflows.skill_hygiene import run_skill_hygiene_stages
 from spejder.workflows.sync_log import (
@@ -349,6 +350,14 @@ def process_inbox(inbox: str = None, db: str = None, profile: str = None, model:
             f"include={learning_info.get('learned_include_count', 0)}, "
             f"exclude={learning_info.get('learned_exclude_count', 0)}, "
             f"missing_skills={learning_info.get('missing_skills_count', 0)}"
+        )
+
+        pruned_empty = run_empty_company_prune(
+            db_path,
+            on_stage=sync_log.stage_start,
+        )
+        print(
+            f"process-inbox: pruned empty companies (count={len(pruned_empty)})"
         )
 
         summarize_relevant_jobs_for_inbox(

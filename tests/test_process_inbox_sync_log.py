@@ -97,6 +97,9 @@ class ProcessInboxSyncLogTest(unittest.TestCase):
             return handle.read()
 
     @patch(
+        "spejder.workflows.inbox_workflow.run_empty_company_prune",
+    )
+    @patch(
         "spejder.workflows.inbox_workflow.run_profile_keyword_learning",
         side_effect=_fake_profile_learning,
     )
@@ -114,7 +117,7 @@ class ProcessInboxSyncLogTest(unittest.TestCase):
         },
     )
     def test_skip_path_writes_source_pipeline_end_and_run_end(
-        self, _portal, mock_desc_refresh, mock_profile_learning
+        self, _portal, mock_desc_refresh, mock_profile_learning, mock_prune
     ):
         process_inbox(
             inbox=self.inbox,
@@ -127,6 +130,7 @@ class ProcessInboxSyncLogTest(unittest.TestCase):
         kwargs = mock_desc_refresh.call_args.kwargs
         self.assertEqual(kwargs.get("limit"), 1)
         mock_profile_learning.assert_not_called()
+        mock_prune.assert_not_called()
 
         text = self._read_log()
         self.assertIn("event=run_start", text)
@@ -234,6 +238,7 @@ class ProcessInboxSyncLogTest(unittest.TestCase):
             "stale_skills",
             "bad_cloud",
             "profile_learning",
+            "empty_companies",
         ):
             self.assertIn(f"event=stage_start stage={stage}", text)
         self.assertIn("event=pipeline_end", text)

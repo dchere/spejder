@@ -11,6 +11,7 @@ from spejder.config import AppConfig
 from spejder.extractors.skill_extractor.ui import SKILLS_EMPTY_ADDED_AT_SORT
 
 from .dashboard_cards import _build_job_cards, _render_html_from_items
+from .dashboard_companies_table import _render_companies_table_html
 from .dashboard_skills_table import (
     _render_skills_cloud_status_html,
     _render_skills_table_html,
@@ -147,7 +148,9 @@ def _render_company_dashboard_html(
         stopped_cards=stopped_cards,
         skills_table_html=locals().get("skills_table_html", ""),
         skills_cloud_status_html="",
-        len_skills_items=0
+        len_skills_items=0,
+        companies_table_html="",
+        len_companies_items=0,
     )
 
 
@@ -159,6 +162,7 @@ def _render_html_dashboard(
     title: str,
     viewed_total: int = 0,
     skills_items: Optional[list[dict]] = None,
+    companies_items: Optional[list[dict]] = None,
     report_max_relevant_positions: int = 7,
     report_max_not_relevant_positions: int = 7,
     relevant_total_count: Optional[int] = None,
@@ -218,6 +222,12 @@ def _render_html_dashboard(
         skills_cloud_status_html = _render_skills_cloud_status_html(
             bad_cloud_status(db_path, runtime_profile)
         )
+    if companies_items is None and db_path:
+        from spejder.db.companies import list_company_catalog_rows
+
+        companies_items = list_company_catalog_rows(db_path)
+    companies_items = companies_items or []
+    companies_table_html = _render_companies_table_html(companies_items)
 
     from spejder.workflows.user_portrait import (
         embed_portrait_for_textarea,
@@ -245,6 +255,7 @@ def _render_html_dashboard(
         len_interview_items=len(interview_items),
         len_stopped_items=len(stopped_items),
         len_skills_items=len(skills_items) if skills_items else 0,
+        len_companies_items=len(companies_items) if companies_items else 0,
         relevant_cards=relevant_cards,
         not_relevant_cards=not_relevant_cards,
         viewed_today_cards=viewed_today_cards,
@@ -253,6 +264,7 @@ def _render_html_dashboard(
         stopped_cards=stopped_cards,
         skills_cloud_status_html=skills_cloud_status_html,
         skills_table_html=skills_table_html,
+        companies_table_html=companies_table_html,
         skills_empty_added_at_sort=SKILLS_EMPTY_ADDED_AT_SORT,
         portrait_text=textarea_portrait_text,
         has_portrait=bool(portrait_text.strip()),

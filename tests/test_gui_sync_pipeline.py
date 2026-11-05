@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import ANY, MagicMock, patch
 
 from spejder.config import AppConfig
+from spejder.db import ensure_db
 from spejder.workflows.gui_sync import GuiSyncContext, run_inbox_sync
 from spejder.workflows.profile_learning import ProfileLearningResult
 from spejder.workflows.progress_eta import ingest_eta_store_path
@@ -71,8 +72,10 @@ class RunInboxSyncRebuildTest(unittest.TestCase):
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
         self.rebuild_reasons: list[str] = []
+        db_path = os.path.join(self._tmpdir.name, "jobs.db")
+        ensure_db(db_path)
         self.context = GuiSyncContext(
-            db_path=os.path.join(self._tmpdir.name, "jobs.db"),
+            db_path=db_path,
             inbox_path=os.path.join(self._tmpdir.name, "inbox"),
             model_path="",
             profile_path=os.path.join(self._tmpdir.name, "profile.json"),
@@ -217,17 +220,20 @@ class RunInboxSyncRebuildTest(unittest.TestCase):
         "spejder.workflows.gui_sync.sync_itday_portal",
         return_value={"found": 0, "inserted_new": 0, "skipped_existing": 0, "processed": 0},
     )
+    @patch("spejder.workflows.gui_sync.run_empty_company_prune")
     @patch("spejder.workflows.gui_sync.run_profile_keyword_learning")
     @patch("spejder.workflows.gui_sync.get_jobs_for_description_triage", return_value=[])
     def test_skips_profile_learning_when_sync_skipped(
         self,
         _desc_refresh,
         mock_profile_learning,
+        mock_prune,
         _portal,
     ):
         result = run_inbox_sync(self.context)
         self.assertEqual(result.status, "skipped")
         mock_profile_learning.assert_not_called()
+        mock_prune.assert_not_called()
 
     @patch(
         "spejder.workflows.gui_sync.sync_itday_portal",
@@ -360,6 +366,7 @@ class RunInboxSyncRebuildTest(unittest.TestCase):
         "spejder.workflows.gui_sync.sync_itday_portal",
         return_value={"found": 0, "inserted_new": 0, "skipped_existing": 0, "processed": 0},
     )
+    @patch("spejder.workflows.gui_sync.run_empty_company_prune", return_value=[])
     @patch(
         "spejder.workflows.gui_sync.run_profile_keyword_learning",
         side_effect=_fake_profile_learning,
@@ -377,7 +384,7 @@ class RunInboxSyncRebuildTest(unittest.TestCase):
     @patch("spejder.workflows.gui_sync.delete_processed_inbox_files", return_value={})
     @patch("spejder.workflows.gui_sync.get_jobs_for_active_rescore", return_value=[])
     @patch("spejder.workflows.gui_sync.get_jobs_for_description_triage", return_value=[{"id": 1}])
-    def test_patterns_hygiene_profile_learning_order(
+    def test_patterns_hygiene_profile_learning_then_empty_companies_order(
         self,
         _desc_refresh,
         _active_rescore,
@@ -387,6 +394,7 @@ class RunInboxSyncRebuildTest(unittest.TestCase):
         mock_learn,
         mock_hygiene,
         mock_profile_learning,
+        mock_prune,
         _portal,
     ):
         order: list[str] = []
@@ -402,9 +410,16 @@ class RunInboxSyncRebuildTest(unittest.TestCase):
             order.append("profile_learning"),
             _PROFILE_LEARNING_EMPTY,
         )[1]
+        mock_prune.side_effect = lambda *a, **k: (
+            order.append("empty_companies"),
+            [],
+        )[1]
         result = run_inbox_sync(self.context)
         self.assertEqual(result.status, "done")
-        self.assertEqual(order, ["patterns", "hygiene", "profile_learning"])
+        self.assertEqual(
+            order,
+            ["patterns", "hygiene", "profile_learning", "empty_companies"],
+        )
 
     @patch(
         "spejder.workflows.gui_sync.sync_itday_portal",
@@ -545,6 +560,7 @@ class RunInboxSyncIngestEtaWiringTest(unittest.TestCase):
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
         self.db_path = os.path.join(self._tmpdir.name, "jobs.db")
+        ensure_db(self.db_path)
         self.inbox_path = os.path.join(self._tmpdir.name, "inbox")
         os.makedirs(self.inbox_path)
         self.stage_messages: list[tuple[str, str]] = []
