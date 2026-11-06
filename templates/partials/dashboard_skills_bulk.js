@@ -10,6 +10,32 @@
                     .filter(Boolean);
             }
 
+            function skillsLocalTodayKey() {
+                const now = new Date();
+                const y = now.getFullYear();
+                const m = String(now.getMonth() + 1).padStart(2, '0');
+                const d = String(now.getDate()).padStart(2, '0');
+                return `${y}-${m}-${d}`;
+            }
+
+            function syncSkillRowHighlights() {
+                const table = document.getElementById('skills-table');
+                if (!table) return;
+                const todayKey = skillsLocalTodayKey();
+                table.querySelectorAll('tbody tr').forEach((row) => {
+                    const checkbox = row.querySelector('.skill-row-select');
+                    row.classList.toggle(
+                        'skill-row-selected',
+                        Boolean(checkbox && checkbox.checked)
+                    );
+                    const addedKey = String(row.dataset.sortAddedAt || '').slice(0, 10);
+                    row.classList.toggle(
+                        'skill-row-added-today',
+                        Boolean(addedKey && addedKey !== '0000' && addedKey === todayKey)
+                    );
+                });
+            }
+
             function updateSkillsBulkBar() {
                 const keys = getSelectedSkillKeys();
                 const label = document.getElementById('skills-selected-label');
@@ -19,6 +45,7 @@
                 const table = document.getElementById('skills-table');
                 const rowCheckboxes = table ? Array.from(table.querySelectorAll('.skill-row-select')) : [];
                 const count = keys.length;
+                syncSkillRowHighlights();
                 if (label) {
                     label.textContent = count === 1 ? '1 selected' : `${count} selected`;
                 }

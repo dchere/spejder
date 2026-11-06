@@ -14,6 +14,7 @@ from spejder.extractors.skill_extractor.ui import (
 )
 from spejder.managers.dashboard_manager import _render_html_dashboard
 from spejder.tests.skill_test_utils import stamp_skill_patterns_created_at
+from spejder.tests.test_dashboard_templates import _extract_js_function_body
 
 
 def _extract_skills_table(html: str) -> str:
@@ -100,8 +101,8 @@ class DashboardSkillsTableTest(unittest.TestCase):
             header_texts,
             [
                 "",
-                "Skill",
                 "Action",
+                "Skill",
                 "Added",
                 "Source",
                 "Job share",
@@ -112,10 +113,10 @@ class DashboardSkillsTableTest(unittest.TestCase):
             ],
         )
         self.assertIn('id="skills-select-all"', ths[0])
-        self.assertIn('class="skills-action"', ths[2])
+        self.assertIn('class="skills-action"', ths[1])
         self.assertIn(
             'title="Block = hide + teach the system (bad cloud). Delete = remove from profile and DB without teaching."',
-            ths[2],
+            ths[1],
         )
 
         self.assertIn(">Block selected</button>", self.html)
@@ -151,17 +152,17 @@ class DashboardSkillsTableTest(unittest.TestCase):
             tds = re.findall(r"<td\b[^>]*>(.*?)</td>", row_html, flags=re.DOTALL)
             self.assertGreaterEqual(len(tds), 4)
             self.assertIn('class="skill-row-select"', tds[0])
-            self.assertIn('class="skills-action"', td_opens[2])
-            self.assertIn('class="block-skill-btn"', tds[2])
-            self.assertIn('class="delete-skill-btn"', tds[2])
+            self.assertIn('class="skills-action"', td_opens[1])
+            self.assertIn('class="block-skill-btn"', tds[1])
+            self.assertIn('class="delete-skill-btn"', tds[1])
             block_btn = re.search(
                 r'<button[^>]*class="block-skill-btn"[^>]*>.*?</button>',
-                tds[2],
+                tds[1],
                 flags=re.DOTALL,
             ).group(0)
             delete_btn = re.search(
                 r'<button[^>]*class="delete-skill-btn"[^>]*>.*?</button>',
-                tds[2],
+                tds[1],
                 flags=re.DOTALL,
             ).group(0)
             self.assertIn('title="Block: hide from extraction and teach the bad cloud"', block_btn)
@@ -175,11 +176,34 @@ class DashboardSkillsTableTest(unittest.TestCase):
             self.assertIn("M3 6h18", delete_btn)
             self.assertNotIn("<circle", delete_btn)
             self.assertNotIn("M3 6h18", block_btn)
-            row_names.append(tds[1].strip().lower())
+            row_names.append(tds[2].strip().lower())
         self.assertEqual(row_names, ["zebra", "alpha", "rust"])
 
         not_for_me_th = ths[-1]
         self.assertIn("Not for me = score penalty", not_for_me_th)
+
+    def test_skills_row_highlight_classes_wired(self):
+        bar_body = _extract_js_function_body(self.html, "updateSkillsBulkBar")
+        self.assertIn("syncSkillRowHighlights", bar_body)
+        highlight_body = _extract_js_function_body(self.html, "syncSkillRowHighlights")
+        self.assertIn("skill-row-selected", highlight_body)
+        self.assertIn("skill-row-added-today", highlight_body)
+        self.assertIn("skillsLocalTodayKey", highlight_body)
+        self.assertIn(
+            ".skills-table tbody tr.skill-row-selected td",
+            self.html,
+        )
+        self.assertIn(
+            ".skills-table tbody tr.skill-row-added-today td",
+            self.html,
+        )
+        self.assertIn(
+            ".skills-table tbody tr.skill-row-selected.skill-row-added-today td:first-child",
+            self.html,
+        )
+        self.assertIn("box-shadow: inset 3px 0 0 #c9962a", self.html)
+        sort_body = _extract_js_function_body(self.html, "initSkillsTableSort")
+        self.assertIn("syncSkillRowHighlights", sort_body)
 
     def test_skills_table_added_at_attributes_and_display(self):
         alpha_row = re.search(
