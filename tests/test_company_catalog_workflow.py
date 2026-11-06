@@ -8,14 +8,17 @@ from unittest.mock import patch
 from spejder.db import (
     ensure_companies_from_jobs,
     ensure_db,
+    get_job_skills,
     get_jobs_by_company,
     list_company_catalog_rows,
     resolve_company,
+    set_job_skills,
     upsert_job,
 )
 from spejder.db.companies import company_alias_key
 from spejder.db.connection import _connect
 from spejder.workflows.company_catalog import (
+    delete_companies,
     delete_company,
     merge_companies,
     rename_company,
@@ -226,6 +229,36 @@ class CompanyCatalogWorkflowTest(unittest.TestCase):
         again = delete_company(self.db_path, cid)
         self.assertTrue(again["already_gone"])
         self.assertEqual(again["jobs_deleted"], 0)
+
+    def test_delete_companies_aggregates(self):
+        job_a = _insert(self.db_path, "https://example.com/a", "One")
+        job_b = _insert(self.db_path, "https://example.com/b", "Two")
+        set_job_skills(self.db_path, job_a, ["Python"])
+        set_job_skills(self.db_path, job_b, ["SQL"])
+        self.assertTrue(get_job_skills(self.db_path, job_a))
+        self.assertTrue(get_job_skills(self.db_path, job_b))
+        id_a = _company_id(self.db_path, "One")
+        id_b = _company_id(self.db_path, "Two")
+        result = delete_companies(self.db_path, [id_a, id_b, 424242])
+        self.assertEqual(result["deleted_ids"], [id_a, id_b])
+        self.assertEqual(result["already_gone_ids"], [424242])
+        self.assertEqual(result["jobs_deleted"], 2)
+        self.assertEqual(result["count"], 2)
+        names = {row["display_name"] for row in list_company_catalog_rows(self.db_path)}
+        self.assertNotIn("One", names)
+        self.assertNotIn("Two", names)
+        conn = _connect(self.db_path)
+        try:
+            cur = conn.cursor()
+            for job_id in (job_a, job_b):
+                cur.execute("SELECT 1 FROM jobs WHERE id=?", (job_id,))
+                self.assertIsNone(cur.fetchone())
+                cur.execute("SELECT 1 FROM job_skills WHERE job_id=?", (job_id,))
+                self.assertIsNone(cur.fetchone())
+        finally:
+            conn.close()
+        self.assertEqual(get_job_skills(self.db_path, job_a), [])
+        self.assertEqual(get_job_skills(self.db_path, job_b), [])
 
 
 if __name__ == "__main__":

@@ -10,6 +10,12 @@
             .companies-bulk-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
             .companies-bulk-bar button:disabled { opacity: 0.55; cursor: not-allowed; }
             #companies-selected-label { font-size: 13px; color: #555; min-width: 6rem; }
-            .company-merge-btn, .company-rename-btn { border: 1px solid #0a58ca; color: #0a58ca; background: #fff; border-radius: 6px; padding: 6px 10px; cursor: pointer; font-size: 13px; }
+            .company-merge-btn { border: 1px solid #0a58ca; color: #0a58ca; background: #fff; border-radius: 6px; padding: 6px 10px; cursor: pointer; font-size: 13px; }
             .company-delete-btn { border: 1px solid #cc8c8c; color: #7b1111; background: #fff; border-radius: 6px; padding: 6px 10px; cursor: pointer; font-size: 13px; }
+            .rename-company-btn { border: 1px solid #0a58ca; color: #0a58ca; background: #fff; border-radius: 6px; padding: 4px 8px; cursor: pointer; margin-right: 6px; }
+            .delete-company-btn { border: 1px solid #cc8c8c; color: #7b1111; background: #fff; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
+            .companies-table .rename-company-btn, .companies-table .delete-company-btn { display: inline-flex; align-items: center; justify-content: center; padding: 4px; min-width: 24px; min-height: 24px; line-height: 0; }
+            .companies-table .rename-company-btn { margin-right: 6px; }
+            .companies-table th.companies-action, .companies-table td.companies-action { white-space: nowrap; }
+            .companies-table .rename-company-btn svg, .companies-table .delete-company-btn svg { width: 14px; height: 14px; }
             .company-name-link { text-align: left; }

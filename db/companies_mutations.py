@@ -135,38 +135,89 @@ def rename_company_row(db_path: str, company_id: int, display_name: str) -> dict
         conn.close()
 
 
-def delete_company_row(db_path: str, company_id: int) -> dict:
-    """Delete company+aliases and membership jobs. Idempotent if already gone."""
+def _cascade_delete_company_cur(cur, company_id: int) -> Optional[int]:
+    """Delete one company + aliases + membership jobs on ``cur``.
+
+    Returns jobs deleted, or ``None`` when the company row is already missing.
+    """
     cid = int(company_id)
+    cur.execute("SELECT id FROM companies WHERE id=?", (cid,))
+    if cur.fetchone() is None:
+        return None
+    keys = _alias_keys_for_company(cur, cid)
+    job_ids = _member_job_ids_for_keys(cur, keys)
+    if job_ids:
+        placeholders = ",".join("?" * len(job_ids))
+        cur.execute(
+            f"DELETE FROM job_skills WHERE job_id IN ({placeholders})",
+            job_ids,
+        )
+        cur.execute(f"DELETE FROM jobs WHERE id IN ({placeholders})", job_ids)
+    cur.execute("DELETE FROM company_aliases WHERE company_id=?", (cid,))
+    cur.execute("DELETE FROM companies WHERE id=?", (cid,))
+    return len(job_ids)
+
+
+def delete_company_rows(db_path: str, company_ids: list[int]) -> dict:
+    """Delete many companies in one transaction. Missing ids are soft (already_gone)."""
+    ids: list[int] = []
+    seen: set[int] = set()
+    for raw_id in company_ids or []:
+        cid = int(raw_id)
+        if cid <= 0 or cid in seen:
+            continue
+        seen.add(cid)
+        ids.append(cid)
+
+    deleted_ids: list[int] = []
+    already_gone_ids: list[int] = []
+    jobs_deleted = 0
+    if not ids:
+        return {
+            "company_ids": [],
+            "deleted_ids": [],
+            "already_gone_ids": [],
+            "jobs_deleted": 0,
+            "count": 0,
+        }
+
     conn = _connect(db_path)
     try:
         cur = conn.cursor()
-        cur.execute("SELECT id FROM companies WHERE id=?", (cid,))
-        if cur.fetchone() is None:
-            return {
-                "company_id": cid,
-                "already_gone": True,
-                "jobs_deleted": 0,
-            }
-        keys = _alias_keys_for_company(cur, cid)
-        job_ids = _member_job_ids_for_keys(cur, keys)
-        if job_ids:
-            placeholders = ",".join("?" * len(job_ids))
-            cur.execute(
-                f"DELETE FROM job_skills WHERE job_id IN ({placeholders})",
-                job_ids,
-            )
-            cur.execute(f"DELETE FROM jobs WHERE id IN ({placeholders})", job_ids)
-        cur.execute("DELETE FROM company_aliases WHERE company_id=?", (cid,))
-        cur.execute("DELETE FROM companies WHERE id=?", (cid,))
+        for cid in ids:
+            jobs = _cascade_delete_company_cur(cur, cid)
+            if jobs is None:
+                already_gone_ids.append(cid)
+            else:
+                deleted_ids.append(cid)
+                jobs_deleted += jobs
         conn.commit()
         return {
-            "company_id": cid,
-            "already_gone": False,
-            "jobs_deleted": len(job_ids),
+            "company_ids": ids,
+            "deleted_ids": deleted_ids,
+            "already_gone_ids": already_gone_ids,
+            "jobs_deleted": jobs_deleted,
+            "count": len(deleted_ids),
         }
     finally:
         conn.close()
+
+
+def delete_company_row(db_path: str, company_id: int) -> dict:
+    """Delete company+aliases and membership jobs. Idempotent if already gone."""
+    cid = int(company_id)
+    result = delete_company_rows(db_path, [cid])
+    if cid in result["deleted_ids"]:
+        return {
+            "company_id": cid,
+            "already_gone": False,
+            "jobs_deleted": result["jobs_deleted"],
+        }
+    return {
+        "company_id": cid,
+        "already_gone": True,
+        "jobs_deleted": 0,
+    }
 
 
 def prune_empty_companies(

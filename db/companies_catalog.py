@@ -23,15 +23,23 @@ def _stage_bucket(applied: int, on_interview: int, interview_stopped: int, categ
 
 
 def list_company_catalog_rows(db_path: str) -> list[dict]:
-    """Companies tab rows: ensure bootstrap, then display_name / stage counts / alias_count."""
+    """Companies tab rows: bootstrap, then created_at / stage counts / not_viewed / alias_count.
+
+    Default order matches Skills Added DESC: SQL name A→Z, then stable sort by
+    created_at DESC (empty → "0000" so empties sort last).
+    """
     ensure_companies_from_jobs(db_path)
     conn = _connect(db_path)
     try:
         cur = conn.cursor()
         cur.execute(
-            "SELECT id, display_name FROM companies ORDER BY display_name COLLATE NOCASE ASC"
+            "SELECT id, display_name, created_at FROM companies "
+            "ORDER BY display_name COLLATE NOCASE ASC"
         )
-        companies = [(int(row[0]), str(row[1] or "")) for row in cur.fetchall()]
+        companies = [
+            (int(row[0]), str(row[1] or ""), str(row[2] or ""))
+            for row in cur.fetchall()
+        ]
         if not companies:
             return []
 
@@ -47,20 +55,31 @@ def list_company_catalog_rows(db_path: str) -> list[dict]:
 
         zero = {
             "job_count": 0,
+            "not_viewed_count": 0,
             "relevant_count": 0,
             "not_relevant_count": 0,
             "applied_count": 0,
             "interview_count": 0,
             "stopped_count": 0,
         }
-        counts: dict[int, dict[str, int]] = {cid: dict(zero) for cid, _ in companies}
+        counts: dict[int, dict[str, int]] = {
+            cid: dict(zero) for cid, _, _ in companies
+        }
         # Soft-hidden included (no hidden=0 filter); membership via alias key like resolve_company.
         cur.execute(
             "SELECT company, COALESCE(applied, 0), COALESCE(on_interview, 0), "
-            "COALESCE(interview_stopped, 0), COALESCE(category, '') "
+            "COALESCE(interview_stopped, 0), COALESCE(category, ''), "
+            "COALESCE(viewed, 0) "
             "FROM jobs WHERE TRIM(COALESCE(company, '')) != ''"
         )
-        for company, applied, on_interview, interview_stopped, category in cur.fetchall():
+        for (
+            company,
+            applied,
+            on_interview,
+            interview_stopped,
+            category,
+            viewed,
+        ) in cur.fetchall():
             key = company_alias_key(str(company or ""))
             if not key:
                 continue
@@ -73,9 +92,12 @@ def list_company_catalog_rows(db_path: str) -> list[dict]:
                 int(interview_stopped or 0),
                 str(category or ""),
             )
+            unviewed = int(viewed or 0) == 0
             for cid in member_ids:
                 row_counts = counts[cid]
                 row_counts["job_count"] += 1
+                if unviewed:
+                    row_counts["not_viewed_count"] += 1
                 if bucket == "relevant":
                     row_counts["relevant_count"] += 1
                 elif bucket == "not_relevant":
@@ -88,14 +110,16 @@ def list_company_catalog_rows(db_path: str) -> list[dict]:
                     row_counts["stopped_count"] += 1
 
         rows: list[dict] = []
-        for cid, display_name in companies:
+        for cid, display_name, created_at in companies:
             alias_list = aliases_by_id.get(cid, [])
             row_counts = counts.get(cid, zero)
             rows.append(
                 {
                     "id": cid,
                     "display_name": display_name,
+                    "created_at": created_at,
                     "job_count": int(row_counts["job_count"]),
+                    "not_viewed_count": int(row_counts["not_viewed_count"]),
                     "relevant_count": int(row_counts["relevant_count"]),
                     "not_relevant_count": int(row_counts["not_relevant_count"]),
                     "applied_count": int(row_counts["applied_count"]),
@@ -104,6 +128,8 @@ def list_company_catalog_rows(db_path: str) -> list[dict]:
                     "alias_count": len(alias_list),
                 }
             )
+        # Skills parity: stable name A→Z (SQL), then created_at DESC for SSR default.
+        rows.sort(key=lambda r: r.get("created_at") or "0000", reverse=True)
         return rows
     finally:
         conn.close()

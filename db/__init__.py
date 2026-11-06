@@ -16,6 +16,7 @@ _EXPORTS = {
     "merge_company_rows": "companies",
     "rename_company_row": "companies",
     "delete_company_row": "companies",
+    "delete_company_rows": "companies",
     "prune_empty_companies": "companies",
     "get_skill_patterns": "skills",
     "upsert_skill_pattern": "skills",

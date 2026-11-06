@@ -6,11 +6,13 @@
                 const headers = Array.from(table.querySelectorAll('th.companies-sortable'));
                 if (!tbody || headers.length === 0) return;
 
-                const sortState = { key: 'job_count', dir: -1 };
+                const sortState = { key: 'added_at', dir: -1 };
 
                 function rowValue(row, key) {
                     if (key === 'name') return (row.dataset.sortName || '').toLowerCase();
+                    if (key === 'added_at') return row.dataset.sortAddedAt || '';
                     if (key === 'job_count') return Number.parseInt(row.dataset.sortJobCount || '0', 10) || 0;
+                    if (key === 'not_viewed') return Number.parseInt(row.dataset.sortNotViewed || '0', 10) || 0;
                     if (key === 'relevant') return Number.parseInt(row.dataset.sortRelevant || '0', 10) || 0;
                     if (key === 'not_relevant') return Number.parseInt(row.dataset.sortNotRelevant || '0', 10) || 0;
                     if (key === 'applied') return Number.parseInt(row.dataset.sortApplied || '0', 10) || 0;
