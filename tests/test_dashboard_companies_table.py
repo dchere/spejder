@@ -86,6 +86,26 @@ class DashboardCompaniesTableTest(unittest.TestCase):
         bar_body = _extract_js_function_body(self.html, "updateCompaniesBulkBar")
         self.assertIn("count === 0", bar_body)
         self.assertNotIn("btn-rename-company", bar_body)
+        self.assertIn("syncCompanyRowHighlights", bar_body)
+        highlight_body = _extract_js_function_body(self.html, "syncCompanyRowHighlights")
+        self.assertIn("company-row-selected", highlight_body)
+        self.assertIn("company-row-added-today", highlight_body)
+        self.assertIn("companiesLocalTodayKey", highlight_body)
+        self.assertIn(
+            ".companies-table tbody tr.company-row-selected td",
+            self.html,
+        )
+        self.assertIn(
+            ".companies-table tbody tr.company-row-added-today td",
+            self.html,
+        )
+        self.assertIn(
+            ".companies-table tbody tr.company-row-selected.company-row-added-today td:first-child",
+            self.html,
+        )
+        self.assertIn("box-shadow: inset 3px 0 0 #c9962a", self.html)
+        sort_body = _extract_js_function_body(self.html, "initCompaniesTableSort")
+        self.assertIn("syncCompanyRowHighlights", sort_body)
 
     def test_tab_order_skills_then_companies_then_edited_today(self):
         skills = self.html.index('id="btn-skills"')

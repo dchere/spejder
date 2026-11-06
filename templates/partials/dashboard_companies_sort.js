@@ -76,4 +76,7 @@
                 });
 
                 applySort();
+                if (typeof syncCompanyRowHighlights === 'function') {
+                    syncCompanyRowHighlights();
+                }
             }

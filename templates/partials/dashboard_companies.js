@@ -7,6 +7,32 @@
                 });
             }
 
+            function companiesLocalTodayKey() {
+                const now = new Date();
+                const y = now.getFullYear();
+                const m = String(now.getMonth() + 1).padStart(2, '0');
+                const d = String(now.getDate()).padStart(2, '0');
+                return `${y}-${m}-${d}`;
+            }
+
+            function syncCompanyRowHighlights() {
+                const table = document.getElementById('companies-table');
+                if (!table) return;
+                const todayKey = companiesLocalTodayKey();
+                table.querySelectorAll('tbody tr').forEach((row) => {
+                    const checkbox = row.querySelector('.company-row-select');
+                    row.classList.toggle(
+                        'company-row-selected',
+                        Boolean(checkbox && checkbox.checked)
+                    );
+                    const addedKey = String(row.dataset.sortAddedAt || '').slice(0, 10);
+                    row.classList.toggle(
+                        'company-row-added-today',
+                        Boolean(addedKey && addedKey !== '0000' && addedKey === todayKey)
+                    );
+                });
+            }
+
             function updateCompaniesBulkBar() {
                 const rows = getSelectedCompanyRows();
                 const label = document.getElementById('companies-selected-label');
@@ -16,6 +42,7 @@
                 const table = document.getElementById('companies-table');
                 const rowCheckboxes = table ? Array.from(table.querySelectorAll('.company-row-select')) : [];
                 const count = rows.length;
+                syncCompanyRowHighlights();
                 if (label) {
                     label.textContent = count === 1 ? '1 selected' : `${count} selected`;
                 }

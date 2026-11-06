@@ -95,4 +95,7 @@
                     sortKey: () => sortState.key,
                 };
                 applySort();
+                if (typeof syncSkillRowHighlights === 'function') {
+                    syncSkillRowHighlights();
+                }
             }

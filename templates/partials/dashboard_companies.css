@@ -2,6 +2,21 @@
             .companies-table { width: 100%; border-collapse: collapse; min-width: 920px; }
             .companies-table th, .companies-table td { border-bottom: 1px solid #eee; text-align: left; padding: 8px; font-size: 13px; }
             .companies-table th { background: #fafafa; font-weight: 700; }
+            /* Added today: warm tint. Selected: green + bolder. Both: green fill + amber edge. */
+            .companies-table tbody tr.company-row-added-today td {
+                background: #fff6e8;
+            }
+            .companies-table tbody tr.company-row-selected td {
+                background: #e5f3ea;
+                font-weight: 600;
+                color: #1e3d2f;
+            }
+            .companies-table tbody tr.company-row-selected.company-row-added-today td {
+                background: #eaf2dc;
+            }
+            .companies-table tbody tr.company-row-selected.company-row-added-today td:first-child {
+                box-shadow: inset 3px 0 0 #c9962a;
+            }
             .companies-table th.companies-sortable { cursor: pointer; user-select: none; white-space: nowrap; }
             .companies-table th.companies-sortable:hover { background: #f0f4fa; }
             .companies-sort-indicator { display: inline-block; width: 0.9em; margin-left: 4px; color: #6b7a99; font-size: 11px; }
