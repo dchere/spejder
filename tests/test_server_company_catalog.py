@@ -117,6 +117,8 @@ class ServerCompanyCatalogTest(unittest.TestCase):
         self.assertEqual(deleted.status_code, 200)
         self.assertTrue(deleted.json()["ok"])
         self.assertFalse(deleted.json()["already_gone"])
+        self.rebuild.assert_called()
+        self.rebuild.reset_mock()
 
         gone = self.client.post(
             "/api/company/delete",
@@ -124,6 +126,43 @@ class ServerCompanyCatalogTest(unittest.TestCase):
         )
         self.assertEqual(gone.status_code, 200)
         self.assertTrue(gone.json()["already_gone"])
+        self.rebuild.assert_not_called()
+
+    def test_delete_batch_rebuilds_once_when_any_deleted(self):
+        _insert(self.db_path, "https://example.com/a", "BatchA")
+        _insert(self.db_path, "https://example.com/b", "BatchB")
+        id_a = self._company_id("BatchA")
+        id_b = self._company_id("BatchB")
+
+        empty = self.client.post("/api/company/delete-batch", json={"company_ids": []})
+        self.assertEqual(empty.status_code, 400)
+        self.assertFalse(empty.json()["ok"])
+        self.rebuild.assert_not_called()
+
+        ok = self.client.post(
+            "/api/company/delete-batch",
+            json={"company_ids": [id_a, id_b, 999_999]},
+        )
+        self.assertEqual(ok.status_code, 200)
+        payload = ok.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["deleted_ids"], [id_a, id_b])
+        self.assertEqual(payload["already_gone_ids"], [999_999])
+        self.assertEqual(payload["count"], 2)
+        self.rebuild.assert_called_once_with(reason="company delete batch")
+
+    def test_delete_batch_all_gone_skips_rebuild(self):
+        response = self.client.post(
+            "/api/company/delete-batch",
+            json={"company_ids": [111, 222]},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["deleted_ids"], [])
+        self.assertEqual(payload["already_gone_ids"], [111, 222])
+        self.assertEqual(payload["count"], 0)
+        self.rebuild.assert_not_called()
 
     def test_rename_collision_returns_400_and_leaves_jobs(self):
         _insert(self.db_path, "https://example.com/a", "AlphaCo")

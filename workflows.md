@@ -37,7 +37,7 @@ Core orchestration for CLI commands, GUI background sync, and heavy multi-step p
 | `progress_eta.py` | Rolling sample ETA + skills/descriptions/ingest stage lines (base sentence, optional minutes left; ingest uses `{db}.ingest_eta.json`, `kind == "position"`) |
 | `job_easy_apply.py` | LinkedIn easy-apply detection |
 | `report_workflow.py` | CLI link reports + JSONL HTML export |
-| `company_catalog.py` | Company catalog merge / rename / delete orchestration (`merge_companies` always calls `merge_duplicate_positions` after the identity txn) plus shared late-sync `run_empty_company_prune` (stage `empty_companies`) |
+| `company_catalog.py` | Company catalog merge / rename / delete / batch-delete orchestration (`merge_companies` always calls `merge_duplicate_positions` after the identity txn; `delete_companies` is one-txn) plus shared late-sync `run_empty_company_prune` (stage `empty_companies`) |
 | `deduplication.py` | Company+title position dedupe wrapper |
 | `enrichment.py` | `refresh-descriptions` command |
 | `text_prepend.py` | Summary validity checks + title/summary raw-text prepend (title skip on presence, not only exact `Title:` prefix) |

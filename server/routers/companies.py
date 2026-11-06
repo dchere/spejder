@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from spejder.db.companies import company_exists, count_company_jobs
 from spejder.server.context import ServerRuntime, get_runtime
 from spejder.workflows.company_catalog import (
+    delete_companies,
     delete_company,
     merge_companies,
     rename_company,
@@ -27,6 +28,10 @@ class CompanyRenameRequest(BaseModel):
 
 class CompanyDeleteRequest(BaseModel):
     company_id: int
+
+
+class CompanyDeleteBatchRequest(BaseModel):
+    company_ids: list[int] = Field(default_factory=list)
 
 
 def _error(status: int, message: str) -> JSONResponse:
@@ -104,3 +109,24 @@ def api_company_delete(
         **result,
         "jobs_before": jobs_before,
     }
+
+
+@router.post("/api/company/delete-batch")
+def api_company_delete_batch(
+    body: CompanyDeleteBatchRequest,
+    runtime: ServerRuntime = Depends(get_runtime),
+):
+    ids = [int(cid) for cid in (body.company_ids or []) if int(cid) > 0]
+    seen: set[int] = set()
+    unique_ids: list[int] = []
+    for cid in ids:
+        if cid in seen:
+            continue
+        seen.add(cid)
+        unique_ids.append(cid)
+    if not unique_ids:
+        return _error(400, "Select at least one company to delete")
+    result = delete_companies(runtime.db_path, unique_ids)
+    if result.get("deleted_ids"):
+        runtime.queue_dashboard_rebuild(reason="company delete batch")
+    return {"ok": True, **result}

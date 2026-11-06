@@ -115,8 +115,7 @@
                 {% if len_companies_items > 0 %}
                 <span id="companies-selected-label">0 selected</span>
                 <button type="button" id="btn-merge-companies" class="company-merge-btn" disabled onclick="mergeSelectedCompanies(this)" title="Merge selected companies into one display name">Merge</button>
-                <button type="button" id="btn-rename-company" class="company-rename-btn" disabled onclick="renameSelectedCompany(this)" title="Rename the selected company's display name">Rename</button>
-                <button type="button" id="btn-delete-company" class="company-delete-btn" disabled onclick="deleteSelectedCompany(this)" title="Delete company and all membership jobs">Delete</button>
+                <button type="button" id="btn-delete-company" class="company-delete-btn" disabled onclick="deleteSelectedCompanies(this)" title="Delete selected companies and all membership jobs">Delete</button>
                 {% endif %}
             </div>
             {{ companies_table_html }}
@@ -473,8 +472,9 @@
             window.updateCompaniesBulkBar = updateCompaniesBulkBar;
             window.toggleSelectAllCompanies = toggleSelectAllCompanies;
             window.mergeSelectedCompanies = mergeSelectedCompanies;
-            window.renameSelectedCompany = renameSelectedCompany;
-            window.deleteSelectedCompany = deleteSelectedCompany;
+            window.renameCompanyRow = renameCompanyRow;
+            window.deleteSelectedCompanies = deleteSelectedCompanies;
+            window.deleteCompanyRow = deleteCompanyRow;
             window.appendAppliedRawText = appendAppliedRawText;
             window.setCoverLetterRequested = setCoverLetterRequested;
             window.saveCoverLetter = saveCoverLetter;

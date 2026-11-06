@@ -264,6 +264,7 @@ def rewrite_jobs_company_for_keys(cur, keys: set[str], display_name: str, now: s
 from .companies_catalog import list_company_catalog_rows  # noqa: E402
 from .companies_mutations import (  # noqa: E402
     delete_company_row,
+    delete_company_rows,
     merge_company_rows,
     prune_empty_companies,
     rename_company_row,
@@ -283,5 +284,6 @@ __all__ = [
     "merge_company_rows",
     "rename_company_row",
     "delete_company_row",
+    "delete_company_rows",
     "prune_empty_companies",
 ]

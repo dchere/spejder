@@ -11,7 +11,6 @@
                 const rows = getSelectedCompanyRows();
                 const label = document.getElementById('companies-selected-label');
                 const mergeBtn = document.getElementById('btn-merge-companies');
-                const renameBtn = document.getElementById('btn-rename-company');
                 const deleteBtn = document.getElementById('btn-delete-company');
                 const selectAll = document.getElementById('companies-select-all');
                 const table = document.getElementById('companies-table');
@@ -21,8 +20,7 @@
                     label.textContent = count === 1 ? '1 selected' : `${count} selected`;
                 }
                 if (mergeBtn) mergeBtn.disabled = count < 2;
-                if (renameBtn) renameBtn.disabled = count !== 1;
-                if (deleteBtn) deleteBtn.disabled = count !== 1;
+                if (deleteBtn) deleteBtn.disabled = count === 0;
                 if (selectAll && rowCheckboxes.length > 0) {
                     const checkedCount = rowCheckboxes.filter((checkbox) => checkbox.checked).length;
                     selectAll.checked = checkedCount === rowCheckboxes.length;
@@ -40,6 +38,21 @@
                     checkbox.checked = checked;
                 });
                 updateCompaniesBulkBar();
+            }
+
+            function bulkCompanyDeleteConfirmMessage(rows) {
+                const names = rows.map((row) => row.dataset.displayName || '');
+                const preview = names.length <= 5
+                    ? names.join(', ')
+                    : `${names.slice(0, 5).join(', ')} and ${names.length - 5} more`;
+                const jobsTotal = rows.reduce(
+                    (sum, row) => sum + (Number(row.dataset.jobCount) || 0),
+                    0
+                );
+                return (
+                    `Delete ${rows.length} compan${rows.length === 1 ? 'y' : 'ies'} (${preview}) ` +
+                    `and ${jobsTotal} job(s)? This cannot be undone.`
+                );
             }
 
             async function mergeSelectedCompanies(btnEl) {
@@ -85,25 +98,23 @@
                 }
             }
 
-            async function renameSelectedCompany(btnEl) {
-                const rows = getSelectedCompanyRows();
-                if (rows.length !== 1) return;
-                const row = rows[0];
-                const current = row.dataset.displayName || '';
-                const displayName = prompt('Rename company to:', current);
-                if (displayName === null) return;
-                const trimmed = displayName.trim();
+            async function renameCompanyRow(companyId, displayName, btnEl) {
+                const current = displayName || '';
+                const nextName = prompt('Rename company to:', current);
+                if (nextName === null) return;
+                const trimmed = nextName.trim();
                 if (!trimmed) {
                     alert('Display name is required');
                     return;
                 }
+                if (trimmed === current.trim()) return;
                 if (btnEl) btnEl.disabled = true;
                 try {
                     const response = await fetch(apiUrl('/api/company/rename'), {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            company_id: Number(row.dataset.companyId),
+                            company_id: Number(companyId),
                             display_name: trimmed,
                         }),
                     });
@@ -118,18 +129,49 @@
                     }
                 } catch (err) {
                     alert(`Failed to rename company: ${err.message}`);
+                    if (btnEl) btnEl.disabled = false;
+                }
+            }
+
+            async function reloadCompaniesAfterDelete(rebuilt) {
+                if (rebuilt && typeof waitForRebuildThenReload === 'function') {
+                    await waitForRebuildThenReload('companies');
+                } else if (typeof reloadWithTab === 'function') {
+                    reloadWithTab('companies');
+                } else {
+                    window.location.reload();
+                }
+            }
+
+            async function deleteSelectedCompanies(btnEl) {
+                const rows = getSelectedCompanyRows();
+                if (rows.length === 0) return;
+                if (!confirm(bulkCompanyDeleteConfirmMessage(rows))) return;
+                if (btnEl) btnEl.disabled = true;
+                try {
+                    const response = await fetch(apiUrl('/api/company/delete-batch'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            company_ids: rows.map((row) => Number(row.dataset.companyId)),
+                        }),
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || 'Request failed');
+                    }
+                    await reloadCompaniesAfterDelete((data.deleted_ids || []).length > 0);
+                } catch (err) {
+                    alert(`Failed to delete companies: ${err.message}`);
                     updateCompaniesBulkBar();
                 }
             }
 
-            async function deleteSelectedCompany(btnEl) {
-                const rows = getSelectedCompanyRows();
-                if (rows.length !== 1) return;
-                const row = rows[0];
-                const name = row.dataset.displayName || '';
-                const jobCount = Number(row.dataset.jobCount || 0);
+            async function deleteCompanyRow(companyId, displayName, jobCount, btnEl) {
+                const name = displayName || '';
+                const jobs = Number(jobCount) || 0;
                 if (!confirm(
-                    `Delete company "${name}" and its ${jobCount} job(s)? This cannot be undone.`
+                    `Delete company "${name}" and its ${jobs} job(s)? This cannot be undone.`
                 )) {
                     return;
                 }
@@ -139,20 +181,16 @@
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            company_id: Number(row.dataset.companyId),
+                            company_id: Number(companyId),
                         }),
                     });
                     const data = await response.json();
                     if (!response.ok || !data.ok) {
                         throw new Error(data.error || 'Request failed');
                     }
-                    if (typeof waitForRebuildThenReload === 'function') {
-                        await waitForRebuildThenReload('companies');
-                    } else {
-                        window.location.reload();
-                    }
+                    await reloadCompaniesAfterDelete(!data.already_gone);
                 } catch (err) {
                     alert(`Failed to delete company: ${err.message}`);
-                    updateCompaniesBulkBar();
+                    if (btnEl) btnEl.disabled = false;
                 }
             }

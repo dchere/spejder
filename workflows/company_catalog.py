@@ -6,6 +6,7 @@ from typing import Callable, Optional
 
 from spejder.db.companies import (
     delete_company_row,
+    delete_company_rows,
     merge_company_rows,
     prune_empty_companies,
     rename_company_row,
@@ -50,3 +51,8 @@ def rename_company(db_path: str, company_id: int, display_name: str) -> dict:
 def delete_company(db_path: str, company_id: int) -> dict:
     """Delete catalog company + membership jobs. Idempotent if already gone."""
     return delete_company_row(db_path, company_id)
+
+
+def delete_companies(db_path: str, company_ids: list[int]) -> dict:
+    """Delete many catalog companies + membership jobs in one DB transaction."""
+    return delete_company_rows(db_path, company_ids)
