@@ -1,7 +1,35 @@
-            .companies-wrap { background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 12px; overflow-x: auto; }
-            .companies-table { width: 100%; border-collapse: collapse; min-width: 920px; }
+            .companies-wrap {
+                background: #fff;
+                border: 1px solid #ddd;
+                border-radius: 10px;
+                padding: 12px;
+                box-sizing: border-box;
+            }
+            /* :not(.hidden) so this display:flex does not override chrome `.hidden`. */
+            .companies-wrap:not(.hidden) {
+                display: flex;
+                flex-direction: column;
+                max-height: calc(100vh - var(--dashboard-chrome-offset, 12rem));
+                max-height: calc(100dvh - var(--dashboard-chrome-offset, 12rem));
+            }
+            /* Bulk bar stays above; list scrolls inside. Thead sticks within this pane. */
+            .companies-table-scroll {
+                flex: 1 1 auto;
+                min-height: 0;
+                overflow: auto;
+                border: 1px solid #eee;
+                border-radius: 6px;
+            }
+            .companies-table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 920px; }
             .companies-table th, .companies-table td { border-bottom: 1px solid #eee; text-align: left; padding: 8px; font-size: 13px; }
-            .companies-table th { background: #fafafa; font-weight: 700; }
+            .companies-table th {
+                background: #fafafa;
+                font-weight: 700;
+                position: sticky;
+                top: 0;
+                z-index: 2;
+                box-shadow: 0 1px 0 #eee;
+            }
             /* Added today: warm tint. Selected: green + bolder. Both: green fill + amber edge. */
             .companies-table tbody tr.company-row-added-today td {
                 background: #fff6e8;
@@ -22,7 +50,7 @@
             .companies-sort-indicator { display: inline-block; width: 0.9em; margin-left: 4px; color: #6b7a99; font-size: 11px; }
             .companies-table th.companies-sort-active .companies-sort-indicator::after { content: '▲'; }
             .companies-table th.companies-sort-active.companies-sort-desc .companies-sort-indicator::after { content: '▼'; }
-            .companies-bulk-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+            .companies-bulk-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; flex: 0 0 auto; }
             .companies-bulk-bar button:disabled { opacity: 0.55; cursor: not-allowed; }
             #companies-selected-label { font-size: 13px; color: #555; min-width: 6rem; }
             .company-merge-btn { border: 1px solid #0a58ca; color: #0a58ca; background: #fff; border-radius: 6px; padding: 6px 10px; cursor: pointer; font-size: 13px; }

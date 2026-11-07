@@ -176,6 +176,9 @@ class DashboardTemplatesTest(unittest.TestCase):
                     )
                     self.assertNotIn(".skills-table", html)
                     self.assertNotIn(".skills-action", html)
+                    self.assertNotIn("dashboard-sticky-chrome", html)
+                    self.assertNotIn("skills-table-scroll", html)
+                    self.assertNotIn("companies-table-scroll", html)
 
     def test_dashboard_html_shows_skills_bulk_bar_when_skills_present(self):
         template = jinja_env.get_template("dashboard.html")
@@ -196,8 +199,12 @@ class DashboardTemplatesTest(unittest.TestCase):
         self.assertNotIn("skills-legend", html)
         panel = html[html.index('id="panel-skills"') : html.index('id="panel-companies"')]
         self.assertLess(panel.index('id="btn-block-selected"'), panel.index('id="btn-sync-from-cv"'))
-        self.assertLess(panel.index('id="btn-sync-from-cv"'), panel.index('class="skills-table"'))
+        self.assertLess(panel.index('id="btn-sync-from-cv"'), panel.index('class="skills-table-scroll"'))
+        self.assertLess(panel.index('class="skills-table-scroll"'), panel.index('class="skills-table"'))
         self.assertLess(panel.index('class="skills-table"'), panel.index('id="skills-cloud-status"'))
+        self.assertIn("dashboard-sticky-chrome", html)
+        self.assertIn("--dashboard-chrome-offset: 12rem", html)
+        self.assertIn("position: sticky", html[html.index(".dashboard-sticky-chrome") : html.index(".dashboard-sticky-chrome") + 120])
 
     def test_dashboard_html_keeps_sync_when_skills_empty(self):
         template = jinja_env.get_template("dashboard.html")
