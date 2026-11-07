@@ -55,8 +55,37 @@ class DashboardCompaniesTableTest(unittest.TestCase):
         self.assertIn('id="btn-companies"', self.html)
         self.assertIn("Companies (", self.html)
         self.assertIn('id="panel-companies"', self.html)
+        self.assertIn('class="companies-table-scroll"', self.html)
         self.assertIn('id="companies-table"', self.html)
+        self.assertIn("dashboard-sticky-chrome", self.html)
+        self.assertIn("--dashboard-chrome-offset: 12rem", self.html)
+        self.assertIn(".companies-table-scroll", self.html)
+        scroll_css_idx = self.html.index(".companies-table-scroll")
+        self.assertIn("overflow: auto", self.html[scroll_css_idx : scroll_css_idx + 200])
+        wrap_css_idx = self.html.index(".companies-wrap:not(.hidden)")
+        wrap_css = self.html[wrap_css_idx : wrap_css_idx + 280]
+        self.assertIn("calc(100vh - var(--dashboard-chrome-offset, 12rem))", wrap_css)
+        self.assertIn("calc(100dvh - var(--dashboard-chrome-offset, 12rem))", wrap_css)
+        table_css_idx = self.html.index(".companies-table {")
+        table_css = self.html[table_css_idx : table_css_idx + 120]
+        self.assertIn("border-collapse: separate", table_css)
+        self.assertIn("border-spacing: 0", table_css)
+        th_css_idx = self.html.index(".companies-table th {")
+        self.assertIn("position: sticky", self.html[th_css_idx : th_css_idx + 200])
         self.assertIn("Acme", self.html)
+        panel = self.html[
+            self.html.index('id="panel-companies"') : self.html.index(
+                'id="panel-edited-today"'
+            )
+        ]
+        self.assertLess(
+            panel.index('class="companies-bulk-bar"'),
+            panel.index('class="companies-table-scroll"'),
+        )
+        self.assertLess(
+            panel.index('class="companies-table-scroll"'),
+            panel.index('id="companies-table"'),
+        )
         self.assertIn("mergeSelectedCompanies", self.html)
         self.assertIn("renameCompanyRow", self.html)
         self.assertNotIn("renameSelectedCompany", self.html)
@@ -119,6 +148,9 @@ class DashboardCompaniesTableTest(unittest.TestCase):
         self.assertNotIn('id="btn-companies"', source)
         self.assertNotIn("panel-companies", source)
         self.assertNotIn("dashboard_companies", source)
+        self.assertNotIn("dashboard-sticky-chrome", source)
+        self.assertNotIn("skills-table-scroll", source)
+        self.assertNotIn("companies-table-scroll", source)
 
     def test_ssr_tbody_order_added_desc(self):
         """Python/SSR tbody order is Added DESC before client JS runs."""
