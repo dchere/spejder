@@ -8,7 +8,6 @@ from spejder.core import MANUAL_APPLIED_RAW_MARKER
 from spejder.db import ensure_db, get_jobs_by_category_triage_window, upsert_job
 from spejder.db.connection import _connect
 from spejder.managers.dashboard_sorting import (
-    _applied_position_is_complete,
     _sort_applied_positions,
     _sort_positions_unviewed_then_score,
     slice_triage_by_non_hidden_limit,
@@ -153,80 +152,10 @@ class DashboardSortingTest(unittest.TestCase):
             self.assertEqual([row["id"] for row in sql_rows], [a, b, c])
             self.assertNotIn(d, [row["id"] for row in sql_rows])
 
-    def test_applied_sort_puts_missing_manual_before_complete(self):
+    def test_applied_sort_by_applied_at_desc(self):
         items = [
-            {
-                "raw_text": MANUAL_APPLIED_RAW_MARKER,
-                "cover_letter_requested": 0,
-                "cover_letter": "",
-                "viewed": 1,
-                "relevance_score": 0.9,
-            },
-            {"raw_text": "", "cover_letter_requested": 0, "cover_letter": "", "viewed": 0, "relevance_score": 0.1},
-        ]
-        sorted_items = _sort_applied_positions(items)
-        self.assertEqual(sorted_items[0]["raw_text"], "")
-
-    def test_applied_sort_puts_pending_cover_letter_before_complete(self):
-        items = [
-            {
-                "raw_text": MANUAL_APPLIED_RAW_MARKER,
-                "cover_letter_requested": 0,
-                "cover_letter": "",
-                "viewed": 0,
-                "relevance_score": 0.2,
-            },
-            {
-                "raw_text": MANUAL_APPLIED_RAW_MARKER,
-                "cover_letter_requested": 1,
-                "cover_letter": "Dear hiring manager",
-                "viewed": 1,
-                "relevance_score": 0.9,
-            },
-            {
-                "raw_text": MANUAL_APPLIED_RAW_MARKER,
-                "cover_letter_requested": 1,
-                "cover_letter": "",
-                "viewed": 1,
-                "relevance_score": 0.95,
-            },
-        ]
-        sorted_items = _sort_applied_positions(items)
-        self.assertFalse(_applied_position_is_complete(sorted_items[0]))
-        self.assertEqual(sorted_items[0]["cover_letter"], "")
-        self.assertTrue(_applied_position_is_complete(sorted_items[-1]))
-
-    def test_applied_sort_opted_out_cover_letter_uses_score(self):
-        items = [
-            {
-                "raw_text": MANUAL_APPLIED_RAW_MARKER,
-                "cover_letter_requested": 0,
-                "cover_letter": "",
-                "viewed": 0,
-                "relevance_score": 0.8,
-            },
-            {
-                "raw_text": MANUAL_APPLIED_RAW_MARKER,
-                "cover_letter_requested": 0,
-                "cover_letter": "",
-                "viewed": 0,
-                "relevance_score": 0.3,
-            },
-        ]
-        sorted_items = _sort_applied_positions(items)
-        self.assertEqual(sorted_items[0]["relevance_score"], 0.8)
-
-    def test_applied_sort_tiebreaks_by_applied_at_desc(self):
-        base = {
-            "raw_text": MANUAL_APPLIED_RAW_MARKER,
-            "cover_letter_requested": 0,
-            "cover_letter": "",
-            "viewed": 1,
-            "relevance_score": 0.5,
-        }
-        items = [
-            {**base, "applied_at": "2024-01-01T00:00:00+00:00"},
-            {**base, "applied_at": "2024-06-01T00:00:00+00:00"},
+            {"id": 1, "applied_at": "2024-01-01T00:00:00+00:00", "updated_at": "2024-01-01T00:00:00+00:00"},
+            {"id": 2, "applied_at": "2024-06-01T00:00:00+00:00", "updated_at": "2024-01-01T00:00:00+00:00"},
         ]
         sorted_items = _sort_applied_positions(items)
         self.assertEqual(
@@ -235,20 +164,84 @@ class DashboardSortingTest(unittest.TestCase):
         )
 
     def test_applied_sort_empty_applied_at_after_dated(self):
-        base = {
-            "raw_text": MANUAL_APPLIED_RAW_MARKER,
-            "cover_letter_requested": 0,
-            "cover_letter": "",
-            "viewed": 1,
-            "relevance_score": 0.5,
-        }
         items = [
-            {**base, "applied_at": ""},
-            {**base, "applied_at": "2024-03-01T00:00:00+00:00"},
+            {"id": 1, "applied_at": "", "updated_at": "2024-06-01T00:00:00+00:00"},
+            {"id": 2, "applied_at": "2024-03-01T00:00:00+00:00", "updated_at": "2024-01-01T00:00:00+00:00"},
         ]
         sorted_items = _sort_applied_positions(items)
         self.assertEqual(sorted_items[0]["applied_at"], "2024-03-01T00:00:00+00:00")
         self.assertEqual(sorted_items[1]["applied_at"], "")
+
+    def test_applied_sort_invalid_applied_at_after_dated(self):
+        items = [
+            {"id": 1, "applied_at": "not-a-date", "updated_at": "2024-06-01T00:00:00+00:00"},
+            {"id": 2, "applied_at": "2024-03-01T00:00:00+00:00", "updated_at": "2024-01-01T00:00:00+00:00"},
+            {"id": 3, "applied_at": "", "updated_at": "2024-05-01T00:00:00+00:00"},
+        ]
+        sorted_items = _sort_applied_positions(items)
+        self.assertEqual([i["id"] for i in sorted_items], [2, 1, 3])
+
+    def test_applied_sort_equal_applied_at_uses_updated_at_desc(self):
+        items = [
+            {
+                "id": 1,
+                "applied_at": "2024-06-01T00:00:00+00:00",
+                "updated_at": "2024-01-01T00:00:00+00:00",
+            },
+            {
+                "id": 2,
+                "applied_at": "2024-06-01T00:00:00+00:00",
+                "updated_at": "2024-05-01T00:00:00+00:00",
+            },
+        ]
+        sorted_items = _sort_applied_positions(items)
+        self.assertEqual([i["id"] for i in sorted_items], [2, 1])
+
+    def test_applied_sort_equal_dates_uses_id_asc(self):
+        items = [
+            {
+                "id": 3,
+                "applied_at": "2024-06-01T00:00:00+00:00",
+                "updated_at": "2024-05-01T00:00:00+00:00",
+            },
+            {
+                "id": 1,
+                "applied_at": "2024-06-01T00:00:00+00:00",
+                "updated_at": "2024-05-01T00:00:00+00:00",
+            },
+            {
+                "id": 2,
+                "applied_at": "2024-06-01T00:00:00+00:00",
+                "updated_at": "2024-05-01T00:00:00+00:00",
+            },
+        ]
+        sorted_items = _sort_applied_positions(items)
+        self.assertEqual([i["id"] for i in sorted_items], [1, 2, 3])
+
+    def test_applied_sort_ignores_completion_viewed_and_score(self):
+        # Regression: applied order is date/id only — not completion, viewed, or score.
+        incomplete_older = {
+            "id": 1,
+            "applied_at": "2024-01-01T00:00:00+00:00",
+            "updated_at": "2024-01-01T00:00:00+00:00",
+            "raw_text": "no manual full text",
+            "cover_letter": "",
+            "cover_letter_requested": 1,
+            "viewed": 0,
+            "relevance_score": 0.1,
+        }
+        complete_newer = {
+            "id": 2,
+            "applied_at": "2024-06-01T00:00:00+00:00",
+            "updated_at": "2024-01-01T00:00:00+00:00",
+            "raw_text": f"body {MANUAL_APPLIED_RAW_MARKER}",
+            "cover_letter": "Dear hiring manager",
+            "cover_letter_requested": 1,
+            "viewed": 1,
+            "relevance_score": 0.99,
+        }
+        sorted_items = _sort_applied_positions([incomplete_older, complete_newer])
+        self.assertEqual([i["id"] for i in sorted_items], [2, 1])
 
     def test_slice_triage_includes_soft_hidden_before_limit(self):
         items = [
