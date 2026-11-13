@@ -15,5 +15,6 @@
 
 **Ambiguity picks (locked):**
 - SSR Companies tab (not live JSON); blank companies never catalogued; company dashboard has no Companies tab.
+- Company page chrome: stacked heading `{display} Positions` + `Total in DB: N` + optional expandable **Aliases (N)** as a real `<h2>` inside `<details>`/`<summary>` with a ▸/▼ expand marker (SSR from `get_company_alias_raws`, display-name key-matches dropped; omit when N=0). Tab-row `.controls-actions`: catalogued pages show text **Rename · Delete · Back**; uncatalogued show **Back** alone. Rename/Delete reuse the same prompt/confirm wording and `POST /api/company/rename` / `/delete` payloads as the Companies tab, but navigate differently — rename → `/company.html?company=<newDisplayName>` (no rebuild wait); delete → `/report.html` (no `?tab=companies`). Back is a `file://`-safe button via `apiUrl('/report.html')`. JS lives in `partials/dashboard_company_page_actions.js` (not `dashboard_companies.js`).
 - Applied bonus keys = union of all alias keys for applied∧¬stopped companies (minus stopped companies' alias unions).
 - Merge: identity+job rewrite txn, then `merge_duplicate_positions` on separate connections, then prune empty losers.

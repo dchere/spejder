@@ -1,4 +1,4 @@
-"""Ops API routes (report rebuild, inbox sync) and company dashboard page."""
+"""Ops API routes (report rebuild, inbox sync, shutdown) and company dashboard page."""
 
 import os
 from email.utils import formatdate
@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from spejder.db import get_jobs_by_company, get_viewed_today_jobs, local_day_start_utc_iso
-from spejder.db.companies import resolve_company
+from spejder.db.companies import get_company_alias_raws, resolve_company
 from spejder.managers.dashboard_manager import _render_company_dashboard_html
 from spejder.server.context import ServerRuntime, get_runtime
 
@@ -63,6 +63,17 @@ def api_inbox_sync_status(runtime: ServerRuntime = Depends(get_runtime)):
     return runtime.get_inbox_sync_status()
 
 
+@router.post("/api/shutdown")
+def api_shutdown(runtime: ServerRuntime = Depends(get_runtime)):
+    if runtime.request_shutdown is None:
+        return JSONResponse(
+            status_code=503,
+            content={"ok": False, "error": "shutdown not available"},
+        )
+    runtime.request_shutdown()
+    return {"ok": True}
+
+
 @router.get("/company.html")
 def company_page(company: str = "", runtime: ServerRuntime = Depends(get_runtime)):
     company_name = company.strip()
@@ -86,7 +97,14 @@ def company_page(company: str = "", runtime: ServerRuntime = Depends(get_runtime
             get_viewed_today_jobs(runtime.db_path, since_iso, limit=0)
         )
     }
+    aliases = (
+        get_company_alias_raws(runtime.db_path, ref.id) if ref.catalogued else []
+    )
     html_content = _render_company_dashboard_html(
-        page_title, company_items, viewed_today_order=viewed_today_order
+        page_title,
+        company_items,
+        viewed_today_order=viewed_today_order,
+        company_id=ref.id if ref.catalogued else None,
+        aliases=aliases,
     )
     return HTMLResponse(content=html_content)

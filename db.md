@@ -150,7 +150,7 @@ Extracted from `jobs.py`. The rest of the application (including business logic 
 **Applied date (`jobs.applied_at`):**
 - `applied_at TEXT` — ISO timestamp set on first apply; preserved on re-apply while still applied; cleared when `applied=0`
 - Listed in `_JOB_SELECT_COLS` (shared by all full-row listing queries in `queries_listings.py`) and mapped in `_map_full_job_row` / `_map_applied_job_row`
-- **Two-layer sort for applied-stage dashboard tabs:** DB queries above establish primary order by apply date; `dashboard_sorting._sort_applied_positions` re-sorts in Python for completion/viewed/score rules and uses `applied_at` as a tiebreaker (newer first; missing dates last)
+- **Two-layer sort for applied-stage dashboard tabs:** DB queries above establish primary order by apply date (`(applied_at IS NULL), applied_at DESC, updated_at DESC`); `dashboard_sorting._sort_applied_positions` re-sorts in Python with the same date layers plus `id` ASC for stability (null/empty/invalid dates last). Missing `applied_at` is rare (legacy/unbackfilled; normal apply sets it)
 
 **90-day retention (`ensure_db`):**
 - Auto-prunes rows where `created_at` is older than `JOB_RETENTION_DAYS` (90)

@@ -1,5 +1,7 @@
 """Tests for Companies tab SSR table and main dashboard tab presence."""
 
+import html as html_lib
+import json
 import os
 import re
 import tempfile
@@ -9,7 +11,10 @@ from spejder.config import AppConfig
 from spejder.db import ensure_db, list_company_catalog_rows, upsert_job
 from spejder.db.connection import _connect
 from spejder.managers.dashboard_companies_table import _render_companies_table_html
-from spejder.managers.dashboard_manager import _render_html_dashboard
+from spejder.managers.dashboard_manager import (
+    _render_company_dashboard_html,
+    _render_html_dashboard,
+)
 from spejder.managers.dashboard_templates import jinja_env
 from spejder.tests.test_dashboard_templates import (
     _extract_js_function_body,
@@ -87,6 +92,14 @@ class DashboardCompaniesTableTest(unittest.TestCase):
             panel.index('id="companies-table"'),
         )
         self.assertIn("mergeSelectedCompanies", self.html)
+        self.assertIn('id="company-merge-modal"', self.html)
+        self.assertIn('id="company-merge-display-name"', self.html)
+        self.assertIn('id="company-merge-name-list"', self.html)
+        self.assertIn('id="company-merge-cancel"', self.html)
+        self.assertIn('id="company-merge-confirm"', self.html)
+        self.assertIn("buildCompanyMergeCandidates", self.html)
+        self.assertIn("openCompanyMergeModal", self.html)
+        self.assertIn("confirmCompanyMerge", self.html)
         self.assertIn("renameCompanyRow", self.html)
         self.assertNotIn("renameSelectedCompany", self.html)
         self.assertNotIn("btn-rename-company", self.html)
@@ -96,10 +109,34 @@ class DashboardCompaniesTableTest(unittest.TestCase):
         self.assertIn("delete-company-btn", self.html)
         self.assertIn("companies-action", self.html)
         merge_body = _extract_js_function_body(self.html, "mergeSelectedCompanies")
-        self.assertIn("waitForRebuildThenReload('companies')", merge_body)
+        self.assertIn("buildCompanyMergeCandidates", merge_body)
+        self.assertIn("openCompanyMergeModal", merge_body)
+        self.assertNotIn("prompt(", merge_body)
+        self.assertNotIn("confirm(", merge_body)
+        self.assertNotIn("/api/company/merge", merge_body)
+        confirm_body = _extract_js_function_body(self.html, "confirmCompanyMerge")
+        self.assertIn("/api/company/merge", confirm_body)
+        self.assertIn("waitForRebuildThenReload('companies')", confirm_body)
+        self.assertIn("updateCompaniesBulkBar()", confirm_body)
+        self.assertIn("inFlight", confirm_body)
+        self.assertNotIn("prompt(", confirm_body)
+        self.assertNotIn("confirm(", confirm_body)
+        self.assertIn("data-company-merge-dismiss", self.html)
+        keydown_body = _extract_js_function_body(self.html, "onCompanyMergeKeydown")
+        self.assertIn("Escape", keydown_body)
+        self.assertIn("closeCompanyMergeModal", keydown_body)
+        self.assertIn("isCompanyMergeInFlight", keydown_body)
+        close_body = _extract_js_function_body(self.html, "closeCompanyMergeModal")
+        self.assertIn("isCompanyMergeInFlight", close_body)
+        self.assertIn("force", close_body)
+        sort_body = _extract_js_function_body(self.html, "buildCompanyMergeCandidates")
+        self.assertIn("b.jobCount - a.jobCount", sort_body)
+        self.assertIn("dataset.displayName", sort_body)
+        self.assertIn("dataset.jobCount", sort_body)
         rename_body = _extract_js_function_body(self.html, "renameCompanyRow")
         self.assertIn("waitForRebuildThenReload('companies')", rename_body)
         self.assertIn("/api/company/rename", rename_body)
+        self.assertIn("prompt('Rename company to:', current)", rename_body)
         reload_body = _extract_js_function_body(self.html, "reloadCompaniesAfterDelete")
         self.assertIn("waitForRebuildThenReload('companies')", reload_body)
         self.assertIn("reloadWithTab('companies')", reload_body)
@@ -114,8 +151,14 @@ class DashboardCompaniesTableTest(unittest.TestCase):
         self.assertIn("already_gone", row_body)
         bar_body = _extract_js_function_body(self.html, "updateCompaniesBulkBar")
         self.assertIn("count === 0", bar_body)
+        self.assertIn("company-merge-modal", bar_body)
+        self.assertIn("hasAttribute('hidden')", bar_body)
+        self.assertIn("mergeModalOpen || count < 2", bar_body)
         self.assertNotIn("btn-rename-company", bar_body)
         self.assertIn("syncCompanyRowHighlights", bar_body)
+        open_body = _extract_js_function_body(self.html, "openCompanyMergeModal")
+        self.assertIn("removeEventListener('keydown', onCompanyMergeKeydown)", open_body)
+        self.assertIn("addEventListener('keydown', onCompanyMergeKeydown)", open_body)
         highlight_body = _extract_js_function_body(self.html, "syncCompanyRowHighlights")
         self.assertIn("company-row-selected", highlight_body)
         self.assertIn("company-row-added-today", highlight_body)
@@ -148,9 +191,135 @@ class DashboardCompaniesTableTest(unittest.TestCase):
         self.assertNotIn('id="btn-companies"', source)
         self.assertNotIn("panel-companies", source)
         self.assertNotIn("dashboard_companies", source)
+        self.assertNotIn("dashboard_companies.js", source)
+        self.assertNotIn("dashboard_companies.css", source)
+        self.assertNotIn("dashboard_companies_merge", source)
+        self.assertNotIn("company-merge-modal", source)
+        self.assertIn("dashboard_company_page_actions.js", source)
         self.assertNotIn("dashboard-sticky-chrome", source)
         self.assertNotIn("skills-table-scroll", source)
         self.assertNotIn("companies-table-scroll", source)
+
+    def test_company_page_actions_markup_with_company_id(self):
+        html = _render_company_dashboard_html("Acme Corp", [], company_id=42)
+        self.assertIn("company-page-heading", html)
+        self.assertIn("<h1>Acme Corp Positions</h1>", html)
+        self.assertIn('class="company-total"', html)
+        self.assertIn("Total in DB: 0", html)
+        self.assertIn('class="controls-actions"', html)
+        self.assertIn('class="rename-company-btn"', html)
+        self.assertIn('class="company-delete-btn"', html)
+        self.assertIn('class="company-back-btn"', html)
+        self.assertNotIn('class="company-merge-btn"', html)
+        self.assertNotIn("Back to full report", html)
+        self.assertIn(">Rename<", html)
+        self.assertIn(">Delete<", html)
+        self.assertIn(">Back<", html)
+        self.assertIn("renameCompanyOnPage(42,", html)
+        self.assertIn("deleteCompanyOnPage(42,", html)
+        self.assertIn("backToFullReport()", html)
+        self.assertIn("/api/company/rename", html)
+        self.assertIn("/api/company/delete", html)
+        self.assertIn("/company.html?company=", html)
+        self.assertIn("encodeURIComponent(trimmed)", html)
+        self.assertIn("apiUrl('/report.html')", html)
+        self.assertNotIn("dashboard_companies.js", html)
+        self.assertNotIn("dashboard_companies.css", html)
+        # Rename · Delete · Back order inside controls-actions.
+        actions_idx = html.index('class="controls-actions"')
+        rename_idx = html.index('class="rename-company-btn"', actions_idx)
+        delete_idx = html.index('class="company-delete-btn"', actions_idx)
+        back_idx = html.index('class="company-back-btn"', actions_idx)
+        self.assertLess(rename_idx, delete_idx)
+        self.assertLess(delete_idx, back_idx)
+        rename_body = _extract_js_function_body(html, "renameCompanyOnPage")
+        self.assertIn("prompt('Rename company to:', current)", rename_body)
+        self.assertIn("/api/company/rename", rename_body)
+        self.assertIn(
+            "location.href = apiUrl('/company.html?company=' + encodeURIComponent(trimmed))",
+            rename_body,
+        )
+        self.assertNotIn("waitForRebuildThenReload", rename_body)
+        self.assertNotIn("?tab=companies", rename_body)
+        delete_body = _extract_js_function_body(html, "deleteCompanyOnPage")
+        self.assertIn(
+            'Delete company "${name}" and its ${jobs} job(s)? This cannot be undone.',
+            delete_body,
+        )
+        self.assertIn("/api/company/delete", delete_body)
+        self.assertIn("location.href = apiUrl('/report.html')", delete_body)
+        self.assertNotIn("?tab=companies", delete_body)
+        self.assertNotIn("waitForRebuildThenReload", delete_body)
+        back_body = _extract_js_function_body(html, "backToFullReport")
+        self.assertIn("location.href = apiUrl('/report.html')", back_body)
+        actions_js = _read_template("partials/dashboard_company_page_actions.js")
+        self.assertNotIn("waitForRebuildThenReload", actions_js)
+        self.assertNotIn("?tab=companies", actions_js)
+        self.assertIn("function backToFullReport", actions_js)
+        chrome_css = _read_template("partials/dashboard_chrome.css")
+        self.assertIn(".controls-actions {", chrome_css)
+        companies_js = _read_template("partials/dashboard_companies.js")
+        companies_delete = _extract_js_function_body(
+            companies_js, "deleteCompanyRow"
+        )
+        self.assertIn(
+            'Delete company "${name}" and its ${jobs} job(s)? This cannot be undone.',
+            companies_delete,
+        )
+
+    def test_company_page_actions_escape_special_company_name(self):
+        name = 'Acme "Corp" & <Co>'
+        html = _render_company_dashboard_html(name, [], company_id=7)
+        label_js = html_lib.escape(json.dumps(name), quote=True)
+        safe = html_lib.escape(name)
+        self.assertIn(f"<h1>{safe} Positions</h1>", html)
+        self.assertIn('class="rename-company-btn"', html)
+        self.assertIn('class="company-delete-btn"', html)
+        self.assertIn(f"renameCompanyOnPage(7, {label_js}, this)", html)
+        self.assertIn(f"deleteCompanyOnPage(7, {label_js}, 0, this)", html)
+        self.assertIn(safe, html)
+
+    def test_company_page_actions_hidden_without_company_id(self):
+        html = _render_company_dashboard_html("Ephemeral Co", [])
+        self.assertIn("<h1>Ephemeral Co Positions</h1>", html)
+        self.assertIn('class="controls-actions"', html)
+        self.assertIn('class="company-back-btn"', html)
+        self.assertIn("backToFullReport()", html)
+        self.assertNotIn('class="rename-company-btn"', html)
+        self.assertNotIn('class="company-delete-btn"', html)
+        self.assertNotIn(">Rename<", html)
+        self.assertNotIn(">Delete<", html)
+        self.assertNotIn("onclick=\"renameCompanyOnPage(", html)
+        self.assertNotIn("onclick=\"deleteCompanyOnPage(", html)
+        self.assertNotIn('<details class="company-aliases">', html)
+        self.assertNotIn("Aliases (", html)
+        # Handlers still defined (partial always included) for catalogued pages.
+        self.assertIn("function renameCompanyOnPage", html)
+        self.assertIn("function deleteCompanyOnPage", html)
+        self.assertIn("function backToFullReport", html)
+
+    def test_company_page_aliases_omits_display_name_and_empty(self):
+        html_empty = _render_company_dashboard_html(
+            "Acme Corp", [], company_id=1, aliases=["Acme Corp", "acme corp"]
+        )
+        self.assertNotIn('<details class="company-aliases">', html_empty)
+        self.assertNotIn("Aliases (", html_empty)
+
+        html = _render_company_dashboard_html(
+            "Acme Corp",
+            [],
+            company_id=1,
+            aliases=["Acme Corp", "Old Alias", "acme corp", "Another Name"],
+        )
+        self.assertIn('<details class="company-aliases">', html)
+        self.assertIn("<h2>Aliases (2)</h2>", html)
+        self.assertIn("summary::before", html)
+        self.assertIn('content: "▸"', html)
+        self.assertIn("<li>Old Alias</li>", html)
+        self.assertIn("<li>Another Name</li>", html)
+        # Display-name key matches must not reappear in the list.
+        self.assertNotIn("<li>Acme Corp</li>", html)
+        self.assertNotIn("<li>acme corp</li>", html)
 
     def test_ssr_tbody_order_added_desc(self):
         """Python/SSR tbody order is Added DESC before client JS runs."""
@@ -284,8 +453,45 @@ class DashboardCompaniesTableTest(unittest.TestCase):
         source = _read_template("dashboard.html")
         self.assertIn('{% include "partials/dashboard_companies.css" %}', source)
         self.assertIn('{% include "partials/dashboard_companies.js" %}', source)
+        self.assertIn(
+            '{% include "partials/dashboard_companies_merge.js" %}', source
+        )
+        self.assertIn(
+            '{% include "partials/dashboard_companies_merge_modal.html" %}',
+            source,
+        )
         self.assertIn('{% include "partials/dashboard_companies_sort.js" %}', source)
+        companies_js = source.index(
+            '{% include "partials/dashboard_companies.js" %}'
+        )
+        merge_js = source.index(
+            '{% include "partials/dashboard_companies_merge.js" %}'
+        )
+        self.assertLess(companies_js, merge_js)
         self.assertIn("initCompaniesTableSort()", source)
+        companies_partial = _read_template("partials/dashboard_companies.js")
+        self.assertNotIn("function mergeSelectedCompanies", companies_partial)
+        self.assertNotIn("prompt(", companies_partial.split("renameCompanyRow", 1)[0])
+        merge_partial = _read_template("partials/dashboard_companies_merge.js")
+        self.assertIn("function mergeSelectedCompanies", merge_partial)
+        self.assertIn("function buildCompanyMergeCandidates", merge_partial)
+        self.assertIn("function confirmCompanyMerge", merge_partial)
+        self.assertIn("function onCompanyMergeKeydown", merge_partial)
+        self.assertIn("function closeCompanyMergeModal", merge_partial)
+        self.assertIn("isCompanyMergeInFlight", merge_partial)
+        self.assertIn("inFlight", merge_partial)
+        self.assertIn("Escape", merge_partial)
+        self.assertNotIn("prompt(", merge_partial)
+        self.assertNotIn("confirm(", merge_partial)
+        self.assertIn("textContent", merge_partial)
+        self.assertNotIn("innerHTML", merge_partial)
+        modal_partial = _read_template(
+            "partials/dashboard_companies_merge_modal.html"
+        )
+        self.assertIn('id="company-merge-modal"', modal_partial)
+        self.assertIn('id="company-merge-display-name"', modal_partial)
+        self.assertIn('id="company-merge-name-list"', modal_partial)
+        self.assertIn("data-company-merge-dismiss", modal_partial)
         context = _minimal_dashboard_context()
         context["len_companies_items"] = 1
         context["companies_table_html"] = (
@@ -294,6 +500,7 @@ class DashboardCompaniesTableTest(unittest.TestCase):
         )
         html = jinja_env.get_template("dashboard.html").render(**context)
         self.assertIn('id="btn-merge-companies"', html)
+        self.assertIn('id="company-merge-modal"', html)
         self.assertIn("initCompaniesTableSort()", html)
         self.assertRegex(html, re.compile(r'id="btn-skills".*?id="btn-companies".*?id="btn-edited-today"', re.DOTALL))
 

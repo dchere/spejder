@@ -3,11 +3,13 @@ Dashboard and Reporting views renderer module for creating static HTML reports.
 """
 
 import html as html_lib
+import json
 import os
 from email.utils import formatdate
 from typing import Optional
 
 from spejder.config import AppConfig
+from spejder.db.companies import company_alias_key
 from spejder.extractors.skill_extractor.ui import SKILLS_EMPTY_ADDED_AT_SORT
 
 from .dashboard_cards import _build_job_cards, _render_html_from_items
@@ -34,13 +36,33 @@ __all__ = [
 _SPEJDER_REPORT_MTIME_PLACEHOLDER = "_____SPEJDER_REPORT_MTIME_P__"
 
 
+def _filter_company_page_aliases(
+    company_label: str, aliases: Optional[list[str]]
+) -> list[str]:
+    """Drop blank and display_name key-matches; H1 already shows the display name."""
+    display_key = company_alias_key(company_label)
+    out: list[str] = []
+    for raw in aliases or []:
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        if company_alias_key(text) == display_key:
+            continue
+        out.append(text)
+    return out
+
+
 def _render_company_dashboard_html(
     company_name: str,
     company_items: list[dict],
     viewed_today_order: Optional[dict[int, int]] = None,
+    company_id: Optional[int] = None,
+    aliases: Optional[list[str]] = None,
 ) -> str:
     company_label = (company_name or "").strip() or "Unknown company"
     safe_company_label = html_lib.escape(company_label)
+    company_label_js = html_lib.escape(json.dumps(company_label), quote=True)
+    alias_list = _filter_company_page_aliases(company_label, aliases)
     order = viewed_today_order or {}
     viewed_today_ids = set(order.keys())
     applied_items = [
@@ -133,6 +155,9 @@ def _render_company_dashboard_html(
     return template.render(
         company_label=company_label,
         safe_company_label=safe_company_label,
+        company_label_js=company_label_js,
+        company_id=company_id,
+        aliases=alias_list,
         len_company_items=len(company_items),
         len_relevant_items=len(relevant_items),
         len_not_relevant_items=len(not_relevant_items),

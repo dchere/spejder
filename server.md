@@ -6,7 +6,7 @@ Provides an interactive dashboard (web GUI) to review extracted jobs and view th
 **Public API:**
 - `from spejder.server import create_app, start_server` — package re-exports only these two names (not rescore/LLM symbols).
 - `create_app(...)`: FastAPI factory; stores a `ServerRuntime` on `app.state.runtime`. Handlers read that state (via `Depends(get_runtime)`); they do not close over factory kwargs. `get_title_translation_llm` is kept on runtime for signature stability (unused in handlers). `runtime_profile` is an `AppConfig`; the public parameter type stays `dict`. Optional `skills_rematerialize`; when omitted, `create_app` builds a `SkillsRematerializeCoordinator` so clean-skills rematerialize works in tests and standalone app factories.
-- `start_server(host, port, app_factory_kwargs)` — port-scan then uvicorn; still imported from `spejder.server`.
+- `start_server(host, port, app_factory_kwargs)` — `errno.EADDRINUSE` port probe (`port`…`port+20`), then programmatic `uvicorn.Config` + `uvicorn.Server` (not `uvicorn.run`); wires `runtime.request_shutdown` to a short daemon `threading.Timer` that prints `Shutting down Spejder GUI server.` and sets `server.should_exit = True` so the HTTP 200 can flush first; still imported from `spejder.server`.
 
 **Package layout:**
 
@@ -20,14 +20,14 @@ Provides an interactive dashboard (web GUI) to review extracted jobs and view th
 | `routers/skills.py` | `/api/skill/user\|learn\|unwanted\|sync-from-cv` (profile exclusive-list toggles + CV→`user_skills` sync + `rescore_active_jobs` when the list changed) |
 | `routers/skills_block_delete.py` | `/api/skill/block\|delete\|forgive\|block-batch\|delete-batch\|forgive-batch` plus `_normalize_skill_batch`, `_run_skill_block`, `_run_skill_delete`, `_run_skill_forgive`, `_delete_skills_from_db`, `_merge_db_deleted` |
 | `routers/companies.py` | `POST /api/company/merge`, `/rename`, `/delete`, `/delete-batch` (catalog ops; queue dashboard rebuild; JSON `{ ok: false, error }` on 400) |
-| `routers/ops.py` | `/api/report/rebuild`, `/api/report/status`, `/api/inbox/sync`, `/api/inbox/sync/status`, `GET /company.html` |
+| `routers/ops.py` | `/api/report/rebuild`, `/api/report/status`, `/api/inbox/sync`, `/api/inbox/sync/status`, `POST /api/shutdown`, `GET /company.html` |
 | `routers/portrait.py` | `/api/portrait`, `/portrait/save`, `/portrait/generate` |
 | `routers/profile.py` | `/api/profile`, `/api/profile/save` |
 
 Pydantic request models live at module level on the router that uses them.
 
 **API:**
-- `create_app(...)`: FastAPI factory; `get_report_rebuild_idle` callback (default `lambda: True`) drives `idle` on `GET /api/report/status`
+- `create_app(...)`: FastAPI factory; `get_report_rebuild_idle` callback (default `lambda: True`) drives `idle` on `GET /api/report/status`; optional `request_shutdown` (default `None`) stored on `ServerRuntime` — when unwired, `POST /api/shutdown` returns 503
 - `POST /api/interview` — `{ job_id, on_interview }`; requires `applied=1`; clears `interview_stopped` when enabling
 - `POST /api/interview/stopped` — `{ job_id, stopped }`; requires `applied=1`; clears `on_interview` when enabling
 - `POST /api/interview/feedback` — `{ job_id, feedback }`; requires `applied=1` and `interview_stopped=1`
@@ -53,12 +53,13 @@ Pydantic request models live at module level on the router that uses them.
 - `GET /api/report/status` — `{ ok, idle, last_modified }`; `idle` reflects whether the dashboard rebuild queue is idle (`get_report_rebuild_idle`); `last_modified` is the HTTP-date of `report.html` on disk (empty when missing). Used by tab-switch stale reload logic in `dashboard.html`.
 - `POST /api/inbox/sync` — starts a background inbox sync when `trigger_inbox_sync` is wired (`serve-gui`); returns 503 when inbox sync is not configured; returns 409 when a sync is already running
 - `GET /api/inbox/sync/status` — `{ running, stage_id, stage_message, status, message, reload_generation }`; `status` is `running`, `complete`, `skipped`, `failed`, or `idle`; `reload_generation` is always present (`0` until the first mid-sync dashboard refresh bump; may bump again at end-of-sync when later stages rebuilt after a successful mid-refresh; monotonic for process life). When sync is not configured, the idle payload still includes `reload_generation: 0`
+- `POST /api/shutdown` — schedules exit of **this** serve-gui/uvicorn process only (via `runtime.request_shutdown`); returns `{ ok: true }` after scheduling so the response can flush; **503** `{ ok: false, error: "shutdown not available" }` when `request_shutdown` is `None`. Does not kill other listeners on the host.
 - `GET /api/portrait` — `{ ok, text }`; committed portrait from `default_portrait_path`
 - `POST /api/company/merge` — `{ company_ids, display_name }`; ≥2 distinct ids; runs `workflows.company_catalog.merge_companies` (always position-dedupes after identity merge); queues dashboard rebuild; **400** when `display_name` alias key is owned outside the merge set
 - `POST /api/company/rename` — `{ company_id, display_name }`; updates catalog display + member jobs; queues rebuild; **400** when `display_name` alias key belongs to another company
 - `POST /api/company/delete` — `{ company_id }`; deletes catalog + membership jobs; idempotent `{ already_gone: true }` when missing (no rebuild when already gone)
 - `POST /api/company/delete-batch` — `{ company_ids: int[] }`; ≥1 positive id after normalize/dedupe else **400**; one-txn `delete_companies`; queues rebuild with reason `"company delete batch"` **iff** `deleted_ids` non-empty (all-gone / soft missing ids → 200, no rebuild)
-- `GET /company.html` — company-filtered dashboard; `resolve_company` for page title (catalog `display_name` when catalogued); membership via `get_jobs_by_company` (alias or display); computes local-day `since_iso`, loads `get_viewed_today_jobs` for Edited today partition order, and passes `viewed_today_order` into `_render_company_dashboard_html`. Company dashboard has no Companies tab.
+- `GET /company.html` — company-filtered dashboard; `resolve_company` for page title (catalog `display_name` when catalogued); membership via `get_jobs_by_company` (alias or display); computes local-day `since_iso`, loads `get_viewed_today_jobs` for Edited today partition order, loads `get_company_alias_raws` when catalogued, and passes `viewed_today_order`, `company_id=ref.id if ref.catalogued else None`, and `aliases` into `_render_company_dashboard_html` (catalogued pages get tab-row Rename/Delete + optional Aliases H2; ephemeral/uncatalogued hide Rename/Delete and aliases; Back always). Company dashboard has no Companies tab.
 - `POST /api/portrait/generate` — sync LLM regeneration; returns `{ ok, draft, committed, diff_html }`; requires `default_model`; 503 without model; 400 without context; 409 when generation already in progress; does not write file
 - `POST /api/portrait/save` — `{ text }`; writes portrait file; no dashboard rebuild
 - `GET /api/profile` — `{ ok, values, fields, groups }`; `values` is `runtime_profile.model_dump()`; `fields`/`groups` from `profile_editor` metadata

@@ -28,6 +28,7 @@ class ServerRuntime:
     portrait_generate_lock: Lock
     cv_skills_sync_lock: Lock
     skills_rematerialize: Optional["SkillsRematerializeCoordinator"] = None
+    request_shutdown: Optional[Callable[[], None]] = None
 
 
 def get_runtime(request: Request) -> ServerRuntime:

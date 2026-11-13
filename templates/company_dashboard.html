@@ -6,14 +6,52 @@
         <title>Company Positions: {{ safe_company_label }}</title>
         <style>
             {% include "partials/dashboard_chrome.css" %}
-            .subtitle { margin: 0 0 12px 0; color: #555; }
-            .subtitle a { color: #0a58ca; }
+            .company-page-heading { margin: 0 0 12px 0; }
+            .company-page-heading h1 { margin-bottom: 4px; }
+            .company-total { margin: 0; color: #555; }
+            .company-aliases { margin: 8px 0 0 0; }
+            .company-aliases > summary {
+                cursor: pointer;
+                list-style: none;
+            }
+            .company-aliases > summary::-webkit-details-marker { display: none; }
+            .company-aliases > summary::before {
+                content: "▸";
+                display: inline-block;
+                margin-right: 0.35em;
+                font-size: 1rem;
+                font-weight: 700;
+            }
+            .company-aliases[open] > summary::before { content: "▼"; }
+            .company-aliases > summary h2 {
+                display: inline;
+                margin: 0;
+                font-size: 1rem;
+                font-weight: 700;
+            }
+            .company-aliases ul { margin: 6px 0 0 0; padding-left: 1.25rem; color: #555; font-size: 13px; }
+            .company-aliases li { margin: 2px 0; }
+            .rename-company-btn { border: 1px solid #0a58ca; color: #0a58ca; background: #fff; border-radius: 6px; padding: 6px 10px; cursor: pointer; font-size: 13px; }
+            .company-delete-btn { border: 1px solid #cc8c8c; color: #7b1111; background: #fff; border-radius: 6px; padding: 6px 10px; cursor: pointer; font-size: 13px; }
+            .company-back-btn { border: 1px solid #333; color: #222; background: #fff; border-radius: 6px; padding: 6px 10px; cursor: pointer; font-size: 13px; }
             {% include "partials/dashboard_card_corners.css" %}
         </style>
     </head>
     <body>
-        <h1>Company Positions</h1>
-        <p class="subtitle"><a href="/report.html">Back to full report</a> · {{ safe_company_label }} · Total in DB: {{ len_company_items }}</p>
+        <header class="company-page-heading">
+            <h1>{{ safe_company_label }} Positions</h1>
+            <p class="company-total">Total in DB: {{ len_company_items }}</p>
+            {% if aliases %}
+            <details class="company-aliases">
+                <summary><h2>Aliases ({{ aliases|length }})</h2></summary>
+                <ul>
+                    {% for alias in aliases %}
+                    <li>{{ alias|e }}</li>
+                    {% endfor %}
+                </ul>
+            </details>
+            {% endif %}
+        </header>
         <div class="controls">
             <button id="btn-relevant" class="mode-btn active" type="button">Relevant ({{ len_relevant_items }})</button>
             <button id="btn-not-relevant" class="mode-btn" type="button">Not relevant ({{ len_not_relevant_items }})</button>
@@ -21,6 +59,13 @@
             <button id="btn-interview" class="mode-btn" type="button">Interview ({{ len_interview_items }})</button>
             <button id="btn-stopped" class="mode-btn" type="button">Stopped ({{ len_stopped_items }})</button>
             <button id="btn-edited-today" class="mode-btn" type="button">Edited today ({{ len_viewed_today_items }})</button>
+            <div class="controls-actions">
+                {% if company_id %}
+                <button type="button" class="rename-company-btn" onclick="renameCompanyOnPage({{ company_id }}, {{ company_label_js }}, this)">Rename</button>
+                <button type="button" class="company-delete-btn" onclick="deleteCompanyOnPage({{ company_id }}, {{ company_label_js }}, {{ len_company_items }}, this)">Delete</button>
+                {% endif %}
+                <button type="button" class="company-back-btn" onclick="backToFullReport()">Back</button>
+            </div>
         </div>
         <section id="panel-relevant" class="grid">{{ relevant_cards }}</section>
         <section id="panel-not-relevant" class="grid hidden">{{ not_relevant_cards }}</section>
@@ -49,6 +94,8 @@
                 }
                 return path;
             }
+
+            {% include "partials/dashboard_company_page_actions.js" %}
 
             function ensureEmptyState(panel) {
                 const hasCards = panel.querySelector('.card') !== null;
