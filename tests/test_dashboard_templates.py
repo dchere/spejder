@@ -1,5 +1,7 @@
 """Tests for dashboard Jinja templates."""
 
+import html as html_lib
+import json
 import os
 import re
 import unittest
@@ -92,6 +94,9 @@ def _minimal_company_context():
     return {
         "company_label": "Acme",
         "safe_company_label": "Acme",
+        "company_label_js": html_lib.escape(json.dumps("Acme"), quote=True),
+        "company_id": None,
+        "aliases": [],
         "len_company_items": 0,
         "len_relevant_items": 0,
         "len_not_relevant_items": 0,

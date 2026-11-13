@@ -235,6 +235,44 @@ class ServerCompanyCatalogTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Pretty Name", response.text)
         self.assertIn("Company Positions: Pretty Name", response.text)
+        self.assertIn("<h1>Pretty Name Positions</h1>", response.text)
+        self.assertIn("<h2>Aliases (1)</h2>", response.text)
+        self.assertIn("<li>OldAlias</li>", response.text)
+        self.assertNotIn("<li>Pretty Name</li>", response.text)
+
+    def test_company_page_shows_rename_delete_when_catalogued(self):
+        _insert(self.db_path, "https://example.com/a", "Catalogued Co")
+        cid = self._company_id("Catalogued Co")
+        response = self.client.get(
+            "/company.html", params={"company": "Catalogued Co"}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("<h1>Catalogued Co Positions</h1>", response.text)
+        self.assertIn('class="controls-actions"', response.text)
+        self.assertIn('class="rename-company-btn"', response.text)
+        self.assertIn('class="company-delete-btn"', response.text)
+        self.assertIn('class="company-back-btn"', response.text)
+        self.assertNotIn('class="company-merge-btn"', response.text)
+        self.assertNotIn('<details class="company-aliases">', response.text)
+        self.assertNotIn("Aliases (", response.text)
+        self.assertIn(f"renameCompanyOnPage({cid},", response.text)
+        self.assertIn(f"deleteCompanyOnPage({cid},", response.text)
+        self.assertIn("backToFullReport()", response.text)
+        self.assertNotIn("dashboard_companies.js", response.text)
+
+    def test_company_page_hides_rename_delete_when_ephemeral(self):
+        response = self.client.get(
+            "/company.html", params={"company": "Never Catalogued LLC"}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("<h1>Never Catalogued LLC Positions</h1>", response.text)
+        self.assertIn('class="company-back-btn"', response.text)
+        self.assertNotIn('class="rename-company-btn"', response.text)
+        self.assertNotIn('class="company-delete-btn"', response.text)
+        self.assertNotIn('onclick="renameCompanyOnPage(', response.text)
+        self.assertNotIn('onclick="deleteCompanyOnPage(', response.text)
+        self.assertNotIn('<details class="company-aliases">', response.text)
+        self.assertNotIn("Aliases (", response.text)
 
 
 if __name__ == "__main__":
