@@ -7,11 +7,13 @@ Local CLI for parsing job emails (`.eml`), storing positions in SQLite, scoring 
 Posts about Spejder:
 
 - LinkedIn:
-  1. [lnkd.in/p/egJnafMd](https://lnkd.in/p/egJnafMd)
-  2. [lnkd.in/p/ev8zR9BU](https://lnkd.in/p/ev8zR9BU)
-  3. [lnkd.in/p/eyh_pVp4](https://lnkd.in/p/eyh_pVp4)
-  4. [lnkd.in/p/ee8Qntfj](https://lnkd.in/p/ee8Qntfj)
-  5. [lnkd.in/p/e6R72BD7](https://lnkd.in/p/e6R72BD7)
+  1. [What it is for](https://lnkd.in/p/egJnafMd)
+  2. [Checkboxes on a position tile](https://lnkd.in/p/ev8zR9BU)
+  3. [Relevant vs not relevant](https://lnkd.in/p/eyh_pVp4)
+  4. [Skills on tiles and the Skills tab](https://lnkd.in/p/ee8Qntfj)
+  5. [Applied pipeline](https://lnkd.in/p/e6R72BD7)
+  6. [Companies tab and duplicates](https://lnkd.in/p/epd4JUSz)
+  7. [Silent UI updates](https://lnkd.in/p/eT7-cFfa)
 - [Even more wordy on Medium](https://medium.com/@dcherepakha/list/spejder-en-a-jobhunt-scout-965b3cbc0a65) (full list)
 
 ## Table of contents
