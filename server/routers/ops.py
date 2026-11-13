@@ -1,4 +1,4 @@
-"""Ops API routes (report rebuild, inbox sync) and company dashboard page."""
+"""Ops API routes (report rebuild, inbox sync, shutdown) and company dashboard page."""
 
 import os
 from email.utils import formatdate
@@ -61,6 +61,17 @@ def api_inbox_sync_status(runtime: ServerRuntime = Depends(get_runtime)):
             "reload_generation": 0,
         }
     return runtime.get_inbox_sync_status()
+
+
+@router.post("/api/shutdown")
+def api_shutdown(runtime: ServerRuntime = Depends(get_runtime)):
+    if runtime.request_shutdown is None:
+        return JSONResponse(
+            status_code=503,
+            content={"ok": False, "error": "shutdown not available"},
+        )
+    runtime.request_shutdown()
+    return {"ok": True}
 
 
 @router.get("/company.html")

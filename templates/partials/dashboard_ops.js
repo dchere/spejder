@@ -44,6 +44,7 @@
             }
 
             let syncPollTimer = null;
+            let shutdownRequested = false;
 
             async function fetchSyncStatus() {
                 const response = await fetch(apiUrl('/api/inbox/sync/status'), { cache: 'no-store' });
@@ -72,6 +73,9 @@
             }
 
             function maybeMidSyncReload(data) {
+                if (shutdownRequested) {
+                    return false;
+                }
                 const gen = Number.parseInt(String(data.reload_generation ?? 0), 10);
                 // Process restart resets server gen to 0 while sessionStorage
                 // may still hold a prior value — treat a backward jump as a
@@ -128,8 +132,14 @@
             }
 
             async function pollSyncStatus(btnEl, statusEl) {
+                if (shutdownRequested) {
+                    return;
+                }
                 try {
                     const data = await fetchSyncStatus();
+                    if (shutdownRequested) {
+                        return;
+                    }
                     applySyncStatus(data, btnEl, statusEl);
                     if (maybeMidSyncReload(data)) {
                         return;
@@ -138,6 +148,9 @@
                         syncPollTimer = setTimeout(() => pollSyncStatus(btnEl, statusEl), 2000);
                     }
                 } catch (err) {
+                    if (shutdownRequested) {
+                        return;
+                    }
                     setSyncStatusText(statusEl, `Error: ${err.message}`);
                     btnEl.disabled = false;
                 }
@@ -164,6 +177,41 @@
                 } catch (err) {
                     setSyncStatusText(statusEl, `Error: ${err.message}`);
                     btnEl.disabled = false;
+                }
+            }
+
+            async function quitServer(btnEl) {
+                if (!confirm('Stop the local Spejder server?')) {
+                    return;
+                }
+                shutdownRequested = true;
+                const statusEl = document.getElementById('sync-inbox-status');
+                if (syncPollTimer) {
+                    clearTimeout(syncPollTimer);
+                    syncPollTimer = null;
+                }
+                btnEl.disabled = true;
+                try {
+                    const response = await fetch(apiUrl('/api/shutdown'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || 'Request failed');
+                    }
+                    setSyncStatusText(statusEl, 'Server stopped — you can close this tab.');
+                    window.close();
+                } catch (err) {
+                    shutdownRequested = false;
+                    setSyncStatusText(statusEl, `Error: ${err.message}`);
+                    btnEl.disabled = false;
+                    // Mid-sync (or finished while Quit ran): Sync stays disabled
+                    // with poll cleared — resume so it can re-enable normally.
+                    const syncBtn = document.getElementById('btn-sync-inbox');
+                    if (syncBtn && syncBtn.disabled) {
+                        pollSyncStatus(syncBtn, statusEl);
+                    }
                 }
             }
 

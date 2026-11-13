@@ -1,5 +1,7 @@
 """FastAPI app factory and uvicorn entry for the GUI server."""
 
+import errno
+import socket
 import threading
 
 from fastapi import FastAPI
@@ -32,6 +34,7 @@ def create_app(
     trigger_inbox_sync=None,
     get_inbox_sync_status=None,
     skills_rematerialize=None,
+    request_shutdown=None,
 ) -> FastAPI:
     from spejder.workflows.skills_rematerialize import SkillsRematerializeCoordinator
 
@@ -62,6 +65,7 @@ def create_app(
         portrait_generate_lock=threading.Lock(),
         cv_skills_sync_lock=threading.Lock(),
         skills_rematerialize=skills_rematerialize,
+        request_shutdown=request_shutdown,
     )
 
     app.add_middleware(
@@ -84,28 +88,29 @@ def create_app(
     return app
 
 
-def start_server(host, port, app_factory_kwargs):
-    import socket
-    import uvicorn
-
-    app = create_app(**app_factory_kwargs)
-
-    max_port_attempts = 20
-    selected_port = port
-
+def _select_listen_port(host: str, port: int, max_port_attempts: int = 20) -> int:
+    """Probe ``port`` … ``port + max_port_attempts``; retry only on EADDRINUSE."""
     for port_offset in range(max_port_attempts + 1):
         candidate_port = port + port_offset
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                 sock.bind((host, candidate_port))
-            selected_port = candidate_port
-            break
+            return candidate_port
         except OSError as exc:
-            if getattr(exc, "errno", None) == 98 and port_offset < max_port_attempts:
-                continue
-            raise OSError(
-                f"Address in use for all tried ports: {port}-{port + max_port_attempts}"
-            ) from exc
+            if getattr(exc, "errno", None) == errno.EADDRINUSE:
+                if port_offset < max_port_attempts:
+                    continue
+                raise OSError(
+                    f"Address in use for all tried ports: {port}-{port + max_port_attempts}"
+                ) from exc
+            raise
+
+
+def start_server(host, port, app_factory_kwargs):
+    import uvicorn
+
+    app = create_app(**app_factory_kwargs)
+    selected_port = _select_listen_port(host, port)
 
     if selected_port != port:
         print(f"Requested port {port} is busy; using port {selected_port} instead.")
@@ -113,9 +118,22 @@ def start_server(host, port, app_factory_kwargs):
     report_url = f"http://{host}:{selected_port}/report.html"
     print(f"Serving GUI at {report_url}")
 
-    uvicorn.run(
+    config = uvicorn.Config(
         app,
         host=host,
         port=selected_port,
         log_level="info" if app_factory_kwargs.get("cli_verbose") else "warning",
     )
+    server = uvicorn.Server(config)
+
+    def request_shutdown():
+        def _exit():
+            print("Shutting down Spejder GUI server.")
+            server.should_exit = True
+
+        timer = threading.Timer(0.25, _exit)
+        timer.daemon = True
+        timer.start()
+
+    app.state.runtime.request_shutdown = request_shutdown
+    server.run()

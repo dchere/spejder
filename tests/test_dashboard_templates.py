@@ -248,6 +248,11 @@ class DashboardTemplatesTest(unittest.TestCase):
         actions_html = actions_match.group(1)
         self.assertIn('id="btn-sync-inbox"', actions_html)
         self.assertIn('id="btn-profile"', actions_html)
+        self.assertIn('id="btn-quit"', actions_html)
+        self.assertLess(
+            actions_html.index('id="btn-sync-inbox"'),
+            actions_html.index('id="btn-quit"'),
+        )
         self.assertNotIn("sync-inbox-status", actions_html)
 
         self.assertIn(".page-header { display: flex;", html)
@@ -1029,6 +1034,48 @@ class DashboardTemplatesTest(unittest.TestCase):
         self.assertIn("DOMContentLoaded", text)
         self.assertIn("'edited today'", text)
         self.assertIn("validModes", text)
+
+    def test_main_dashboard_quit_button_and_js_wiring(self):
+        html = _render_template("dashboard.html")
+        self.assertIn('id="btn-quit"', html)
+        self.assertIn('aria-label="Enough for today"', html)
+        self.assertIn('title="Enough for today"', html)
+        self.assertIn('onclick="quitServer(this)"', html)
+        quit_body = _extract_js_function_body(html, "quitServer")
+        poll_body = _extract_js_function_body(html, "pollSyncStatus")
+        reload_body = _extract_js_function_body(html, "maybeMidSyncReload")
+        self.assertIn("Stop the local Spejder server?", quit_body)
+        self.assertIn("/api/shutdown", quit_body)
+        self.assertIn("Server stopped — you can close this tab.", quit_body)
+        self.assertIn("syncPollTimer", quit_body)
+        self.assertIn("shutdownRequested = true", quit_body)
+        self.assertLess(
+            quit_body.index("shutdownRequested = true"),
+            quit_body.index("btnEl.disabled = true"),
+        )
+        self.assertLess(
+            quit_body.index("btnEl.disabled = true"),
+            quit_body.index("/api/shutdown"),
+        )
+        self.assertIn("if (shutdownRequested)", poll_body)
+        self.assertIn("if (shutdownRequested)", reload_body)
+        self.assertIn("window.close()", quit_body)
+        # Failed Quit catch: clear latch then resume poll when Sync still disabled.
+        latch_clear = quit_body.index("shutdownRequested = false")
+        catch_tail = quit_body[latch_clear:]
+        self.assertIn("btn-sync-inbox", catch_tail)
+        self.assertIn("pollSyncStatus(syncBtn, statusEl)", catch_tail)
+        self.assertLess(
+            catch_tail.index("btnEl.disabled = false"),
+            catch_tail.index("pollSyncStatus(syncBtn, statusEl)"),
+        )
+        self.assertIn("window.quitServer = quitServer", html)
+
+    def test_company_dashboard_lacks_quit(self):
+        text = _read_template("company_dashboard.html")
+        self.assertNotIn('id="btn-quit"', text)
+        self.assertNotIn("quitServer", text)
+        self.assertNotIn("/api/shutdown", text)
 
 
 if __name__ == "__main__":
