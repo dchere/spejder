@@ -46,7 +46,11 @@
                 if (label) {
                     label.textContent = count === 1 ? '1 selected' : `${count} selected`;
                 }
-                if (mergeBtn) mergeBtn.disabled = count < 2;
+                if (mergeBtn) {
+                    const mergeModal = document.getElementById('company-merge-modal');
+                    const mergeModalOpen = !!(mergeModal && !mergeModal.hasAttribute('hidden'));
+                    mergeBtn.disabled = mergeModalOpen || count < 2;
+                }
                 if (deleteBtn) deleteBtn.disabled = count === 0;
                 if (selectAll && rowCheckboxes.length > 0) {
                     const checkedCount = rowCheckboxes.filter((checkbox) => checkbox.checked).length;
@@ -80,49 +84,6 @@
                     `Delete ${rows.length} compan${rows.length === 1 ? 'y' : 'ies'} (${preview}) ` +
                     `and ${jobsTotal} job(s)? This cannot be undone.`
                 );
-            }
-
-            async function mergeSelectedCompanies(btnEl) {
-                const rows = getSelectedCompanyRows();
-                if (rows.length < 2) return;
-                const names = rows.map((row) => row.dataset.displayName || '');
-                const defaultName = names[0] || '';
-                const displayName = prompt(
-                    `Merge ${rows.length} companies into one display name:`,
-                    defaultName
-                );
-                if (displayName === null) return;
-                const trimmed = displayName.trim();
-                if (!trimmed) {
-                    alert('Display name is required');
-                    return;
-                }
-                if (!confirm(`Merge ${rows.length} companies as "${trimmed}"? Position duplicates will be merged automatically.`)) {
-                    return;
-                }
-                if (btnEl) btnEl.disabled = true;
-                try {
-                    const response = await fetch(apiUrl('/api/company/merge'), {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            company_ids: rows.map((row) => Number(row.dataset.companyId)),
-                            display_name: trimmed,
-                        }),
-                    });
-                    const data = await response.json();
-                    if (!response.ok || !data.ok) {
-                        throw new Error(data.error || 'Request failed');
-                    }
-                    if (typeof waitForRebuildThenReload === 'function') {
-                        await waitForRebuildThenReload('companies');
-                    } else {
-                        window.location.reload();
-                    }
-                } catch (err) {
-                    alert(`Failed to merge companies: ${err.message}`);
-                    updateCompaniesBulkBar();
-                }
             }
 
             async function renameCompanyRow(companyId, displayName, btnEl) {

@@ -62,3 +62,105 @@
             .companies-table th.companies-action, .companies-table td.companies-action { white-space: nowrap; }
             .companies-table .rename-company-btn svg, .companies-table .delete-company-btn svg { width: 14px; height: 14px; }
             .company-name-link { text-align: left; }
+            /* Companies Merge modal (Companies tab only). */
+            .company-merge-modal {
+                position: fixed;
+                inset: 0;
+                z-index: 40;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 16px;
+                box-sizing: border-box;
+            }
+            .company-merge-modal.hidden { display: none; }
+            .company-merge-modal-backdrop {
+                position: absolute;
+                inset: 0;
+                background: rgba(20, 28, 40, 0.45);
+            }
+            .company-merge-modal-panel {
+                position: relative;
+                z-index: 1;
+                width: min(28rem, 100%);
+                max-height: min(80vh, 32rem);
+                overflow: auto;
+                background: #fff;
+                border: 1px solid #ddd;
+                border-radius: 10px;
+                padding: 14px 16px 12px;
+                box-shadow: 0 8px 28px rgba(20, 28, 40, 0.18);
+                box-sizing: border-box;
+            }
+            .company-merge-modal-title {
+                margin: 0 0 10px;
+                font-size: 16px;
+                font-weight: 700;
+                color: #1e2a3a;
+            }
+            .company-merge-modal-label {
+                display: block;
+                font-size: 12px;
+                font-weight: 600;
+                color: #555;
+                margin-bottom: 4px;
+            }
+            .company-merge-display-name {
+                width: 100%;
+                box-sizing: border-box;
+                border: 1px solid #c5cdd8;
+                border-radius: 6px;
+                padding: 7px 9px;
+                font-size: 14px;
+                margin-bottom: 8px;
+            }
+            .company-merge-display-name:focus {
+                outline: 2px solid #0a58ca;
+                outline-offset: 1px;
+                border-color: #0a58ca;
+            }
+            .company-merge-modal-hint {
+                margin: 0 0 6px;
+                font-size: 12px;
+                color: #666;
+            }
+            .company-merge-name-list {
+                list-style: none;
+                margin: 0 0 12px;
+                padding: 0;
+                border: 1px solid #eee;
+                border-radius: 6px;
+                max-height: 12rem;
+                overflow: auto;
+            }
+            .company-merge-name-item {
+                padding: 7px 10px;
+                font-size: 13px;
+                border-bottom: 1px solid #f0f0f0;
+                cursor: pointer;
+                user-select: text;
+                color: #1e2a3a;
+            }
+            .company-merge-name-item:last-child { border-bottom: none; }
+            .company-merge-name-item:hover { background: #f0f4fa; }
+            .company-merge-modal-actions {
+                display: flex;
+                justify-content: flex-end;
+                gap: 8px;
+                flex-wrap: wrap;
+            }
+            .company-merge-cancel-btn {
+                border: 1px solid #bbb;
+                color: #333;
+                background: #fff;
+                border-radius: 6px;
+                padding: 6px 10px;
+                cursor: pointer;
+                font-size: 13px;
+            }
+            .company-merge-modal-actions .company-merge-btn:disabled,
+            .company-merge-cancel-btn:disabled {
+                opacity: 0.55;
+                cursor: not-allowed;
+            }
+
