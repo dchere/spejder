@@ -3,10 +3,10 @@ from typing import Optional
 
 from spejder.config import AppConfig
 from spejder.db import (
-    get_applied_pipeline_company_keys,
     get_job_for_rescoring,
     get_jobs_for_active_rescore,
     get_jobs_for_scoring,
+    get_promoted_company_keys,
     update_jobs_relevance,
 )
 from spejder.extractors.skill_extractor import get_job_skills_filtered
@@ -81,7 +81,7 @@ def rescore_jobs_if_active(db_path: str, profile: AppConfig, job_ids: list[int])
 
     skill_patterns = _load_skill_patterns(db_path, profile)
     easy_apply_cache: dict[str, bool] = {}
-    applied_company_keys = get_applied_pipeline_company_keys(db_path)
+    applied_company_keys = get_promoted_company_keys(db_path)
     rescored = 0
     for row in rows:
         if _rescore_row(
@@ -103,7 +103,7 @@ def rescore_active_jobs(db_path: str, profile: AppConfig) -> int:
 
     skill_patterns = _load_skill_patterns(db_path, profile)
     easy_apply_cache: dict[str, bool] = {}
-    applied_company_keys = get_applied_pipeline_company_keys(db_path)
+    applied_company_keys = get_promoted_company_keys(db_path)
     rescored = 0
     for row in rows:
         if not job_in_active_rescore_scope(row):
@@ -131,7 +131,7 @@ def apply_relevance(
     skill_patterns = _load_skill_patterns(db_path, profile)
 
     easy_apply_cache: dict[str, bool] = {}
-    applied_company_keys = get_applied_pipeline_company_keys(db_path)
+    applied_company_keys = get_promoted_company_keys(db_path)
     pending_updates: list[tuple[int, float, str, int, str]] = []
 
     for rid, source, title, company, position_link, raw_text, relevance_reason in rows:
@@ -181,7 +181,7 @@ def rescore_job_by_id(db_path: str, profile: AppConfig, job_id: int) -> bool:
 
     skill_patterns = _load_skill_patterns(db_path, profile)
     cached_skills = get_job_skills_filtered(db_path, rid, profile) if rid else []
-    applied_company_keys = get_applied_pipeline_company_keys(db_path)
+    applied_company_keys = get_promoted_company_keys(db_path)
 
     composed = f"{title or ''}\n{company or ''}\n{raw_text or ''}"
     score, reason, relevant, category = score_relevance(

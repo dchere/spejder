@@ -12,6 +12,36 @@ _HIDDEN_CLEAR_IF_VIEWED_OR_APPLIED = (
     "hidden=CASE WHEN ? = 1 OR ? = 1 THEN 0 ELSE hidden END"
 )
 
+
+def _job_company_raw(cur, job_id: int) -> str:
+    cur.execute("SELECT company FROM jobs WHERE id=?", (int(job_id),))
+    row = cur.fetchone()
+    return str(row[0] or "") if row else ""
+
+
+def _auto_promote_for_company_raw(db_path: str, company_raw: str) -> None:
+    text = (company_raw or "").strip()
+    if not text:
+        return
+    from .companies_flags import auto_promote_if_untouched, ensure_company_for_raw
+
+    company_id = ensure_company_for_raw(db_path, text)
+    if company_id is not None:
+        auto_promote_if_untouched(db_path, company_id)
+
+
+def _auto_clear_promote_for_company_raw(db_path: str, company_raw: str) -> None:
+    text = (company_raw or "").strip()
+    if not text:
+        return
+    from .companies import resolve_company
+    from .companies_flags import auto_clear_promote_if_untouched_and_idle
+
+    ref = resolve_company(db_path, text)
+    if ref.id is not None:
+        auto_clear_promote_if_untouched_and_idle(db_path, int(ref.id))
+
+
 def set_job_feedback(db_path: str, job_id: int, signal: str) -> bool:
     normalized = (signal or "").strip().lower()
     if normalized not in {"relevant", "not relevant"}:
@@ -19,11 +49,13 @@ def set_job_feedback(db_path: str, job_id: int, signal: str) -> bool:
 
     relevant = 1 if normalized == "relevant" else 0
     now = datetime.now(timezone.utc).isoformat()
+    company_raw = ""
 
     conn = _connect(db_path)
     try:
         cur = conn.cursor()
         if normalized == "not relevant":
+            company_raw = _job_company_raw(cur, job_id)
             # Leaving applied clears soft-hide; non-applied soft-hide is kept.
             cur.execute(
                 f"""
@@ -57,18 +89,23 @@ def set_job_feedback(db_path: str, job_id: int, signal: str) -> bool:
                 ),
             )
         conn.commit()
-        return cur.rowcount > 0
+        ok = cur.rowcount > 0
     finally:
         conn.close()
+    if ok and normalized == "not relevant":
+        _auto_clear_promote_for_company_raw(db_path, company_raw)
+    return ok
 
 
 def set_job_viewed(db_path: str, job_id: int, viewed: bool) -> bool:
     now = datetime.now(timezone.utc).isoformat()
     viewed_int = 1 if viewed else 0
+    company_raw = ""
     conn = _connect(db_path)
     try:
         cur = conn.cursor()
         if viewed_int == 0:
+            company_raw = _job_company_raw(cur, job_id)
             # Leaving applied clears soft-hide; non-applied soft-hide is kept.
             cur.execute(
                 f"""
@@ -85,17 +122,22 @@ def set_job_viewed(db_path: str, job_id: int, viewed: bool) -> bool:
                 (now, int(job_id)),
             )
         conn.commit()
-        return cur.rowcount > 0
+        ok = cur.rowcount > 0
     finally:
         conn.close()
+    if ok and viewed_int == 0:
+        _auto_clear_promote_for_company_raw(db_path, company_raw)
+    return ok
 
 
 def set_job_applied(db_path: str, job_id: int, applied: bool) -> bool:
     now = datetime.now(timezone.utc).isoformat()
     applied_int = 1 if applied else 0
+    company_raw = ""
     conn = _connect(db_path)
     try:
         cur = conn.cursor()
+        company_raw = _job_company_raw(cur, job_id)
         if applied_int == 1:
             cur.execute(
                 """
@@ -117,9 +159,15 @@ def set_job_applied(db_path: str, job_id: int, applied: bool) -> bool:
                 (now, int(job_id)),
             )
         conn.commit()
-        return cur.rowcount > 0
+        ok = cur.rowcount > 0
     finally:
         conn.close()
+    if ok:
+        if applied_int == 1:
+            _auto_promote_for_company_raw(db_path, company_raw)
+        else:
+            _auto_clear_promote_for_company_raw(db_path, company_raw)
+    return ok
 
 
 def set_job_hidden(db_path: str, job_id: int, hidden: bool) -> bool:
@@ -142,10 +190,12 @@ def set_job_hidden(db_path: str, job_id: int, hidden: bool) -> bool:
 def set_job_on_interview(db_path: str, job_id: int, on_interview: bool) -> bool:
     now = datetime.now(timezone.utc).isoformat()
     on_interview_int = 1 if on_interview else 0
+    company_raw = ""
     conn = _connect(db_path)
     try:
         cur = conn.cursor()
         if on_interview_int == 1:
+            company_raw = _job_company_raw(cur, job_id)
             cur.execute(
                 """
                 UPDATE jobs
@@ -160,9 +210,12 @@ def set_job_on_interview(db_path: str, job_id: int, on_interview: bool) -> bool:
                 (now, int(job_id)),
             )
         conn.commit()
-        return cur.rowcount > 0
+        ok = cur.rowcount > 0
     finally:
         conn.close()
+    if ok and on_interview_int == 1:
+        _auto_promote_for_company_raw(db_path, company_raw)
+    return ok
 
 
 def set_job_interview_stopped(db_path: str, job_id: int, stopped: bool) -> bool:
@@ -207,4 +260,3 @@ def set_job_company_feedback(db_path: str, job_id: int, feedback: str) -> bool:
         return cur.rowcount > 0
     finally:
         conn.close()
-

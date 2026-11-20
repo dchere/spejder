@@ -138,14 +138,14 @@ def _render_skills_table_html(skills_items: list[dict]) -> str:
                 data-sort-not-for-me="{'1' if not_for_me else '0'}">
                 <td><input type="checkbox" class="skill-row-select" aria-label="Select skill" onchange="updateSkillsBulkBar()" /></td>
                 <td class="skills-action"><button type="button" class="block-skill-btn" onclick="blockSkill({skill_key_js}, this)" title="Block: hide from extraction and teach the bad cloud" aria-label="Block">{_BLOCK_SKILL_ICON_SVG}</button><button type="button" class="delete-skill-btn" onclick="deleteSkill({skill_key_js}, this)" title="Delete: remove from profile and DB without teaching the system" aria-label="Delete">{_DELETE_SKILL_ICON_SVG}</button></td>
+                <td><input type="checkbox" class="skill-has-checkbox" {has_skill_checked} onchange="setUserSkill({skill_key_js}, this.checked, this)" /></td>
+                <td><input type="checkbox" class="skill-learn-checkbox" {learn_checked} onchange="setLearnSkill({skill_key_js}, this.checked, this)" /></td>
+                <td><input type="checkbox" class="skill-unwanted-checkbox" {unwanted_checked} onchange="setUnwantedSkill({skill_key_js}, this.checked, this)" /></td>
                 <td>{skill_name}</td>
                 <td title="{added_title}">{added_display}</td>
                 <td>{source}</td>
                 <td title="{position_title}">{position_display}</td>
                 <td>{occurrences}</td>
-                <td><input type="checkbox" class="skill-has-checkbox" {has_skill_checked} onchange="setUserSkill({skill_key_js}, this.checked, this)" /></td>
-                <td><input type="checkbox" class="skill-learn-checkbox" {learn_checked} onchange="setLearnSkill({skill_key_js}, this.checked, this)" /></td>
-                <td><input type="checkbox" class="skill-unwanted-checkbox" {unwanted_checked} onchange="setUnwantedSkill({skill_key_js}, this.checked, this)" /></td>
             </tr>
             """.strip()
         )
@@ -160,14 +160,14 @@ def _render_skills_table_html(skills_items: list[dict]) -> str:
                 <tr>
                     <th title="Select skills for bulk Block or Delete."><input type="checkbox" id="skills-select-all" aria-label="Select all skills" onchange="toggleSelectAllSkills(this.checked)" /></th>
                     <th class="skills-action" title="Block = hide + teach the system (bad cloud). Delete = remove from profile and DB without teaching.">Action</th>
+                    <th class="skills-sortable" data-sort-key="has_skill" title="Whether the skill is in your profile user_skills list. Click to sort.">I have<span class="skills-sort-indicator" aria-hidden="true"></span></th>
+                    <th class="skills-sortable" data-sort-key="want_learn" title="Whether the skill is in missing_skills_suggestions (want to learn). Click to sort.">Want to learn<span class="skills-sort-indicator" aria-hidden="true"></span></th>
+                    <th class="skills-sortable" data-sort-key="not_for_me" title="Not for me = score penalty (skill_unwanted_penalty). Stays extractable. Mutually exclusive with I have and Want to learn. Not the same as Block. Click to sort.">Not for me<span class="skills-sort-indicator" aria-hidden="true"></span></th>
                     <th class="skills-sortable" data-sort-key="name" title="Skill name (normalized). Click to sort.">Skill<span class="skills-sort-indicator" aria-hidden="true"></span></th>
                     <th class="skills-sortable skills-sort-active" data-sort-key="added_at" title="When the skill was first stored in skill_patterns (profile-only skills show —). Click to sort.">Added<span class="skills-sort-indicator" aria-hidden="true"></span></th>
                     <th class="skills-sortable" data-sort-key="source" title="Where defined: db (SQLite pattern) or profile (your lists / seed patterns). Click to sort.">Source<span class="skills-sort-indicator" aria-hidden="true"></span></th>
                     <th class="skills-sortable" data-sort-key="position_pct" title="Share of jobs with extracted skills that list this skill. Cell tooltip shows exact counts. Click to sort.">Job share<span class="skills-sort-indicator" aria-hidden="true"></span></th>
                     <th class="skills-sortable" data-sort-key="occurrences" title="Current learning score from applied (× skill_learning_applied_weight, default 3) and relevant (×1) positions in the latest learning pass — not a lifetime cumulative count, and not job share. Click to sort.">Learned<span class="skills-sort-indicator" aria-hidden="true"></span></th>
-                    <th class="skills-sortable" data-sort-key="has_skill" title="Whether the skill is in your profile user_skills list. Click to sort.">I have<span class="skills-sort-indicator" aria-hidden="true"></span></th>
-                    <th class="skills-sortable" data-sort-key="want_learn" title="Whether the skill is in missing_skills_suggestions (want to learn). Click to sort.">Want to learn<span class="skills-sort-indicator" aria-hidden="true"></span></th>
-                    <th class="skills-sortable" data-sort-key="not_for_me" title="Not for me = score penalty (skill_unwanted_penalty). Stays extractable. Mutually exclusive with I have and Want to learn. Not the same as Block. Click to sort.">Not for me<span class="skills-sort-indicator" aria-hidden="true"></span></th>
                 </tr>
             </thead>
             <tbody>

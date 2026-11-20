@@ -321,8 +321,8 @@ class DashboardCompaniesTableTest(unittest.TestCase):
         self.assertNotIn("<li>Acme Corp</li>", html)
         self.assertNotIn("<li>acme corp</li>", html)
 
-    def test_ssr_tbody_order_added_desc(self):
-        """Python/SSR tbody order is Added DESC before client JS runs."""
+    def test_ssr_tbody_order_name_asc(self):
+        """Python/SSR tbody order is Company name A→Z before client JS runs."""
         upsert_job(
             self.db_path,
             {
@@ -360,7 +360,7 @@ class DashboardCompaniesTableTest(unittest.TestCase):
 
         rows = list_company_catalog_rows(self.db_path)
         names = [row["display_name"] for row in rows]
-        # Name ASC would put Newer before Older; Added DESC must keep Newer first.
+        # Newer Co before Older Co alphabetically (Added dates must not reorder).
         self.assertLess(names.index("Newer Co"), names.index("Older Co"))
 
         table = _render_companies_table_html(rows)
@@ -414,12 +414,16 @@ class DashboardCompaniesTableTest(unittest.TestCase):
         self.assertIn('data-sort-key="added_at"', table)
         self.assertIn('data-sort-key="not_viewed"', table)
         self.assertIn(
-            "companies-sortable companies-sort-active companies-sort-desc",
+            "companies-sortable companies-sort-active",
             table,
         )
         self.assertRegex(
             table,
-            r'<th\b[^>]*\bdata-sort-key="added_at"[^>]*\baria-sort="descending"[^>]*>',
+            r'<th\b[^>]*\bdata-sort-key="name"[^>]*\baria-sort="ascending"[^>]*>',
+        )
+        self.assertNotRegex(
+            table,
+            r'<th\b[^>]*\bdata-sort-key="added_at"[^>]*\baria-sort=',
         )
         self.assertNotRegex(
             table,
@@ -432,7 +436,8 @@ class DashboardCompaniesTableTest(unittest.TestCase):
             header_html.index("companies-select-all"),
             header_html.index(">Action<"),
         )
-        self.assertLess(header_html.index(">Action<"), header_html.index(">Company<"))
+        self.assertLess(header_html.index(">Action<"), header_html.index(">Promote<"))
+        self.assertLess(header_html.index(">Promote<"), header_html.index(">Company<"))
         self.assertLess(header_html.index(">Company<"), header_html.index(">Added<"))
         self.assertLess(header_html.index(">Added<"), header_html.index(">Jobs<"))
         self.assertLess(header_html.index(">Jobs<"), header_html.index(">Not viewed<"))
@@ -444,10 +449,24 @@ class DashboardCompaniesTableTest(unittest.TestCase):
         self.assertIn("Interview", table)
         self.assertIn("Stopped", table)
         self.assertIn("Aliases", table)
+        self.assertIn("company-promote-checkbox", table)
+        self.assertIn("setCompanyPromote", table)
+        first_row = re.search(r"<tbody>\s*<tr\b[^>]*>(.*?)</tr>", table, re.DOTALL)
+        self.assertIsNotNone(first_row)
+        row_html = first_row.group(1)
+        td_opens = re.findall(r"<td\b[^>]*>", row_html)
+        tds = re.findall(r"<td\b[^>]*>(.*?)</td>", row_html, flags=re.DOTALL)
+        self.assertGreaterEqual(len(tds), 4)
+        self.assertIn('class="company-row-select"', tds[0])
+        self.assertIn('class="companies-action"', td_opens[1])
+        self.assertIn('class="company-promote-checkbox"', tds[2])
+        self.assertIn("company-name-link", tds[3])
 
         sort_js = _read_template("partials/dashboard_companies_sort.js")
-        self.assertIn("key: 'added_at'", sort_js)
+        self.assertIn("key: 'name'", sort_js)
+        self.assertIn("dir: 1", sort_js)
         self.assertIn("sortNotViewed", sort_js)
+        self.assertIn("sortPromote", sort_js)
 
     def test_template_includes_companies_partials(self):
         source = _read_template("dashboard.html")

@@ -1,10 +1,16 @@
-"""Company catalog API routes (merge / rename / delete)."""
+"""Company catalog API routes (merge / rename / delete / promote)."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from spejder.db.companies import company_exists, count_company_jobs
+from spejder.db.companies import (
+    company_exists,
+    count_company_jobs,
+    promote_status_for_job,
+    set_company_promote,
+)
+from spejder.jobs import rescore_active_jobs
 from spejder.server.context import ServerRuntime, get_runtime
 from spejder.workflows.company_catalog import (
     delete_companies,
@@ -32,6 +38,11 @@ class CompanyDeleteRequest(BaseModel):
 
 class CompanyDeleteBatchRequest(BaseModel):
     company_ids: list[int] = Field(default_factory=list)
+
+
+class CompanyPromoteRequest(BaseModel):
+    company_id: int
+    promote: bool
 
 
 def _error(status: int, message: str) -> JSONResponse:
@@ -129,4 +140,47 @@ def api_company_delete_batch(
     result = delete_companies(runtime.db_path, unique_ids)
     if result.get("deleted_ids"):
         runtime.queue_dashboard_rebuild(reason="company delete batch")
+    return {"ok": True, **result}
+
+
+@router.get("/api/company/promote-status")
+def api_company_promote_status(
+    job_id: int = Query(...),
+    runtime: ServerRuntime = Depends(get_runtime),
+):
+    jid = int(job_id)
+    if jid <= 0:
+        return _error(400, "job_id is required")
+    status = promote_status_for_job(runtime.db_path, jid)
+    return {"ok": True, **status}
+
+
+@router.post("/api/company/promote")
+def api_company_promote(
+    body: CompanyPromoteRequest,
+    runtime: ServerRuntime = Depends(get_runtime),
+):
+    company_id = int(body.company_id)
+    if company_id <= 0:
+        return _error(400, "company_id is required")
+    if not company_exists(runtime.db_path, company_id):
+        return _error(400, f"company_id not found: {company_id}")
+    try:
+        result = set_company_promote(
+            runtime.db_path, company_id, bool(body.promote), touch=True
+        )
+    except ValueError as exc:
+        return _error(400, str(exc))
+    if result.get("changed"):
+        rescored = rescore_active_jobs(runtime.db_path, runtime.runtime_profile)
+        print(
+            f"API: rescore_active_jobs after company promote "
+            f"(company_id={company_id}, rescored={rescored})"
+        )
+        runtime.queue_dashboard_rebuild(
+            reason=(
+                f"company {company_id} "
+                f"{'promoted' if body.promote else 'unpromoted'}"
+            )
+        )
     return {"ok": True, **result}

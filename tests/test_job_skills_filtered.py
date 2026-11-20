@@ -141,7 +141,7 @@ class FilteredSkillsConsumersTest(unittest.TestCase):
         ), patch(
             "spejder.jobs.rescore._load_skill_patterns", return_value=[]
         ), patch(
-            "spejder.jobs.rescore.get_applied_pipeline_company_keys", return_value=set()
+            "spejder.jobs.rescore.get_promoted_company_keys", return_value=set()
         ), patch(
             "spejder.jobs.rescore.score_relevance",
             return_value=(1.0, "ok", 1, "relevant"),

@@ -26,8 +26,12 @@ def get_job_link(db_path: str, job_id: int):
 def ensure_db(db_path: str):
     os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
     conn = _connect(db_path)
+    flags_pending = False
     try:
         cur = conn.cursor()
+        from spejder.db.companies_flag_bits import companies_flags_column_missing
+
+        flags_pending = companies_flags_column_missing(cur)
         apply_schema(cur)
         apply_maintenance(cur)
         conn.commit()
@@ -36,3 +40,7 @@ def ensure_db(db_path: str):
     from spejder.db.companies import ensure_companies_from_jobs
 
     ensure_companies_from_jobs(db_path)
+    if flags_pending:
+        from spejder.db.companies_flags import backfill_promote_flags_from_pipeline
+
+        backfill_promote_flags_from_pipeline(db_path)

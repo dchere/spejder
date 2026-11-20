@@ -75,9 +75,21 @@ def merge_company_rows(
 
         _reject_foreign_display_alias(cur, name, set(ids), merge_hint=True)
 
+        from .companies_flag_bits import merge_promote_flags
+
+        placeholders = ",".join("?" * len(ids))
         cur.execute(
-            "UPDATE companies SET display_name=?, updated_at=? WHERE id=?",
-            (name, now, survivor_id),
+            f"SELECT id, COALESCE(flags, 0) FROM companies WHERE id IN ({placeholders})",
+            ids,
+        )
+        flags_by_id = {int(row[0]): int(row[1] or 0) for row in cur.fetchall()}
+        merged_flags = merge_promote_flags(
+            [flags_by_id.get(cid, 0) for cid in ids]
+        )
+
+        cur.execute(
+            "UPDATE companies SET display_name=?, flags=?, updated_at=? WHERE id=?",
+            (name, merged_flags, now, survivor_id),
         )
 
         # Re-point every loser alias onto the survivor (UNIQUE alias_key already
@@ -99,6 +111,7 @@ def merge_company_rows(
             "deleted_ids": loser_ids,
             "display_name": name,
             "jobs_rewritten": jobs_rewritten,
+            "flags": merged_flags,
         }
     finally:
         conn.close()

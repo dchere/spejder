@@ -102,14 +102,14 @@ class DashboardSkillsTableTest(unittest.TestCase):
             [
                 "",
                 "Action",
+                "I have",
+                "Want to learn",
+                "Not for me",
                 "Skill",
                 "Added",
                 "Source",
                 "Job share",
                 "Learned",
-                "I have",
-                "Want to learn",
-                "Not for me",
             ],
         )
         self.assertIn('id="skills-select-all"', ths[0])
@@ -193,10 +193,15 @@ class DashboardSkillsTableTest(unittest.TestCase):
             self.assertIn("M3 6h18", delete_btn)
             self.assertNotIn("<circle", delete_btn)
             self.assertNotIn("M3 6h18", block_btn)
-            row_names.append(tds[2].strip().lower())
+            self.assertIn('class="skill-has-checkbox"', tds[2])
+            self.assertIn('class="skill-learn-checkbox"', tds[3])
+            self.assertIn('class="skill-unwanted-checkbox"', tds[4])
+            row_names.append(tds[5].strip().lower())
         self.assertEqual(row_names, ["zebra", "alpha", "rust"])
 
-        not_for_me_th = ths[-1]
+        not_for_me_th = next(
+            th for th in ths if "Not for me" in re.sub(r"<[^>]+>", "", th)
+        )
         self.assertIn("Not for me = score penalty", not_for_me_th)
 
     def test_skills_row_highlight_classes_wired(self):

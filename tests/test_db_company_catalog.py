@@ -159,11 +159,10 @@ class CompanyCatalogDbTest(unittest.TestCase):
         self.assertEqual(count, 0)
         self.assertFalse(resolve_company(self.db_path, "Fresh Co").catalogued)
 
-    def test_list_company_catalog_rows_order_added_desc(self):
-        """SSR default: newest catalog created_at first (name ASC only as tie-break)."""
+    def test_list_company_catalog_rows_order_name_asc(self):
+        """SSR default: display name A→Z (Added date must not reorder)."""
         _insert(self.db_path, "https://example.com/older", "Older Co")
         _insert(self.db_path, "https://example.com/newer", "Newer Co")
-        # Name ASC would put Newer before Older; Added DESC must reverse that.
         conn = _connect(self.db_path)
         try:
             cur = conn.cursor()
