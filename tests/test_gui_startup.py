@@ -26,8 +26,10 @@ class ServeGuiStartupTest(unittest.TestCase):
             call_order.append("wait_until_idle")
             return True
 
-        def track_start_server(*args, **kwargs):
+        def track_start_server(host, port, app_factory_kwargs, on_bound=None):
             call_order.append("start_server")
+            if on_bound is not None:
+                on_bound(host, port)
 
         def track_trigger():
             trigger_event.set()
@@ -95,6 +97,63 @@ class ServeGuiStartupTest(unittest.TestCase):
 
         mock_open.assert_not_called()
         mock_runner.trigger.assert_called_once()
+
+    def test_startup_opens_browser_on_bound_port(self):
+        """When preferred server_port is busy, auto-open and any post-bind URL messaging that should match the live server use the actually bound port (not the requested preferred port)."""
+        profile = AppConfig()
+        mock_queue = MagicMock()
+        mock_queue.wait_until_idle.return_value = True
+        mock_runner = MagicMock()
+        trigger_event = threading.Event()
+
+        def track_trigger():
+            trigger_event.set()
+            return {"ok": True, "started": True}
+
+        mock_runner.trigger.side_effect = track_trigger
+
+        def track_start_server(host, port, app_factory_kwargs, on_bound=None):
+            if on_bound is not None:
+                on_bound(host, 8766)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(os.environ, {"SPEJDER_WORKSPACE": tmp}, clear=False):
+                with ExitStack() as stack:
+                    stack.enter_context(
+                        patch("spejder.workflows.gui.load_runtime_profile", return_value=profile)
+                    )
+                    stack.enter_context(patch("spejder.workflows.gui.ensure_db"))
+                    stack.enter_context(
+                        patch("spejder.workflows.gui._ensure_skill_pattern_seed_migration")
+                    )
+                    stack.enter_context(
+                        patch(
+                            "spejder.workflows.gui.DashboardRebuildQueue",
+                            return_value=mock_queue,
+                        )
+                    )
+                    stack.enter_context(
+                        patch("spejder.workflows.gui.InboxSyncRunner", return_value=mock_runner)
+                    )
+                    stack.enter_context(patch("spejder.workflows.gui.time.sleep"))
+                    mock_open = stack.enter_context(
+                        patch("spejder.workflows.gui.webbrowser.open", return_value=True)
+                    )
+                    stack.enter_context(
+                        patch("spejder.server.start_server", side_effect=track_start_server)
+                    )
+                    serve_gui(
+                        profile=os.path.join(tmp, "profile.json"),
+                        report_dir=os.path.join(tmp, "outbox"),
+                        db=os.path.join(tmp, "jobs.db"),
+                        no_open=False,
+                    )
+
+        self.assertTrue(trigger_event.wait(timeout=2))
+        mock_open.assert_called_once_with(
+            "http://127.0.0.1:8766/report.html",
+            new=2,
+        )
 
 
 if __name__ == "__main__":

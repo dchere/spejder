@@ -1,8 +1,11 @@
 """FastAPI app factory and uvicorn entry for the GUI server."""
 
+from __future__ import annotations
+
 import errno
 import socket
 import threading
+from collections.abc import Callable
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -106,7 +109,12 @@ def _select_listen_port(host: str, port: int, max_port_attempts: int = 20) -> in
             raise
 
 
-def start_server(host, port, app_factory_kwargs):
+def start_server(
+    host,
+    port,
+    app_factory_kwargs,
+    on_bound: Callable[[str, int], None] | None = None,
+):
     import uvicorn
 
     app = create_app(**app_factory_kwargs)
@@ -117,6 +125,9 @@ def start_server(host, port, app_factory_kwargs):
 
     report_url = f"http://{host}:{selected_port}/report.html"
     print(f"Serving GUI at {report_url}")
+
+    if on_bound is not None:
+        on_bound(host, selected_port)
 
     config = uvicorn.Config(
         app,

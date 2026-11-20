@@ -6,7 +6,8 @@ Provides an interactive dashboard (web GUI) to review extracted jobs and view th
 **Public API:**
 - `from spejder.server import create_app, start_server` — package re-exports only these two names (not rescore/LLM symbols).
 - `create_app(...)`: FastAPI factory; stores a `ServerRuntime` on `app.state.runtime`. Handlers read that state (via `Depends(get_runtime)`); they do not close over factory kwargs. `get_title_translation_llm` is kept on runtime for signature stability (unused in handlers). `runtime_profile` is an `AppConfig`; the public parameter type stays `dict`. Optional `skills_rematerialize`; when omitted, `create_app` builds a `SkillsRematerializeCoordinator` so clean-skills rematerialize works in tests and standalone app factories.
-- `start_server(host, port, app_factory_kwargs)` — `errno.EADDRINUSE` port probe (`port`…`port+20`), then programmatic `uvicorn.Config` + `uvicorn.Server` (not `uvicorn.run`); wires `runtime.request_shutdown` to a short daemon `threading.Timer` that prints `Shutting down Spejder GUI server.` and sets `server.should_exit = True` so the HTTP 200 can flush first; still imported from `spejder.server`.
+- `start_server(host, port, app_factory_kwargs, on_bound=None)` — `errno.EADDRINUSE` port probe (`port`…`port+20`), print live URL, then optional `on_bound(host, selected_port)` (after selection/print, before `server.run()`); programmatic `uvicorn.Config` + `uvicorn.Server` (not `uvicorn.run`); wires `runtime.request_shutdown` to a short daemon `threading.Timer` that prints `Shutting down Spejder GUI server.` and sets `server.should_exit = True` so the HTTP 200 can flush first; still imported from `spejder.server`. Optional `on_bound` keeps package re-exports stable.
+- **Bound port:** When preferred `server_port` is busy, auto-open and any post-bind URL messaging that should match the live server use the actually bound port (not the requested preferred port).
 
 **Package layout:**
 

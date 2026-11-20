@@ -129,24 +129,25 @@ def serve_gui(
     if not rebuild_queue.wait_until_idle(timeout=600):
         print("Serve GUI: warning: startup dashboard rebuild timed out")
 
-    def _post_bind_startup() -> None:
-        time.sleep(1)
-        if not no_open:
-            report_url = f"http://{host}:{port}/report.html"
-            opened = webbrowser.open(report_url, new=2)
-            if opened:
-                print(f"Opened in default browser: {report_url}")
-        inbox_sync_runner.trigger()
+    def _on_bound(bound_host: str, bound_port: int) -> None:
+        def _post_bind_startup() -> None:
+            time.sleep(1)
+            if not no_open:
+                report_url = f"http://{bound_host}:{bound_port}/report.html"
+                opened = webbrowser.open(report_url, new=2)
+                if opened:
+                    print(f"Opened in default browser: {report_url}")
+            inbox_sync_runner.trigger()
 
-    threading.Thread(
-        target=_post_bind_startup,
-        name="spejder-startup-post-bind",
-        daemon=True,
-    ).start()
+        threading.Thread(
+            target=_post_bind_startup,
+            name="spejder-startup-post-bind",
+            daemon=True,
+        ).start()
 
     try:
         from spejder.server import start_server
-        start_server(host, port, app_factory_kwargs)
+        start_server(host, port, app_factory_kwargs, on_bound=_on_bound)
     except KeyboardInterrupt:
         print("Stopping server...")
 
