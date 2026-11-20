@@ -48,8 +48,8 @@ Replaces the old dictionary-based profile system (`FALLBACK_DEFAULT_PROFILE`). A
 **Skill list profile fields:**
 - `user_skills` — skills you have (scoring match bonus)
 - `missing_skills_suggestions` — want-to-learn list
-- `unwanted_skills` — Skills tab **Not for me**; missing key in old `profile.json` = empty list. Mutually exclusive with have/learn (unwanted wins on load/save). Not `blocked_skills`: these stay extractable so the penalty can fire.
-- `blocked_skills` — hide/filter extraction; not the same as **Not for me**
+- `unwanted_skills` — Skills tab **Pass**; missing key in old `profile.json` = empty list. Mutually exclusive with Have/Want (unwanted wins on load/save). Not `blocked_skills`: these stay extractable so the penalty can fire.
+- `blocked_skills` — hide/filter extraction; not the same as **Pass**
 - Sanitizer `_skill_list_key` is an alias of `spejder.db.utils._normalize_skill_name_key` (strip, lower, collapse whitespace) — not a second implementation. `"foo  bar"` and `"foo bar"` are the same key, so `unwanted_skills=["foo  bar"]` drops `user_skills=["foo bar"]` on load/save.
 
 **Career-alert artifact profile fields:**

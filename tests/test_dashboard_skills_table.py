@@ -90,7 +90,7 @@ class DashboardSkillsTableTest(unittest.TestCase):
             self.table_html,
         )
         self.assertIn('data-sort-key="not_for_me"', self.table_html)
-        self.assertIn("Not for me", self.table_html)
+        self.assertIn(">Pass<", self.table_html)
         self.assertIn("setUnwantedSkill", self.table_html)
         self.assertIn("data-sort-not-for-me=", self.table_html)
 
@@ -101,10 +101,10 @@ class DashboardSkillsTableTest(unittest.TestCase):
             header_texts,
             [
                 "",
+                "Have",
+                "Want",
+                "Pass",
                 "Action",
-                "I have",
-                "Want to learn",
-                "Not for me",
                 "Skill",
                 "Added",
                 "Source",
@@ -113,10 +113,22 @@ class DashboardSkillsTableTest(unittest.TestCase):
             ],
         )
         self.assertIn('id="skills-select-all"', ths[0])
-        self.assertIn('class="skills-action"', ths[1])
+        self.assertIn(
+            'title="I already have this skill. Click to sort."',
+            ths[1],
+        )
+        self.assertIn(
+            'title="I want to learn this skill. Click to sort."',
+            ths[2],
+        )
+        self.assertIn(
+            'title="This skill is not for me. Score penalty. Click to sort."',
+            ths[3],
+        )
+        self.assertIn('class="skills-action"', ths[4])
         self.assertIn(
             'title="Block = hide + teach the system (bad cloud). Delete = remove from profile and DB without teaching."',
-            ths[1],
+            ths[4],
         )
 
         self.assertIn(">Block selected</button>", self.html)
@@ -163,23 +175,30 @@ class DashboardSkillsTableTest(unittest.TestCase):
         self.assertGreater(sync_idx, panel.index(">Delete selected</button>"))
 
         row_htmls = _extract_skill_rows(self.table_html)
+        sample_row = row_htmls[0]
+        self.assertIn('title="I already have this skill."', sample_row)
+        self.assertIn('title="I want to learn this skill."', sample_row)
+        self.assertIn('title="This skill is not for me. Score penalty."', sample_row)
         row_names = []
         for row_html in row_htmls:
             td_opens = re.findall(r"<td\b[^>]*>", row_html)
             tds = re.findall(r"<td\b[^>]*>(.*?)</td>", row_html, flags=re.DOTALL)
-            self.assertGreaterEqual(len(tds), 4)
+            self.assertGreaterEqual(len(tds), 6)
             self.assertIn('class="skill-row-select"', tds[0])
-            self.assertIn('class="skills-action"', td_opens[1])
-            self.assertIn('class="block-skill-btn"', tds[1])
-            self.assertIn('class="delete-skill-btn"', tds[1])
+            self.assertIn('class="skill-has-checkbox"', tds[1])
+            self.assertIn('class="skill-learn-checkbox"', tds[2])
+            self.assertIn('class="skill-unwanted-checkbox"', tds[3])
+            self.assertIn('class="skills-action"', td_opens[4])
+            self.assertIn('class="block-skill-btn"', tds[4])
+            self.assertIn('class="delete-skill-btn"', tds[4])
             block_btn = re.search(
                 r'<button[^>]*class="block-skill-btn"[^>]*>.*?</button>',
-                tds[1],
+                tds[4],
                 flags=re.DOTALL,
             ).group(0)
             delete_btn = re.search(
                 r'<button[^>]*class="delete-skill-btn"[^>]*>.*?</button>',
-                tds[1],
+                tds[4],
                 flags=re.DOTALL,
             ).group(0)
             self.assertIn('title="Block: hide from extraction and teach the bad cloud"', block_btn)
@@ -193,16 +212,16 @@ class DashboardSkillsTableTest(unittest.TestCase):
             self.assertIn("M3 6h18", delete_btn)
             self.assertNotIn("<circle", delete_btn)
             self.assertNotIn("M3 6h18", block_btn)
-            self.assertIn('class="skill-has-checkbox"', tds[2])
-            self.assertIn('class="skill-learn-checkbox"', tds[3])
-            self.assertIn('class="skill-unwanted-checkbox"', tds[4])
             row_names.append(tds[5].strip().lower())
         self.assertEqual(row_names, ["zebra", "alpha", "rust"])
 
-        not_for_me_th = next(
-            th for th in ths if "Not for me" in re.sub(r"<[^>]+>", "", th)
+        pass_th = next(
+            th for th in ths if re.sub(r"<[^>]+>", "", th).strip() == "Pass"
         )
-        self.assertIn("Not for me = score penalty", not_for_me_th)
+        self.assertIn(
+            'title="This skill is not for me. Score penalty. Click to sort."',
+            pass_th,
+        )
 
     def test_skills_row_highlight_classes_wired(self):
         bar_body = _extract_js_function_body(self.html, "updateSkillsBulkBar")

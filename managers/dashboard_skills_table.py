@@ -137,10 +137,10 @@ def _render_skills_table_html(skills_items: list[dict]) -> str:
                 data-sort-want-learn="{'1' if want_to_learn else '0'}"
                 data-sort-not-for-me="{'1' if not_for_me else '0'}">
                 <td><input type="checkbox" class="skill-row-select" aria-label="Select skill" onchange="updateSkillsBulkBar()" /></td>
+                <td><input type="checkbox" class="skill-has-checkbox" {has_skill_checked} title="I already have this skill." onchange="setUserSkill({skill_key_js}, this.checked, this)" /></td>
+                <td><input type="checkbox" class="skill-learn-checkbox" {learn_checked} title="I want to learn this skill." onchange="setLearnSkill({skill_key_js}, this.checked, this)" /></td>
+                <td><input type="checkbox" class="skill-unwanted-checkbox" {unwanted_checked} title="This skill is not for me. Score penalty." onchange="setUnwantedSkill({skill_key_js}, this.checked, this)" /></td>
                 <td class="skills-action"><button type="button" class="block-skill-btn" onclick="blockSkill({skill_key_js}, this)" title="Block: hide from extraction and teach the bad cloud" aria-label="Block">{_BLOCK_SKILL_ICON_SVG}</button><button type="button" class="delete-skill-btn" onclick="deleteSkill({skill_key_js}, this)" title="Delete: remove from profile and DB without teaching the system" aria-label="Delete">{_DELETE_SKILL_ICON_SVG}</button></td>
-                <td><input type="checkbox" class="skill-has-checkbox" {has_skill_checked} onchange="setUserSkill({skill_key_js}, this.checked, this)" /></td>
-                <td><input type="checkbox" class="skill-learn-checkbox" {learn_checked} onchange="setLearnSkill({skill_key_js}, this.checked, this)" /></td>
-                <td><input type="checkbox" class="skill-unwanted-checkbox" {unwanted_checked} onchange="setUnwantedSkill({skill_key_js}, this.checked, this)" /></td>
                 <td>{skill_name}</td>
                 <td title="{added_title}">{added_display}</td>
                 <td>{source}</td>
@@ -159,10 +159,10 @@ def _render_skills_table_html(skills_items: list[dict]) -> str:
             <thead>
                 <tr>
                     <th title="Select skills for bulk Block or Delete."><input type="checkbox" id="skills-select-all" aria-label="Select all skills" onchange="toggleSelectAllSkills(this.checked)" /></th>
+                    <th class="skills-sortable" data-sort-key="has_skill" title="I already have this skill. Click to sort.">Have<span class="skills-sort-indicator" aria-hidden="true"></span></th>
+                    <th class="skills-sortable" data-sort-key="want_learn" title="I want to learn this skill. Click to sort.">Want<span class="skills-sort-indicator" aria-hidden="true"></span></th>
+                    <th class="skills-sortable" data-sort-key="not_for_me" title="This skill is not for me. Score penalty. Click to sort.">Pass<span class="skills-sort-indicator" aria-hidden="true"></span></th>
                     <th class="skills-action" title="Block = hide + teach the system (bad cloud). Delete = remove from profile and DB without teaching.">Action</th>
-                    <th class="skills-sortable" data-sort-key="has_skill" title="Whether the skill is in your profile user_skills list. Click to sort.">I have<span class="skills-sort-indicator" aria-hidden="true"></span></th>
-                    <th class="skills-sortable" data-sort-key="want_learn" title="Whether the skill is in missing_skills_suggestions (want to learn). Click to sort.">Want to learn<span class="skills-sort-indicator" aria-hidden="true"></span></th>
-                    <th class="skills-sortable" data-sort-key="not_for_me" title="Not for me = score penalty (skill_unwanted_penalty). Stays extractable. Mutually exclusive with I have and Want to learn. Not the same as Block. Click to sort.">Not for me<span class="skills-sort-indicator" aria-hidden="true"></span></th>
                     <th class="skills-sortable" data-sort-key="name" title="Skill name (normalized). Click to sort.">Skill<span class="skills-sort-indicator" aria-hidden="true"></span></th>
                     <th class="skills-sortable skills-sort-active" data-sort-key="added_at" title="When the skill was first stored in skill_patterns (profile-only skills show —). Click to sort.">Added<span class="skills-sort-indicator" aria-hidden="true"></span></th>
                     <th class="skills-sortable" data-sort-key="source" title="Where defined: db (SQLite pattern) or profile (your lists / seed patterns). Click to sort.">Source<span class="skills-sort-indicator" aria-hidden="true"></span></th>

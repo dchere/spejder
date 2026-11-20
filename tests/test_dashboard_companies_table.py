@@ -434,10 +434,10 @@ class DashboardCompaniesTableTest(unittest.TestCase):
         header_html = header.group(0)
         self.assertLess(
             header_html.index("companies-select-all"),
-            header_html.index(">Action<"),
+            header_html.index(">Promote<"),
         )
-        self.assertLess(header_html.index(">Action<"), header_html.index(">Promote<"))
-        self.assertLess(header_html.index(">Promote<"), header_html.index(">Company<"))
+        self.assertLess(header_html.index(">Promote<"), header_html.index(">Action<"))
+        self.assertLess(header_html.index(">Action<"), header_html.index(">Company<"))
         self.assertLess(header_html.index(">Company<"), header_html.index(">Added<"))
         self.assertLess(header_html.index(">Added<"), header_html.index(">Jobs<"))
         self.assertLess(header_html.index(">Jobs<"), header_html.index(">Not viewed<"))
@@ -458,8 +458,8 @@ class DashboardCompaniesTableTest(unittest.TestCase):
         tds = re.findall(r"<td\b[^>]*>(.*?)</td>", row_html, flags=re.DOTALL)
         self.assertGreaterEqual(len(tds), 4)
         self.assertIn('class="company-row-select"', tds[0])
-        self.assertIn('class="companies-action"', td_opens[1])
-        self.assertIn('class="company-promote-checkbox"', tds[2])
+        self.assertIn('class="company-promote-checkbox"', tds[1])
+        self.assertIn('class="companies-action"', td_opens[2])
         self.assertIn("company-name-link", tds[3])
 
         sort_js = _read_template("partials/dashboard_companies_sort.js")
