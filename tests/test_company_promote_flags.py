@@ -503,7 +503,8 @@ class CompanyPromoteUiTest(unittest.TestCase):
         self.assertIn('data-sort-promote="1"', table)
         self.assertIn("checked", table)
         header = table[table.index("<thead>") : table.index("</thead>")]
-        self.assertLess(header.index(">Promote<"), header.index(">Action<"))
+        self.assertLess(header.index(">Promote<"), header.index(">Avoid<"))
+        self.assertLess(header.index(">Avoid<"), header.index(">Action<"))
         self.assertLess(header.index(">Action<"), header.index(">Company<"))
         self.assertLess(header.index(">Company<"), header.index(">Added<"))
         first_row = re.search(r"<tbody>\s*<tr\b[^>]*>(.*?)</tr>", table, re.DOTALL)
@@ -511,11 +512,12 @@ class CompanyPromoteUiTest(unittest.TestCase):
         row_html = first_row.group(1)
         td_opens = re.findall(r"<td\b[^>]*>", row_html)
         tds = re.findall(r"<td\b[^>]*>(.*?)</td>", row_html, flags=re.DOTALL)
-        self.assertGreaterEqual(len(tds), 4)
+        self.assertGreaterEqual(len(tds), 5)
         self.assertIn('class="company-row-select"', tds[0])
         self.assertIn('class="company-promote-checkbox"', tds[1])
-        self.assertIn('class="companies-action"', td_opens[2])
-        self.assertIn("company-name-link", tds[3])
+        self.assertIn('class="company-avoid-checkbox"', tds[2])
+        self.assertIn('class="companies-action"', td_opens[3])
+        self.assertIn("company-name-link", tds[4])
 
     def test_stop_dialog_only_when_promote_on(self):
         body = _extract_js_function_body(

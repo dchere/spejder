@@ -14,7 +14,11 @@ from spejder.extractors.skill_extractor.ui import (
 )
 from spejder.managers.dashboard_manager import _render_html_dashboard
 from spejder.tests.skill_test_utils import stamp_skill_patterns_created_at
-from spejder.tests.test_dashboard_templates import _extract_js_function_body
+from spejder.tests.test_dashboard_templates import (
+    _css_rule_body,
+    _extract_js_function_body,
+    _read_template,
+)
 
 
 def _extract_skills_table(html: str) -> str:
@@ -222,6 +226,58 @@ class DashboardSkillsTableTest(unittest.TestCase):
             'title="This skill is not for me. Score penalty. Click to sort."',
             pass_th,
         )
+
+    def test_skills_checkbox_columns_shrink_wrap_css(self):
+        """Select…Pass columns are content-sized; Skill absorbs leftover; hit area on control."""
+        css = _read_template("partials/dashboard_skills.css")
+        shrink_sel = (
+            r"\.skills-table th:nth-child\(-n\+4\),\s*"
+            r"\.skills-table td:nth-child\(-n\+4\)"
+        )
+        shrink_body = _css_rule_body(css, shrink_sel)
+        self.assertIn("width: 1%", shrink_body)
+        self.assertIn("white-space: nowrap", shrink_body)
+        self.assertIn("padding-left: 4px", shrink_body)
+        self.assertIn("padding-right: 4px", shrink_body)
+        self.assertNotIn("transform: rotate", css)
+        self.assertNotIn("text-overflow: ellipsis", shrink_body)
+        # Action is 5th (skills-action); not under shrink -n+4.
+        self.assertNotRegex(
+            css,
+            re.compile(
+                r"\.skills-table th\.skills-action[^{]*\{[^}]*width:\s*1%",
+                re.DOTALL,
+            ),
+        )
+        self.assertRegex(
+            css,
+            r"\.skills-table td:nth-child\(-n\+4\)\s*\{\s*text-align:\s*center\s*;\s*\}",
+        )
+        hit_body = _css_rule_body(
+            css,
+            r'\.skills-table td:nth-child\(-n\+4\) input\[type="checkbox"\]',
+        )
+        self.assertIn("min-width: 1.1rem", hit_body)
+        self.assertIn("min-height: 1.1rem", hit_body)
+        name_body = _css_rule_body(
+            css,
+            r"\.skills-table th:nth-child\(6\),\s*"
+            r"\.skills-table td:nth-child\(6\)",
+        )
+        self.assertIn("width: 100%", name_body)
+        # Sort chrome stays (not hidden to shrink columns).
+        indicator_body = _css_rule_body(css, r"\.skills-sort-indicator")
+        self.assertIn("display: inline-block", indicator_body)
+        self.assertIsNone(
+            re.search(
+                r"nth-child\(-n\+4\)[^{]*sort-indicator[^{]*\{[^}]*display:\s*none",
+                css,
+                flags=re.DOTALL,
+            )
+        )
+        # Included in rendered dashboard.
+        self.assertIn("th:nth-child(-n+4)", self.html)
+        self.assertIn("width: 1%", self.html)
 
     def test_skills_row_highlight_classes_wired(self):
         bar_body = _extract_js_function_body(self.html, "updateSkillsBulkBar")

@@ -41,6 +41,9 @@ def _render_companies_table_html(companies_items: list[dict]) -> str:
         promote = bool(item.get("promote"))
         promote_checked = "checked" if promote else ""
         promote_sort = "1" if promote else "0"
+        avoid = bool(item.get("avoid"))
+        avoid_checked = "checked" if avoid else ""
+        avoid_sort = "1" if avoid else "0"
         safe_name = html_lib.escape(display_name)
         name_js = html_lib.escape(json.dumps(display_name), quote=True)
         if created_at_raw:
@@ -58,6 +61,7 @@ def _render_companies_table_html(companies_items: list[dict]) -> str:
                 data-job-count="{job_count}"
                 data-sort-name="{html_lib.escape(display_name, quote=True)}"
                 data-sort-promote="{promote_sort}"
+                data-sort-avoid="{avoid_sort}"
                 data-sort-added-at="{sort_added_at}"
                 data-sort-job-count="{job_count}"
                 data-sort-not-viewed="{not_viewed_count}"
@@ -69,6 +73,7 @@ def _render_companies_table_html(companies_items: list[dict]) -> str:
                 data-sort-alias-count="{alias_count}">
                 <td><input type="checkbox" class="company-row-select" aria-label="Select company" onchange="updateCompaniesBulkBar()" /></td>
                 <td><input type="checkbox" class="company-promote-checkbox" {promote_checked} aria-label="Promote company" onchange="setCompanyPromote({company_id}, this.checked, this)" /></td>
+                <td><input type="checkbox" class="company-avoid-checkbox" {avoid_checked} aria-label="Avoid company" onchange="setCompanyAvoid({company_id}, this.checked, this)" /></td>
                 <td class="companies-action"><button type="button" class="rename-company-btn" onclick="renameCompanyRow({company_id}, {name_js}, this)" title="Rename company" aria-label="Rename company">{_RENAME_COMPANY_ICON_SVG}</button><button type="button" class="delete-company-btn" onclick="deleteCompanyRow({company_id}, {name_js}, {job_count}, this)" title="Delete company" aria-label="Delete company">{_DELETE_COMPANY_ICON_SVG}</button></td>
                 <td><button type="button" class="pseudo-link company-name-link" onclick="openCompanyPage({name_js})">{safe_name}</button></td>
                 <td title="{added_title}">{added_display}</td>
@@ -94,6 +99,7 @@ def _render_companies_table_html(companies_items: list[dict]) -> str:
                 <tr>
                     <th title="Select companies for Merge or Delete."><input type="checkbox" id="companies-select-all" aria-label="Select all companies" onchange="toggleSelectAllCompanies(this.checked)" /></th>
                     <th class="companies-sortable" data-sort-key="promote" title="Promote this company for the applied-company relevance bonus. Manual toggle sets user-touched. Click to sort.">Promote<span class="companies-sort-indicator" aria-hidden="true"></span></th>
+                    <th class="companies-sortable" data-sort-key="avoid" title="Avoid this company: auto-view membership jobs on ingest. Toggle asks Yes (bulk viewed) / No (flag only) / Cancel. Independent of Promote. Click to sort.">Avoid<span class="companies-sort-indicator" aria-hidden="true"></span></th>
                     <th class="companies-action" title="Rename company display name. Delete company and all membership jobs.">Action</th>
                     <th class="companies-sortable companies-sort-active" data-sort-key="name" aria-sort="ascending" title="Catalog display name. Click to open the company page. Click header to sort.">Company<span class="companies-sort-indicator" aria-hidden="true"></span></th>
                     <th class="companies-sortable" data-sort-key="added_at" title="When the catalog row was created (companies.created_at). Click to sort.">Added<span class="companies-sort-indicator" aria-hidden="true"></span></th>

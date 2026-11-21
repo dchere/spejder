@@ -1,4 +1,4 @@
-"""Company catalog API routes (merge / rename / delete / promote)."""
+"""Company catalog API routes (merge / rename / delete / promote / avoid)."""
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
@@ -8,6 +8,7 @@ from spejder.db.companies import (
     company_exists,
     count_company_jobs,
     promote_status_for_job,
+    set_company_avoid,
     set_company_promote,
 )
 from spejder.jobs import rescore_active_jobs
@@ -43,6 +44,12 @@ class CompanyDeleteBatchRequest(BaseModel):
 class CompanyPromoteRequest(BaseModel):
     company_id: int
     promote: bool
+
+
+class CompanyAvoidRequest(BaseModel):
+    company_id: int
+    avoid: bool
+    bulk: bool = False
 
 
 def _error(status: int, message: str) -> JSONResponse:
@@ -181,6 +188,36 @@ def api_company_promote(
             reason=(
                 f"company {company_id} "
                 f"{'promoted' if body.promote else 'unpromoted'}"
+            )
+        )
+    return {"ok": True, **result}
+
+
+@router.post("/api/company/avoid")
+def api_company_avoid(
+    body: CompanyAvoidRequest,
+    runtime: ServerRuntime = Depends(get_runtime),
+):
+    company_id = int(body.company_id)
+    if company_id <= 0:
+        return _error(400, "company_id is required")
+    if not company_exists(runtime.db_path, company_id):
+        return _error(400, f"company_id not found: {company_id}")
+    try:
+        result = set_company_avoid(
+            runtime.db_path,
+            company_id,
+            bool(body.avoid),
+            bulk=bool(body.bulk),
+        )
+    except ValueError as exc:
+        return _error(400, str(exc))
+    if result.get("changed"):
+        # Rebuild only — no rescore (Avoid does not change relevance).
+        runtime.queue_dashboard_rebuild(
+            reason=(
+                f"company {company_id} "
+                f"{'avoided' if body.avoid else 'unavoided'}"
             )
         )
     return {"ok": True, **result}

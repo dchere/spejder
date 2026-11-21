@@ -4,6 +4,7 @@ from __future__ import annotations
 
 COMPANY_FLAG_PROMOTE = 1
 COMPANY_FLAG_PROMOTE_TOUCHED = 2
+COMPANY_FLAG_AVOID = 4
 
 
 def company_has_flag(flags: int, bit: int) -> bool:
@@ -31,7 +32,7 @@ def companies_flags_column_missing(cur) -> bool:
 
 
 def merge_promote_flags(participant_flags: list[int]) -> int:
-    """Merge rule 7C: Promote=OR; touched if any touched or Promote disagreed."""
+    """Merge: Promote=OR; touched if any touched or Promote disagreed; Avoid=OR."""
     if not participant_flags:
         return 0
     values = [int(f or 0) for f in participant_flags]
@@ -39,6 +40,7 @@ def merge_promote_flags(participant_flags: list[int]) -> int:
     touched_bits = [
         company_has_flag(f, COMPANY_FLAG_PROMOTE_TOUCHED) for f in values
     ]
+    avoid = any(company_has_flag(f, COMPANY_FLAG_AVOID) for f in values)
     promote = any(promote_bits)
     disagreed = any(promote_bits) and not all(promote_bits)
     touched = any(touched_bits) or disagreed
@@ -47,12 +49,15 @@ def merge_promote_flags(participant_flags: list[int]) -> int:
         flags = with_flag(flags, COMPANY_FLAG_PROMOTE, True)
     if touched:
         flags = with_flag(flags, COMPANY_FLAG_PROMOTE_TOUCHED, True)
+    if avoid:
+        flags = with_flag(flags, COMPANY_FLAG_AVOID, True)
     return flags
 
 
 __all__ = [
     "COMPANY_FLAG_PROMOTE",
     "COMPANY_FLAG_PROMOTE_TOUCHED",
+    "COMPANY_FLAG_AVOID",
     "company_has_flag",
     "with_flag",
     "companies_flags_column_missing",

@@ -3,7 +3,11 @@
 **Purpose:**
 Dashboard extraction module for GUI workflows. Owns missing-skill materialization helper and queued rebuild worker behavior. Record shaping lives in `dashboard_records.py` and is re-exported from `dashboard.py`.
 
-**Outcome record (Skills/Companies table headers + column order):** owned in `managers/dashboard_manager.md` — Skills flags Have / Want / Pass everywhere those columns are named for operators (short chrome names; locked Have/Want/Pass tooltips; Pass wording allowed, ban is old titles as names/aliases; Pass ≠ Block); Action after property checkboxes on Skills and Companies (Promote before Action on Companies); tests assert new headers/order only.
+**Outcome record (Skills/Companies table headers + column order):** owned in `managers/dashboard_manager.md` — Skills flags Have / Want / Pass everywhere those columns are named for operators (short chrome names; locked Have/Want/Pass tooltips; Pass wording allowed, ban is old titles as names/aliases; Pass ≠ Block); Action after property checkboxes on Skills and Companies (Promote, then Avoid, then Action on Companies); tests assert new headers/order only.
+
+**Outcome record (Skills/Companies checkbox column widths):** owned in `managers/dashboard_manager.md` — all checkbox columns on Skills (select, Have, Want, Pass) and Companies (select, Promote, Avoid) content-sized minimal width (label + existing sort chrome, indicators stay visible); CSS shrink-wraps those columns (`dashboard_skills.css` / `dashboard_companies.css`); easy click via control hit area not column stretch; headers fully visible, horizontal always (no rotation); name/stats absorb leftover space; sticky thead / scroll panes preserved; Action out of scope except optional natural compactness; additive polish only.
+
+**Outcome record (Company Avoid flag):** owned in `workflows/company_catalog.md` — Avoid between Promote and Action; Yes/No/Cancel bulk-viewed dialog; early viewed only (no soft-hide / no Avoid score penalty / no parallel Avoid skip).
 
 **Submodules:**
 - `dashboard_records.py` — `build_dashboard_record`, `build_viewed_today_dashboard_records`. Defined here; re-exported from `dashboard.py` (facade import path unchanged).

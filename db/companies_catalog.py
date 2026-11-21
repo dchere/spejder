@@ -109,7 +109,11 @@ def list_company_catalog_rows(db_path: str) -> list[dict]:
                 elif bucket == "stopped":
                     row_counts["stopped_count"] += 1
 
-        from .companies_flag_bits import COMPANY_FLAG_PROMOTE, company_has_flag
+        from .companies_flag_bits import (
+            COMPANY_FLAG_AVOID,
+            COMPANY_FLAG_PROMOTE,
+            company_has_flag,
+        )
 
         rows: list[dict] = []
         for cid, display_name, created_at, flags in companies:
@@ -121,6 +125,7 @@ def list_company_catalog_rows(db_path: str) -> list[dict]:
                     "display_name": display_name,
                     "created_at": created_at,
                     "promote": company_has_flag(flags, COMPANY_FLAG_PROMOTE),
+                    "avoid": company_has_flag(flags, COMPANY_FLAG_AVOID),
                     "flags": int(flags),
                     "job_count": int(row_counts["job_count"]),
                     "not_viewed_count": int(row_counts["not_viewed_count"]),

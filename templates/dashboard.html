@@ -141,6 +141,7 @@
             </div>
         </section>
         {% include "partials/dashboard_companies_merge_modal.html" %}
+        {% include "partials/dashboard_companies_avoid_modal.html" %}
         <section id="panel-edited-today" class="grid hidden">{{ viewed_today_cards }}</section>
         <section id="panel-portrait" class="portrait-wrap hidden">
             <div class="portrait-toolbar">
@@ -296,6 +297,7 @@
             {% include "partials/dashboard_skills_sort.js" %}
             {% include "partials/dashboard_companies_sort.js" %}
             {% include "partials/dashboard_companies.js" %}
+            {% include "partials/dashboard_companies_avoid.js" %}
             {% include "partials/dashboard_companies_merge.js" %}
 
             function openCompanyPage(companyName) {

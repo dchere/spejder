@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .companies_flag_bits import (
+    COMPANY_FLAG_AVOID,
     COMPANY_FLAG_PROMOTE,
     COMPANY_FLAG_PROMOTE_TOUCHED,
     companies_flags_column_missing,
@@ -23,6 +24,7 @@ from .connection import _connect
 __all__ = [
     "COMPANY_FLAG_PROMOTE",
     "COMPANY_FLAG_PROMOTE_TOUCHED",
+    "COMPANY_FLAG_AVOID",
     "company_has_flag",
     "with_flag",
     "companies_flags_column_missing",
@@ -32,6 +34,7 @@ __all__ = [
     "auto_promote_if_untouched",
     "auto_clear_promote_if_untouched_and_idle",
     "set_company_promote",
+    "set_company_avoid",
     "promote_status_for_job",
     "backfill_promote_flags_from_pipeline",
     "merge_promote_flags",
@@ -151,6 +154,96 @@ def set_company_promote(
             "promote": company_has_flag(new_flags, COMPANY_FLAG_PROMOTE),
             "touched": company_has_flag(new_flags, COMPANY_FLAG_PROMOTE_TOUCHED),
             "changed": True,
+        }
+    finally:
+        conn.close()
+
+
+def set_company_avoid(
+    db_path: str,
+    company_id: int,
+    avoid: bool,
+    *,
+    bulk: bool,
+) -> dict:
+    """Set/clear Avoid; optional same-txn bulk viewed mutations. Raises ValueError if missing.
+
+    bulk=False: flag only.
+    bulk=True + On: viewed=1 for membership jobs with viewed=0 (clears soft-hide).
+    bulk=True + Off: viewed=0 for membership jobs that are viewed and not applied /
+    on_interview / interview_stopped. Never calls set_job_viewed(False) (would clear
+    Promote). Never mutates Promote / Touched bits.
+    """
+    from .companies import (
+        _alias_keys_for_company,
+        _member_job_ids_for_keys,
+        _now,
+    )
+
+    cid = int(company_id)
+    if cid <= 0:
+        raise ValueError("company_id is required")
+    avoid_on = bool(avoid)
+    do_bulk = bool(bulk)
+    conn = _connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT flags FROM companies WHERE id=?", (cid,))
+        row = cur.fetchone()
+        if row is None:
+            raise ValueError(f"company_id not found: {cid}")
+        flags = int(row[0] or 0)
+        new_flags = with_flag(flags, COMPANY_FLAG_AVOID, avoid_on)
+        flag_changed = new_flags != flags
+        jobs_updated = 0
+        now = _now()
+
+        if flag_changed:
+            cur.execute(
+                "UPDATE companies SET flags=?, updated_at=? WHERE id=?",
+                (new_flags, now, cid),
+            )
+
+        if do_bulk:
+            keys = _alias_keys_for_company(cur, cid)
+            job_ids = _member_job_ids_for_keys(cur, keys)
+            if job_ids:
+                placeholders = ",".join("?" * len(job_ids))
+                if avoid_on:
+                    cur.execute(
+                        f"""
+                        UPDATE jobs
+                        SET viewed=1, hidden=0, updated_at=?
+                        WHERE id IN ({placeholders})
+                          AND COALESCE(viewed, 0)=0
+                        """,
+                        [now, *job_ids],
+                    )
+                else:
+                    # Dedicated unview: viewed only. Do not use set_job_viewed(False).
+                    cur.execute(
+                        f"""
+                        UPDATE jobs
+                        SET viewed=0, updated_at=?
+                        WHERE id IN ({placeholders})
+                          AND COALESCE(viewed, 0)=1
+                          AND COALESCE(applied, 0)!=1
+                          AND COALESCE(on_interview, 0)!=1
+                          AND COALESCE(interview_stopped, 0)!=1
+                        """,
+                        [now, *job_ids],
+                    )
+                jobs_updated = int(cur.rowcount or 0)
+
+        changed = flag_changed or jobs_updated > 0
+        if changed:
+            conn.commit()
+        return {
+            "company_id": cid,
+            "avoid": company_has_flag(new_flags, COMPANY_FLAG_AVOID),
+            "bulk": do_bulk,
+            "jobs_updated": jobs_updated,
+            "changed": changed,
         }
     finally:
         conn.close()

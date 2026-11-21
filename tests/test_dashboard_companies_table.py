@@ -17,6 +17,7 @@ from spejder.managers.dashboard_manager import (
 )
 from spejder.managers.dashboard_templates import jinja_env
 from spejder.tests.test_dashboard_templates import (
+    _css_rule_body,
     _extract_js_function_body,
     _minimal_dashboard_context,
     _read_template,
@@ -436,7 +437,8 @@ class DashboardCompaniesTableTest(unittest.TestCase):
             header_html.index("companies-select-all"),
             header_html.index(">Promote<"),
         )
-        self.assertLess(header_html.index(">Promote<"), header_html.index(">Action<"))
+        self.assertLess(header_html.index(">Promote<"), header_html.index(">Avoid<"))
+        self.assertLess(header_html.index(">Avoid<"), header_html.index(">Action<"))
         self.assertLess(header_html.index(">Action<"), header_html.index(">Company<"))
         self.assertLess(header_html.index(">Company<"), header_html.index(">Added<"))
         self.assertLess(header_html.index(">Added<"), header_html.index(">Jobs<"))
@@ -451,27 +453,88 @@ class DashboardCompaniesTableTest(unittest.TestCase):
         self.assertIn("Aliases", table)
         self.assertIn("company-promote-checkbox", table)
         self.assertIn("setCompanyPromote", table)
+        self.assertIn("company-avoid-checkbox", table)
+        self.assertIn("setCompanyAvoid", table)
         first_row = re.search(r"<tbody>\s*<tr\b[^>]*>(.*?)</tr>", table, re.DOTALL)
         self.assertIsNotNone(first_row)
         row_html = first_row.group(1)
         td_opens = re.findall(r"<td\b[^>]*>", row_html)
         tds = re.findall(r"<td\b[^>]*>(.*?)</td>", row_html, flags=re.DOTALL)
-        self.assertGreaterEqual(len(tds), 4)
+        self.assertGreaterEqual(len(tds), 5)
         self.assertIn('class="company-row-select"', tds[0])
         self.assertIn('class="company-promote-checkbox"', tds[1])
-        self.assertIn('class="companies-action"', td_opens[2])
-        self.assertIn("company-name-link", tds[3])
+        self.assertIn('class="company-avoid-checkbox"', tds[2])
+        self.assertIn('class="companies-action"', td_opens[3])
+        self.assertIn("company-name-link", tds[4])
 
         sort_js = _read_template("partials/dashboard_companies_sort.js")
         self.assertIn("key: 'name'", sort_js)
         self.assertIn("dir: 1", sort_js)
         self.assertIn("sortNotViewed", sort_js)
         self.assertIn("sortPromote", sort_js)
+        self.assertIn("sortAvoid", sort_js)
+
+    def test_companies_checkbox_columns_shrink_wrap_css(self):
+        """Select…Avoid columns are content-sized; Company absorbs leftover; hit area on control."""
+        css = _read_template("partials/dashboard_companies.css")
+        shrink_sel = (
+            r"\.companies-table th:nth-child\(-n\+3\),\s*"
+            r"\.companies-table td:nth-child\(-n\+3\)"
+        )
+        shrink_body = _css_rule_body(css, shrink_sel)
+        self.assertIn("width: 1%", shrink_body)
+        self.assertIn("white-space: nowrap", shrink_body)
+        self.assertIn("padding-left: 4px", shrink_body)
+        self.assertIn("padding-right: 4px", shrink_body)
+        self.assertNotIn("transform: rotate", css)
+        self.assertNotIn("text-overflow: ellipsis", shrink_body)
+        # Action is 4th (companies-action); not under shrink -n+3.
+        self.assertNotRegex(
+            css,
+            re.compile(
+                r"\.companies-table th\.companies-action[^{]*\{[^}]*width:\s*1%",
+                re.DOTALL,
+            ),
+        )
+        self.assertRegex(
+            css,
+            r"\.companies-table td:nth-child\(-n\+3\)\s*"
+            r"\{\s*text-align:\s*center\s*;\s*\}",
+        )
+        hit_body = _css_rule_body(
+            css,
+            r'\.companies-table td:nth-child\(-n\+3\) '
+            r'input\[type="checkbox"\]',
+        )
+        self.assertIn("min-width: 1.1rem", hit_body)
+        self.assertIn("min-height: 1.1rem", hit_body)
+        name_body = _css_rule_body(
+            css,
+            r"\.companies-table th:nth-child\(5\),\s*"
+            r"\.companies-table td:nth-child\(5\)",
+        )
+        self.assertIn("width: 100%", name_body)
+        # Sort chrome stays (not hidden to shrink columns).
+        indicator_body = _css_rule_body(css, r"\.companies-sort-indicator")
+        self.assertIn("display: inline-block", indicator_body)
+        self.assertIsNone(
+            re.search(
+                r"nth-child\(-n\+3\)[^{]*sort-indicator[^{]*\{[^}]*display:\s*none",
+                css,
+                flags=re.DOTALL,
+            )
+        )
+        # Included in rendered dashboard.
+        self.assertIn("th:nth-child(-n+3)", self.html)
+        self.assertIn("width: 1%", self.html)
 
     def test_template_includes_companies_partials(self):
         source = _read_template("dashboard.html")
         self.assertIn('{% include "partials/dashboard_companies.css" %}', source)
         self.assertIn('{% include "partials/dashboard_companies.js" %}', source)
+        self.assertIn(
+            '{% include "partials/dashboard_companies_avoid.js" %}', source
+        )
         self.assertIn(
             '{% include "partials/dashboard_companies_merge.js" %}', source
         )
@@ -483,10 +546,14 @@ class DashboardCompaniesTableTest(unittest.TestCase):
         companies_js = source.index(
             '{% include "partials/dashboard_companies.js" %}'
         )
+        avoid_js = source.index(
+            '{% include "partials/dashboard_companies_avoid.js" %}'
+        )
         merge_js = source.index(
             '{% include "partials/dashboard_companies_merge.js" %}'
         )
-        self.assertLess(companies_js, merge_js)
+        self.assertLess(companies_js, avoid_js)
+        self.assertLess(avoid_js, merge_js)
         self.assertIn("initCompaniesTableSort()", source)
         companies_partial = _read_template("partials/dashboard_companies.js")
         self.assertNotIn("function mergeSelectedCompanies", companies_partial)

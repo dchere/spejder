@@ -264,6 +264,7 @@ def rewrite_jobs_company_for_keys(cur, keys: set[str], display_name: str, now: s
 # Re-exported for stable imports.
 from .companies_catalog import list_company_catalog_rows  # noqa: E402
 from .companies_flag_bits import (  # noqa: E402
+    COMPANY_FLAG_AVOID,
     COMPANY_FLAG_PROMOTE,
     COMPANY_FLAG_PROMOTE_TOUCHED,
     company_has_flag,
@@ -276,6 +277,7 @@ from .companies_flags import (  # noqa: E402
     get_company_flags,
     get_promoted_company_keys,
     promote_status_for_job,
+    set_company_avoid,
     set_company_promote,
 )
 from .companies_mutations import (  # noqa: E402
@@ -304,6 +306,7 @@ __all__ = [
     "prune_empty_companies",
     "COMPANY_FLAG_PROMOTE",
     "COMPANY_FLAG_PROMOTE_TOUCHED",
+    "COMPANY_FLAG_AVOID",
     "company_has_flag",
     "ensure_company_for_raw",
     "get_company_flags",
@@ -311,6 +314,7 @@ __all__ = [
     "auto_promote_if_untouched",
     "auto_clear_promote_if_untouched_and_idle",
     "set_company_promote",
+    "set_company_avoid",
     "promote_status_for_job",
     "backfill_promote_flags_from_pipeline",
 ]

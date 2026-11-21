@@ -135,6 +135,23 @@ def upsert_job(db_path: str, job: dict) -> bool:
                     now,
                 ),
             )
+            job_id = int(cur.lastrowid or 0)
+            # Early viewed when catalog company has Avoid (same txn, before commit).
+            from .companies_flag_bits import COMPANY_FLAG_AVOID, company_has_flag
+
+            ref = resolve_company_cur(cur, company)
+            if ref.id is not None and job_id > 0:
+                cur.execute(
+                    "SELECT COALESCE(flags, 0) FROM companies WHERE id=?",
+                    (int(ref.id),),
+                )
+                flags_row = cur.fetchone()
+                flags = int(flags_row[0] or 0) if flags_row else 0
+                if company_has_flag(flags, COMPANY_FLAG_AVOID):
+                    cur.execute(
+                        "UPDATE jobs SET viewed=1, hidden=0, updated_at=? WHERE id=?",
+                        (now, job_id),
+                    )
             conn.commit()
             return is_new_record
 

@@ -22,6 +22,23 @@
             }
             .skills-table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 900px; }
             .skills-table th, .skills-table td { border-bottom: 1px solid #eee; text-align: left; padding: 8px; font-size: 13px; }
+            /* Checkbox cols (select…Pass): content-sized; Skill (6th) absorbs leftover. */
+            .skills-table th:nth-child(-n+4),
+            .skills-table td:nth-child(-n+4) {
+                width: 1%;
+                white-space: nowrap;
+                padding-left: 4px;
+                padding-right: 4px;
+            }
+            .skills-table td:nth-child(-n+4) { text-align: center; }
+            .skills-table td:nth-child(-n+4) input[type="checkbox"] {
+                margin: 0;
+                min-width: 1.1rem;
+                min-height: 1.1rem;
+                vertical-align: middle;
+            }
+            .skills-table th:nth-child(6),
+            .skills-table td:nth-child(6) { width: 100%; }
             .skills-table th {
                 background: #fafafa;
                 font-weight: 700;

@@ -26,6 +26,14 @@ def _brace_balanced_slice(text: str, open_brace: int) -> str:
     raise ValueError("Unbalanced braces")
 
 
+def _css_rule_body(css: str, selector_pattern: str) -> str:
+    """Return the declaration body for the first rule matching selector_pattern."""
+    match = re.search(selector_pattern + r"\s*\{", css, flags=re.MULTILINE)
+    if not match:
+        raise ValueError(f"CSS rule not found: {selector_pattern}")
+    return _brace_balanced_slice(css, match.end() - 1)
+
+
 def _extract_js_function_body(text: str, name: str) -> str:
     pattern = re.compile(
         rf"(?:async\s+)?function\s+{re.escape(name)}\s*\([^)]*\)\s*\{{",

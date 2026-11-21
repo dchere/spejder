@@ -11,6 +11,7 @@
                 function rowValue(row, key) {
                     if (key === 'name') return (row.dataset.sortName || '').toLowerCase();
                     if (key === 'promote') return Number.parseInt(row.dataset.sortPromote || '0', 10) || 0;
+                    if (key === 'avoid') return Number.parseInt(row.dataset.sortAvoid || '0', 10) || 0;
                     if (key === 'added_at') return row.dataset.sortAddedAt || '';
                     if (key === 'job_count') return Number.parseInt(row.dataset.sortJobCount || '0', 10) || 0;
                     if (key === 'not_viewed') return Number.parseInt(row.dataset.sortNotViewed || '0', 10) || 0;
