@@ -29,13 +29,19 @@
                 white-space: nowrap;
                 padding-left: 4px;
                 padding-right: 4px;
+                text-align: center;
             }
-            .companies-table td:nth-child(-n+3) { text-align: center; }
             .companies-table td:nth-child(-n+3) input[type="checkbox"] {
                 margin: 0;
                 min-width: 1.1rem;
                 min-height: 1.1rem;
                 vertical-align: middle;
+            }
+            /* Empty sort chrome still reserved 0.9em+margin and optically left-shifted Promote/Avoid. */
+            .companies-table th:nth-child(-n+3) .companies-sort-indicator {
+                width: 0;
+                margin-left: 0;
+                overflow: visible;
             }
             .companies-table th:nth-child(5),
             .companies-table td:nth-child(5) { width: 100%; }
@@ -76,7 +82,7 @@
             .delete-company-btn { border: 1px solid #cc8c8c; color: #7b1111; background: #fff; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
             .companies-table .rename-company-btn, .companies-table .delete-company-btn { display: inline-flex; align-items: center; justify-content: center; padding: 4px; min-width: 24px; min-height: 24px; line-height: 0; }
             .companies-table .rename-company-btn { margin-right: 6px; }
-            .companies-table th.companies-action, .companies-table td.companies-action { white-space: nowrap; }
+            .companies-table th.companies-action, .companies-table td.companies-action { white-space: nowrap; text-align: center; }
             .companies-table .rename-company-btn svg, .companies-table .delete-company-btn svg { width: 14px; height: 14px; }
             .company-name-link { text-align: left; }
             /* Companies Merge modal (Companies tab only). */

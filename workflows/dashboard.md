@@ -7,6 +7,10 @@ Dashboard extraction module for GUI workflows. Owns missing-skill materializatio
 
 **Outcome record (Skills/Companies checkbox column widths):** owned in `managers/dashboard_manager.md` — all checkbox columns on Skills (select, Have, Want, Pass) and Companies (select, Promote, Avoid) content-sized minimal width (label + existing sort chrome, indicators stay visible); CSS shrink-wraps those columns (`dashboard_skills.css` / `dashboard_companies.css`); easy click via control hit area not column stretch; headers fully visible, horizontal always (no rotation); name/stats absorb leftover space; sticky thead / scroll panes preserved; Action out of scope except optional natural compactness; additive polish only.
 
+**Outcome record (Skills/Companies checkbox column header centering):** owned in `managers/dashboard_manager.md` — center header-cell contents on all checkbox columns (Skills: select, Have, Want, Pass; Companies: select, Promote, Avoid); select-all centered in select header (no title string); flag headers center short label + existing sort chrome, horizontal only (inactive indicator takes zero layout width); checkbox body cells stay centered per the checkbox-width contract; Action/name/stats alignment out of scope for this record; presentation-only; locked.
+
+**Outcome record (Skills/Companies Action column header centering):** owned in `managers/dashboard_manager.md` — Action-only delta: center Action header (`.skills-action` / `.companies-action` or equivalent) and Action body cells so title and icon buttons share one center line; name/stats unchanged; do not reopen locked checkbox centering / sort-indicator fix; additive CSS only; presentation-only.
+
 **Outcome record (Company Avoid flag):** owned in `workflows/company_catalog.md` — Avoid between Promote and Action; Yes/No/Cancel bulk-viewed dialog; early viewed only (no soft-hide / no Avoid score penalty / no parallel Avoid skip).
 
 **Submodules:**

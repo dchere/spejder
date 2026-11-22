@@ -486,6 +486,8 @@ class DashboardCompaniesTableTest(unittest.TestCase):
         self.assertIn("white-space: nowrap", shrink_body)
         self.assertIn("padding-left: 4px", shrink_body)
         self.assertIn("padding-right: 4px", shrink_body)
+        # Header + body share the same center line (same th/td shrink selectors).
+        self.assertIn("text-align: center", shrink_body)
         self.assertNotIn("transform: rotate", css)
         self.assertNotIn("text-overflow: ellipsis", shrink_body)
         # Action is 4th (companies-action); not under shrink -n+3.
@@ -495,11 +497,6 @@ class DashboardCompaniesTableTest(unittest.TestCase):
                 r"\.companies-table th\.companies-action[^{]*\{[^}]*width:\s*1%",
                 re.DOTALL,
             ),
-        )
-        self.assertRegex(
-            css,
-            r"\.companies-table td:nth-child\(-n\+3\)\s*"
-            r"\{\s*text-align:\s*center\s*;\s*\}",
         )
         hit_body = _css_rule_body(
             css,
@@ -514,8 +511,8 @@ class DashboardCompaniesTableTest(unittest.TestCase):
             r"\.companies-table td:nth-child\(5\)",
         )
         self.assertIn("width: 100%", name_body)
-        # Sort chrome stays (not hidden to shrink columns).
-        indicator_body = _css_rule_body(css, r"\.companies-sort-indicator")
+        # Sort chrome stays (not display:none); inactive width is zero so labels truly center.
+        indicator_body = _css_rule_body(css, r"^\s*\.companies-sort-indicator")
         self.assertIn("display: inline-block", indicator_body)
         self.assertIsNone(
             re.search(
@@ -524,9 +521,26 @@ class DashboardCompaniesTableTest(unittest.TestCase):
                 flags=re.DOTALL,
             )
         )
+        flag_indicator_body = _css_rule_body(
+            css,
+            r"\.companies-table th:nth-child\(-n\+3\) \.companies-sort-indicator",
+        )
+        self.assertIn("width: 0", flag_indicator_body)
+        self.assertIn("margin-left: 0", flag_indicator_body)
         # Included in rendered dashboard.
         self.assertIn("th:nth-child(-n+3)", self.html)
         self.assertIn("width: 1%", self.html)
+
+    def test_companies_action_column_centered_css(self):
+        """Action th/td share one center line; not checkbox shrink, additive only."""
+        css = _read_template("partials/dashboard_companies.css")
+        action_body = _css_rule_body(
+            css,
+            r"\.companies-table th\.companies-action,\s*"
+            r"\.companies-table td\.companies-action",
+        )
+        self.assertIn("text-align: center", action_body)
+        self.assertIn("white-space: nowrap", action_body)
 
     def test_template_includes_companies_partials(self):
         source = _read_template("dashboard.html")

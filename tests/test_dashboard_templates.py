@@ -180,7 +180,7 @@ class DashboardTemplatesTest(unittest.TestCase):
                         '{% include "partials/dashboard_skills.css" %}', source
                     )
                     self.assertIn(
-                        ".skills-table th.skills-action, .skills-table td.skills-action { white-space: nowrap; }",
+                        ".skills-table th.skills-action, .skills-table td.skills-action { white-space: nowrap; text-align: center; }",
                         html,
                     )
                 else:

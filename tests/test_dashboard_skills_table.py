@@ -239,6 +239,8 @@ class DashboardSkillsTableTest(unittest.TestCase):
         self.assertIn("white-space: nowrap", shrink_body)
         self.assertIn("padding-left: 4px", shrink_body)
         self.assertIn("padding-right: 4px", shrink_body)
+        # Header + body share the same center line (same th/td shrink selectors).
+        self.assertIn("text-align: center", shrink_body)
         self.assertNotIn("transform: rotate", css)
         self.assertNotIn("text-overflow: ellipsis", shrink_body)
         # Action is 5th (skills-action); not under shrink -n+4.
@@ -248,10 +250,6 @@ class DashboardSkillsTableTest(unittest.TestCase):
                 r"\.skills-table th\.skills-action[^{]*\{[^}]*width:\s*1%",
                 re.DOTALL,
             ),
-        )
-        self.assertRegex(
-            css,
-            r"\.skills-table td:nth-child\(-n\+4\)\s*\{\s*text-align:\s*center\s*;\s*\}",
         )
         hit_body = _css_rule_body(
             css,
@@ -265,8 +263,8 @@ class DashboardSkillsTableTest(unittest.TestCase):
             r"\.skills-table td:nth-child\(6\)",
         )
         self.assertIn("width: 100%", name_body)
-        # Sort chrome stays (not hidden to shrink columns).
-        indicator_body = _css_rule_body(css, r"\.skills-sort-indicator")
+        # Sort chrome stays (not display:none); inactive width is zero so labels truly center.
+        indicator_body = _css_rule_body(css, r"^\s*\.skills-sort-indicator")
         self.assertIn("display: inline-block", indicator_body)
         self.assertIsNone(
             re.search(
@@ -275,9 +273,26 @@ class DashboardSkillsTableTest(unittest.TestCase):
                 flags=re.DOTALL,
             )
         )
+        flag_indicator_body = _css_rule_body(
+            css,
+            r"\.skills-table th:nth-child\(-n\+4\) \.skills-sort-indicator",
+        )
+        self.assertIn("width: 0", flag_indicator_body)
+        self.assertIn("margin-left: 0", flag_indicator_body)
         # Included in rendered dashboard.
         self.assertIn("th:nth-child(-n+4)", self.html)
         self.assertIn("width: 1%", self.html)
+
+    def test_skills_action_column_centered_css(self):
+        """Action th/td share one center line; not checkbox shrink, additive only."""
+        css = _read_template("partials/dashboard_skills.css")
+        action_body = _css_rule_body(
+            css,
+            r"\.skills-table th\.skills-action,\s*"
+            r"\.skills-table td\.skills-action",
+        )
+        self.assertIn("text-align: center", action_body)
+        self.assertIn("white-space: nowrap", action_body)
 
     def test_skills_row_highlight_classes_wired(self):
         bar_body = _extract_js_function_body(self.html, "updateSkillsBulkBar")
