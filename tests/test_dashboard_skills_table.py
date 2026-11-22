@@ -14,7 +14,11 @@ from spejder.extractors.skill_extractor.ui import (
 )
 from spejder.managers.dashboard_manager import _render_html_dashboard
 from spejder.tests.skill_test_utils import stamp_skill_patterns_created_at
-from spejder.tests.test_dashboard_templates import _extract_js_function_body
+from spejder.tests.test_dashboard_templates import (
+    _css_rule_body,
+    _extract_js_function_body,
+    _read_template,
+)
 
 
 def _extract_skills_table(html: str) -> str:
@@ -90,7 +94,7 @@ class DashboardSkillsTableTest(unittest.TestCase):
             self.table_html,
         )
         self.assertIn('data-sort-key="not_for_me"', self.table_html)
-        self.assertIn("Not for me", self.table_html)
+        self.assertIn(">Pass<", self.table_html)
         self.assertIn("setUnwantedSkill", self.table_html)
         self.assertIn("data-sort-not-for-me=", self.table_html)
 
@@ -101,22 +105,34 @@ class DashboardSkillsTableTest(unittest.TestCase):
             header_texts,
             [
                 "",
+                "Have",
+                "Want",
+                "Pass",
                 "Action",
                 "Skill",
                 "Added",
                 "Source",
                 "Job share",
                 "Learned",
-                "I have",
-                "Want to learn",
-                "Not for me",
             ],
         )
         self.assertIn('id="skills-select-all"', ths[0])
-        self.assertIn('class="skills-action"', ths[1])
+        self.assertIn(
+            'title="I already have this skill. Click to sort."',
+            ths[1],
+        )
+        self.assertIn(
+            'title="I want to learn this skill. Click to sort."',
+            ths[2],
+        )
+        self.assertIn(
+            'title="This skill is not for me. Score penalty. Click to sort."',
+            ths[3],
+        )
+        self.assertIn('class="skills-action"', ths[4])
         self.assertIn(
             'title="Block = hide + teach the system (bad cloud). Delete = remove from profile and DB without teaching."',
-            ths[1],
+            ths[4],
         )
 
         self.assertIn(">Block selected</button>", self.html)
@@ -163,23 +179,30 @@ class DashboardSkillsTableTest(unittest.TestCase):
         self.assertGreater(sync_idx, panel.index(">Delete selected</button>"))
 
         row_htmls = _extract_skill_rows(self.table_html)
+        sample_row = row_htmls[0]
+        self.assertIn('title="I already have this skill."', sample_row)
+        self.assertIn('title="I want to learn this skill."', sample_row)
+        self.assertIn('title="This skill is not for me. Score penalty."', sample_row)
         row_names = []
         for row_html in row_htmls:
             td_opens = re.findall(r"<td\b[^>]*>", row_html)
             tds = re.findall(r"<td\b[^>]*>(.*?)</td>", row_html, flags=re.DOTALL)
-            self.assertGreaterEqual(len(tds), 4)
+            self.assertGreaterEqual(len(tds), 6)
             self.assertIn('class="skill-row-select"', tds[0])
-            self.assertIn('class="skills-action"', td_opens[1])
-            self.assertIn('class="block-skill-btn"', tds[1])
-            self.assertIn('class="delete-skill-btn"', tds[1])
+            self.assertIn('class="skill-has-checkbox"', tds[1])
+            self.assertIn('class="skill-learn-checkbox"', tds[2])
+            self.assertIn('class="skill-unwanted-checkbox"', tds[3])
+            self.assertIn('class="skills-action"', td_opens[4])
+            self.assertIn('class="block-skill-btn"', tds[4])
+            self.assertIn('class="delete-skill-btn"', tds[4])
             block_btn = re.search(
                 r'<button[^>]*class="block-skill-btn"[^>]*>.*?</button>',
-                tds[1],
+                tds[4],
                 flags=re.DOTALL,
             ).group(0)
             delete_btn = re.search(
                 r'<button[^>]*class="delete-skill-btn"[^>]*>.*?</button>',
-                tds[1],
+                tds[4],
                 flags=re.DOTALL,
             ).group(0)
             self.assertIn('title="Block: hide from extraction and teach the bad cloud"', block_btn)
@@ -193,11 +216,83 @@ class DashboardSkillsTableTest(unittest.TestCase):
             self.assertIn("M3 6h18", delete_btn)
             self.assertNotIn("<circle", delete_btn)
             self.assertNotIn("M3 6h18", block_btn)
-            row_names.append(tds[2].strip().lower())
+            row_names.append(tds[5].strip().lower())
         self.assertEqual(row_names, ["zebra", "alpha", "rust"])
 
-        not_for_me_th = ths[-1]
-        self.assertIn("Not for me = score penalty", not_for_me_th)
+        pass_th = next(
+            th for th in ths if re.sub(r"<[^>]+>", "", th).strip() == "Pass"
+        )
+        self.assertIn(
+            'title="This skill is not for me. Score penalty. Click to sort."',
+            pass_th,
+        )
+
+    def test_skills_checkbox_columns_shrink_wrap_css(self):
+        """Select…Pass columns are content-sized; Skill absorbs leftover; hit area on control."""
+        css = _read_template("partials/dashboard_skills.css")
+        shrink_sel = (
+            r"\.skills-table th:nth-child\(-n\+4\),\s*"
+            r"\.skills-table td:nth-child\(-n\+4\)"
+        )
+        shrink_body = _css_rule_body(css, shrink_sel)
+        self.assertIn("width: 1%", shrink_body)
+        self.assertIn("white-space: nowrap", shrink_body)
+        self.assertIn("padding-left: 4px", shrink_body)
+        self.assertIn("padding-right: 4px", shrink_body)
+        # Header + body share the same center line (same th/td shrink selectors).
+        self.assertIn("text-align: center", shrink_body)
+        self.assertNotIn("transform: rotate", css)
+        self.assertNotIn("text-overflow: ellipsis", shrink_body)
+        # Action is 5th (skills-action); not under shrink -n+4.
+        self.assertNotRegex(
+            css,
+            re.compile(
+                r"\.skills-table th\.skills-action[^{]*\{[^}]*width:\s*1%",
+                re.DOTALL,
+            ),
+        )
+        hit_body = _css_rule_body(
+            css,
+            r'\.skills-table td:nth-child\(-n\+4\) input\[type="checkbox"\]',
+        )
+        self.assertIn("min-width: 1.1rem", hit_body)
+        self.assertIn("min-height: 1.1rem", hit_body)
+        name_body = _css_rule_body(
+            css,
+            r"\.skills-table th:nth-child\(6\),\s*"
+            r"\.skills-table td:nth-child\(6\)",
+        )
+        self.assertIn("width: 100%", name_body)
+        # Sort chrome stays (not display:none); inactive width is zero so labels truly center.
+        indicator_body = _css_rule_body(css, r"^\s*\.skills-sort-indicator")
+        self.assertIn("display: inline-block", indicator_body)
+        self.assertIsNone(
+            re.search(
+                r"nth-child\(-n\+4\)[^{]*sort-indicator[^{]*\{[^}]*display:\s*none",
+                css,
+                flags=re.DOTALL,
+            )
+        )
+        flag_indicator_body = _css_rule_body(
+            css,
+            r"\.skills-table th:nth-child\(-n\+4\) \.skills-sort-indicator",
+        )
+        self.assertIn("width: 0", flag_indicator_body)
+        self.assertIn("margin-left: 0", flag_indicator_body)
+        # Included in rendered dashboard.
+        self.assertIn("th:nth-child(-n+4)", self.html)
+        self.assertIn("width: 1%", self.html)
+
+    def test_skills_action_column_centered_css(self):
+        """Action th/td share one center line; not checkbox shrink, additive only."""
+        css = _read_template("partials/dashboard_skills.css")
+        action_body = _css_rule_body(
+            css,
+            r"\.skills-table th\.skills-action,\s*"
+            r"\.skills-table td\.skills-action",
+        )
+        self.assertIn("text-align: center", action_body)
+        self.assertIn("white-space: nowrap", action_body)
 
     def test_skills_row_highlight_classes_wired(self):
         bar_body = _extract_js_function_body(self.html, "updateSkillsBulkBar")

@@ -93,7 +93,7 @@ PROFILE_FIELD_META: dict[str, dict[str, Any]] = {
     "skill_missing_penalty": _field("keywords_scoring", "Skill missing penalty", "number"),
     "skill_unwanted_penalty": _field(
         "keywords_scoring", "Skill unwanted penalty", "number",
-        help="Penalty per extracted skill marked Not for me (0 disables).",
+        help="Penalty per extracted skill marked Pass (0 disables).",
     ),
     "easy_apply_bonus": _field(
         "keywords_scoring", "Easy Apply bonus", "number",
@@ -180,7 +180,7 @@ PROFILE_FIELD_META: dict[str, dict[str, Any]] = {
     ),
     "unwanted_skills": _field(
         "skills", "Unwanted skills", "list_str",
-        help="One skill name per line. Mutually exclusive with I have / Want to learn.",
+        help="One skill name per line. Mutually exclusive with Have / Want.",
     ),
     "blocked_skills": _field(
         "skills", "Blocked skills", "list_str",

@@ -41,15 +41,15 @@ Replaces the old dictionary-based profile system (`FALLBACK_DEFAULT_PROFILE`). A
 - `include_keywords` / `exclude_keywords` — operator-edited keyword lists used by `score_relevance`
 - `learned_include_keywords` / `learned_exclude_keywords` — auto-written by profile keyword learning (sync / `process-inbox`); kept separate on disk. `config.load_profile` does not merge them into include/exclude; `score_relevance` merges at score time so scoring uses both without baking learned terms into the saved include/exclude lists
 - `easy_apply_bonus` — extra relevance for LinkedIn Easy Apply (default `0.75`; `0` disables)
-- `applied_company_bonus` — extra relevance for jobs whose company alias key is in `get_applied_pipeline_company_keys` (union of alias keys for companies with ≥1 applied∧¬stopped job, minus alias keys for any stopped company; default `0.75`; `0` disables; score-only, no UI)
+- `applied_company_bonus` — extra relevance for jobs whose company alias key is in `get_promoted_company_keys` (catalog companies with the Promote bit; default `0.75`; `0` disables; no score badge; Promote checkbox is the control)
 - `skill_unwanted_penalty` — extra relevance subtracted per extracted job skill whose key is in `unwanted_skills` (default `1.2`; `0` disables). Independent of the `user_skills` match/missing gate.
 - `report_max_relevant_positions` / `report_max_not_relevant_positions` — max **non-hidden** cards on Relevant / Not relevant report panels (defaults `7` / `42`). Soft-hidden cards encountered in the triage walk before the L-th non-hidden are included as extras and do not consume L. Legacy `report_max_positions` migrates into both fields on load.
 
 **Skill list profile fields:**
 - `user_skills` — skills you have (scoring match bonus)
 - `missing_skills_suggestions` — want-to-learn list
-- `unwanted_skills` — Skills tab **Not for me**; missing key in old `profile.json` = empty list. Mutually exclusive with have/learn (unwanted wins on load/save). Not `blocked_skills`: these stay extractable so the penalty can fire.
-- `blocked_skills` — hide/filter extraction; not the same as **Not for me**
+- `unwanted_skills` — Skills tab **Pass**; missing key in old `profile.json` = empty list. Mutually exclusive with Have/Want (unwanted wins on load/save). Not `blocked_skills`: these stay extractable so the penalty can fire.
+- `blocked_skills` — hide/filter extraction; not the same as **Pass**
 - Sanitizer `_skill_list_key` is an alias of `spejder.db.utils._normalize_skill_name_key` (strip, lower, collapse whitespace) — not a second implementation. `"foo  bar"` and `"foo bar"` are the same key, so `unwanted_skills=["foo  bar"]` drops `user_skills=["foo bar"]` on load/save.
 
 **Career-alert artifact profile fields:**

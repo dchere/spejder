@@ -214,6 +214,35 @@ class StartServerShutdownHookTest(unittest.TestCase):
                 shutdown_out.getvalue(),
             )
 
+    def test_start_server_on_bound_gets_selected_port_when_preferred_busy(self):
+        """When preferred server_port is busy, auto-open and any post-bind URL messaging that should match the live server use the actually bound port (not the requested preferred port)."""
+        mock_server = MagicMock()
+        bound_calls = []
+
+        def on_bound(bound_host, bound_port):
+            bound_calls.append((bound_host, bound_port))
+
+        with patch("spejder.server.app.create_app") as mock_create_app, \
+                patch("spejder.server.app._select_listen_port", return_value=8766), \
+                patch("uvicorn.Config"), \
+                patch("uvicorn.Server", return_value=mock_server):
+            mock_app = MagicMock()
+            mock_create_app.return_value = mock_app
+            mock_app.state.runtime = MagicMock()
+            with redirect_stdout(io.StringIO()) as startup_out:
+                start_server(
+                    "127.0.0.1",
+                    8765,
+                    _minimal_factory_kwargs(self.db_path, self.report_dir),
+                    on_bound=on_bound,
+                )
+
+        self.assertEqual(bound_calls, [("127.0.0.1", 8766)])
+        out = startup_out.getvalue()
+        self.assertIn("Requested port 8765 is busy; using port 8766 instead.", out)
+        self.assertIn("Serving GUI at http://127.0.0.1:8766/report.html", out)
+        mock_server.run.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

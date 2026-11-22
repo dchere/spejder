@@ -22,6 +22,29 @@
             }
             .skills-table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 900px; }
             .skills-table th, .skills-table td { border-bottom: 1px solid #eee; text-align: left; padding: 8px; font-size: 13px; }
+            /* Checkbox cols (select…Pass): content-sized; Skill (6th) absorbs leftover. */
+            .skills-table th:nth-child(-n+4),
+            .skills-table td:nth-child(-n+4) {
+                width: 1%;
+                white-space: nowrap;
+                padding-left: 4px;
+                padding-right: 4px;
+                text-align: center;
+            }
+            .skills-table td:nth-child(-n+4) input[type="checkbox"] {
+                margin: 0;
+                min-width: 1.1rem;
+                min-height: 1.1rem;
+                vertical-align: middle;
+            }
+            /* Empty sort chrome still reserved 0.9em+margin and optically left-shifted Have/Want/Pass. */
+            .skills-table th:nth-child(-n+4) .skills-sort-indicator {
+                width: 0;
+                margin-left: 0;
+                overflow: visible;
+            }
+            .skills-table th:nth-child(6),
+            .skills-table td:nth-child(6) { width: 100%; }
             .skills-table th {
                 background: #fafafa;
                 font-weight: 700;
@@ -55,7 +78,7 @@
             .block-skill-btn { border: 1px solid #d2a24a; color: #7a5200; background: #fff7e8; border-radius: 6px; padding: 4px 8px; cursor: pointer; margin-right: 6px; }
             .skills-table .block-skill-btn, .skills-table .delete-skill-btn { display: inline-flex; align-items: center; justify-content: center; padding: 4px; min-width: 24px; min-height: 24px; line-height: 0; }
             .skills-table .block-skill-btn { margin-right: 6px; }
-            .skills-table th.skills-action, .skills-table td.skills-action { white-space: nowrap; }
+            .skills-table th.skills-action, .skills-table td.skills-action { white-space: nowrap; text-align: center; }
             .skills-table .block-skill-btn svg, .skills-table .delete-skill-btn svg { width: 14px; height: 14px; }
             .skills-sync-btn { border: 1px solid #0a58ca; color: #0a58ca; background: #fff; border-radius: 6px; padding: 6px 10px; cursor: pointer; font-size: 13px; }
             .skills-sync-btn:disabled { opacity: 0.55; cursor: not-allowed; }

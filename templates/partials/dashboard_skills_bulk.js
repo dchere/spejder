@@ -232,7 +232,7 @@
                     const extracted = Number(data.extracted || 0);
                     const total = Number(data.total_user_skills || 0);
                     if (statusEl) {
-                        statusEl.textContent = `Synced ${extracted} from CV · ${total} I have total. Reloading…`;
+                        statusEl.textContent = `Synced ${extracted} from CV · ${total} Have total. Reloading…`;
                     }
                     window.location.reload();
                 } catch (err) {

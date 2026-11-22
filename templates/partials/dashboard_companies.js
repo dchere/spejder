@@ -182,3 +182,34 @@
                     if (btnEl) btnEl.disabled = false;
                 }
             }
+
+            async function setCompanyPromote(companyId, promote, inputEl) {
+                const row = inputEl ? inputEl.closest('tr') : null;
+                const prevChecked = !promote;
+                if (inputEl) inputEl.disabled = true;
+                try {
+                    const response = await fetch(apiUrl('/api/company/promote'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            company_id: Number(companyId),
+                            promote: Boolean(promote),
+                        }),
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || 'Request failed');
+                    }
+                    if (row) {
+                        row.dataset.sortPromote = promote ? '1' : '0';
+                    }
+                    if (data.changed && typeof waitForRebuildThenReload === 'function') {
+                        await waitForRebuildThenReload('companies');
+                    }
+                } catch (err) {
+                    if (inputEl) inputEl.checked = prevChecked;
+                    alert(`Failed to update promote: ${err.message}`);
+                } finally {
+                    if (inputEl) inputEl.disabled = false;
+                }
+            }

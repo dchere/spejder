@@ -25,19 +25,19 @@ def _stage_bucket(applied: int, on_interview: int, interview_stopped: int, categ
 def list_company_catalog_rows(db_path: str) -> list[dict]:
     """Companies tab rows: bootstrap, then created_at / stage counts / not_viewed / alias_count.
 
-    Default order matches Skills Added DESC: SQL name A→Z, then stable sort by
-    created_at DESC (empty → "0000" so empties sort last).
+    Default order is display name A→Z (SQL ``COLLATE NOCASE``) so near-duplicate
+    aliases sit next to each other; client sort default matches.
     """
     ensure_companies_from_jobs(db_path)
     conn = _connect(db_path)
     try:
         cur = conn.cursor()
         cur.execute(
-            "SELECT id, display_name, created_at FROM companies "
+            "SELECT id, display_name, created_at, COALESCE(flags, 0) FROM companies "
             "ORDER BY display_name COLLATE NOCASE ASC"
         )
         companies = [
-            (int(row[0]), str(row[1] or ""), str(row[2] or ""))
+            (int(row[0]), str(row[1] or ""), str(row[2] or ""), int(row[3] or 0))
             for row in cur.fetchall()
         ]
         if not companies:
@@ -63,7 +63,7 @@ def list_company_catalog_rows(db_path: str) -> list[dict]:
             "stopped_count": 0,
         }
         counts: dict[int, dict[str, int]] = {
-            cid: dict(zero) for cid, _, _ in companies
+            cid: dict(zero) for cid, _, _, _ in companies
         }
         # Soft-hidden included (no hidden=0 filter); membership via alias key like resolve_company.
         cur.execute(
@@ -109,8 +109,14 @@ def list_company_catalog_rows(db_path: str) -> list[dict]:
                 elif bucket == "stopped":
                     row_counts["stopped_count"] += 1
 
+        from .companies_flag_bits import (
+            COMPANY_FLAG_AVOID,
+            COMPANY_FLAG_PROMOTE,
+            company_has_flag,
+        )
+
         rows: list[dict] = []
-        for cid, display_name, created_at in companies:
+        for cid, display_name, created_at, flags in companies:
             alias_list = aliases_by_id.get(cid, [])
             row_counts = counts.get(cid, zero)
             rows.append(
@@ -118,6 +124,9 @@ def list_company_catalog_rows(db_path: str) -> list[dict]:
                     "id": cid,
                     "display_name": display_name,
                     "created_at": created_at,
+                    "promote": company_has_flag(flags, COMPANY_FLAG_PROMOTE),
+                    "avoid": company_has_flag(flags, COMPANY_FLAG_AVOID),
+                    "flags": int(flags),
                     "job_count": int(row_counts["job_count"]),
                     "not_viewed_count": int(row_counts["not_viewed_count"]),
                     "relevant_count": int(row_counts["relevant_count"]),
@@ -128,8 +137,6 @@ def list_company_catalog_rows(db_path: str) -> list[dict]:
                     "alias_count": len(alias_list),
                 }
             )
-        # Skills parity: stable name A→Z (SQL), then created_at DESC for SSR default.
-        rows.sort(key=lambda r: r.get("created_at") or "0000", reverse=True)
         return rows
     finally:
         conn.close()

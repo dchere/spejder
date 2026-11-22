@@ -22,6 +22,29 @@
             }
             .companies-table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 920px; }
             .companies-table th, .companies-table td { border-bottom: 1px solid #eee; text-align: left; padding: 8px; font-size: 13px; }
+            /* Checkbox cols (select…Avoid): content-sized; Company (5th) absorbs leftover. */
+            .companies-table th:nth-child(-n+3),
+            .companies-table td:nth-child(-n+3) {
+                width: 1%;
+                white-space: nowrap;
+                padding-left: 4px;
+                padding-right: 4px;
+                text-align: center;
+            }
+            .companies-table td:nth-child(-n+3) input[type="checkbox"] {
+                margin: 0;
+                min-width: 1.1rem;
+                min-height: 1.1rem;
+                vertical-align: middle;
+            }
+            /* Empty sort chrome still reserved 0.9em+margin and optically left-shifted Promote/Avoid. */
+            .companies-table th:nth-child(-n+3) .companies-sort-indicator {
+                width: 0;
+                margin-left: 0;
+                overflow: visible;
+            }
+            .companies-table th:nth-child(5),
+            .companies-table td:nth-child(5) { width: 100%; }
             .companies-table th {
                 background: #fafafa;
                 font-weight: 700;
@@ -59,7 +82,7 @@
             .delete-company-btn { border: 1px solid #cc8c8c; color: #7b1111; background: #fff; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
             .companies-table .rename-company-btn, .companies-table .delete-company-btn { display: inline-flex; align-items: center; justify-content: center; padding: 4px; min-width: 24px; min-height: 24px; line-height: 0; }
             .companies-table .rename-company-btn { margin-right: 6px; }
-            .companies-table th.companies-action, .companies-table td.companies-action { white-space: nowrap; }
+            .companies-table th.companies-action, .companies-table td.companies-action { white-space: nowrap; text-align: center; }
             .companies-table .rename-company-btn svg, .companies-table .delete-company-btn svg { width: 14px; height: 14px; }
             .company-name-link { text-align: left; }
             /* Companies Merge modal (Companies tab only). */
@@ -160,6 +183,75 @@
             }
             .company-merge-modal-actions .company-merge-btn:disabled,
             .company-merge-cancel-btn:disabled {
+                opacity: 0.55;
+                cursor: not-allowed;
+            }
+            /* Companies Avoid Yes/No/Cancel modal (Companies tab). */
+            .company-avoid-modal {
+                position: fixed;
+                inset: 0;
+                z-index: 40;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 16px;
+                box-sizing: border-box;
+            }
+            .company-avoid-modal.hidden { display: none; }
+            .company-avoid-modal-backdrop {
+                position: absolute;
+                inset: 0;
+                background: rgba(20, 28, 40, 0.45);
+            }
+            .company-avoid-modal-panel {
+                position: relative;
+                z-index: 1;
+                width: min(28rem, 100%);
+                background: #fff;
+                border: 1px solid #ddd;
+                border-radius: 10px;
+                padding: 14px 16px 12px;
+                box-shadow: 0 8px 28px rgba(20, 28, 40, 0.18);
+                box-sizing: border-box;
+            }
+            .company-avoid-modal-title {
+                margin: 0 0 10px;
+                font-size: 16px;
+                font-weight: 700;
+                color: #1e2a3a;
+            }
+            .company-avoid-modal-message {
+                margin: 0 0 14px;
+                font-size: 13px;
+                line-height: 1.45;
+                color: #333;
+            }
+            .company-avoid-modal-actions {
+                display: flex;
+                justify-content: flex-end;
+                gap: 8px;
+                flex-wrap: wrap;
+            }
+            .company-avoid-cancel-btn,
+            .company-avoid-no-btn {
+                border: 1px solid #bbb;
+                color: #333;
+                background: #fff;
+                border-radius: 6px;
+                padding: 6px 10px;
+                cursor: pointer;
+                font-size: 13px;
+            }
+            .company-avoid-yes-btn {
+                border: 1px solid #0a58ca;
+                color: #0a58ca;
+                background: #fff;
+                border-radius: 6px;
+                padding: 6px 10px;
+                cursor: pointer;
+                font-size: 13px;
+            }
+            .company-avoid-modal-actions button:disabled {
                 opacity: 0.55;
                 cursor: not-allowed;
             }

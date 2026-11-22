@@ -99,6 +99,35 @@
                 const statusEl = card ? card.querySelector('.feedback-status') : null;
                 if (statusEl) statusEl.textContent = 'Saving...';
                 try {
+                    let promoteChoice = null;
+                    let companyId = null;
+                    if (stopped) {
+                        let promoteOn = false;
+                        try {
+                            const statusResp = await fetch(
+                                apiUrl(`/api/company/promote-status?job_id=${encodeURIComponent(jobId)}`)
+                            );
+                            const statusData = await statusResp.json();
+                            if (statusResp.ok && statusData.ok) {
+                                promoteOn = Boolean(statusData.promote);
+                                companyId = statusData.company_id || null;
+                            }
+                        } catch (_statusErr) {
+                            // Fall through: stop without promote dialog if status fails.
+                        }
+                        if (promoteOn && companyId) {
+                            const doStop = window.confirm('Mark this job as stopped?');
+                            if (!doStop) {
+                                inputEl.checked = !stopped;
+                                if (statusEl) statusEl.textContent = '';
+                                return;
+                            }
+                            // OK = keep Promote; Cancel = clear Promote (stop already confirmed).
+                            promoteChoice = window.confirm(
+                                'Keep promoting this company for the applied-company bonus?\n\nOK = keep · Cancel = clear Promote'
+                            );
+                        }
+                    }
                     const response = await fetch(apiUrl('/api/interview/stopped'), {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -108,13 +137,39 @@
                     if (!response.ok || !data.ok) {
                         throw new Error(data.error || 'Request failed');
                     }
+                    // Keep (true) is a no-op when already promoted; only POST Clear.
+                    let promoteFailedMsg = null;
+                    if (promoteChoice === false && companyId) {
+                        try {
+                            const promoteResp = await fetch(apiUrl('/api/company/promote'), {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    company_id: Number(companyId),
+                                    promote: false,
+                                }),
+                            });
+                            const promoteData = await promoteResp.json();
+                            if (!promoteResp.ok || !promoteData.ok) {
+                                promoteFailedMsg = promoteData.error || 'Promote update failed';
+                            }
+                        } catch (promoteErr) {
+                            promoteFailedMsg = (promoteErr && promoteErr.message)
+                                ? promoteErr.message
+                                : 'Promote update failed';
+                        }
+                    }
                     if (card) {
                         const interviewCheckbox = card.querySelector('.interview-wrap input');
                         if (stopped && interviewCheckbox) interviewCheckbox.checked = false;
                         moveCardToAppliedStage(card);
                         if (stopped) {
                             if (typeof waitForRebuildThenReload === 'function') {
-                                if (statusEl) statusEl.textContent = 'Saved: stopped';
+                                if (statusEl) {
+                                    statusEl.textContent = promoteFailedMsg
+                                        ? `Saved: stopped; Promote clear failed: ${promoteFailedMsg}`
+                                        : 'Saved: stopped';
+                                }
                                 refreshCounts();
                                 await waitForRebuildThenReload(resolveAppliedStage(card).mode);
                             } else {
@@ -122,9 +177,14 @@
                             }
                         }
                     }
-                    if (statusEl) statusEl.textContent = `Saved: ${stopped ? 'stopped' : 'not stopped'}`;
+                    if (statusEl) {
+                        statusEl.textContent = promoteFailedMsg
+                            ? `Saved: ${stopped ? 'stopped' : 'not stopped'}; Promote clear failed: ${promoteFailedMsg}`
+                            : `Saved: ${stopped ? 'stopped' : 'not stopped'}`;
+                    }
                     refreshCounts();
                 } catch (err) {
+                    // Revert checkbox only when stop itself failed (promote failures keep Stop checked).
                     if (statusEl) statusEl.textContent = `Error: ${err.message}. Start: python -m spejder.cli serve-gui`;
                     inputEl.checked = !stopped;
                 }
